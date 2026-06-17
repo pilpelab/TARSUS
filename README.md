@@ -2,7 +2,11 @@
 
 ## Description
 
-Describe your project here.
+Configurable, shareable implementation of the **TARSUS** (TArgeted SUbstitution Search) proteomics pipeline for detecting validated single amino acid substitutions (SAAVs) from mass spectrometry data. Designed for cross-lab use on the institute's LSF cluster.
+
+Based on: Tretyachenko et al. (2025). Encoded and non-genetic alternative protein variants expand human functional proteome. *bioRxiv*. https://www.biorxiv.org/content/10.1101/2025.02.17.638604v1
+
+**Reference implementation:** `TARSUS_elizabev/` (read-only — see `.context/reference-pipeline.md`)
 
 ## Setup
 
