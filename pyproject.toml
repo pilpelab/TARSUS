@@ -1,20 +1,35 @@
 [project]
 name = "TARSUS_BC"
 version = "0.1.0"
-description = ""
+description = "TARSUS pipeline for detecting single amino acid substitutions from MS data"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = ["click>=8.0"]
+
+[project.scripts]
+tarsus = "tarsus.cli:main"
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+packages = ["tarsus", "tarsus.steps"]
 
 [dependency-groups]
 dev = [
 "pytest",
 "ruff",
 "mypy",
+"pyyaml",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "lsf: tests that require LSF cluster access",
+]
 
 [tool.ruff]
 line-length = 100

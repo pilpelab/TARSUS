@@ -1,4 +1,5 @@
-**pycache**/
+# Python
+__pycache__/
 *.pyc
 *.pyo
 *.pyd
@@ -7,11 +8,29 @@
 .ruff_cache/
 .coverage
 htmlcov/
+*.egg-info/
 
+# Sidecar files (ThermoRawFileParser generates these)
+*.cui
+
+# Virtual environments
 .venv/
 venv/
 .env
 .env.*
 
-data/
+# Data directory — test fixtures, not tracked
+data/*
+!data/README.md
+!data/test-pdv/**
+
+# Tools — downloaded binaries, not tracked
+tools/**
+!tools/README.md
+!tools/Makefile
+
+# Pipeline outputs (user-generated, not committed)
+output/**
+
+# macOS
 .DS_Store
