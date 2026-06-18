@@ -1,7 +1,26 @@
+import shlex
 import subprocess
 import time
 from pathlib import Path
 from .env import ToolEnvironment
+
+
+def _build_env_cmd(tool_env: ToolEnvironment) -> str:
+    """Generate shell 'export' commands for the tool environment.
+
+    These are intended to be sourced in a bash script running on a
+    compute node (e.g., inside a bsub job).
+    """
+    env = tool_env.env()
+    parts: list[str] = []
+    for key in ("JAVA_HOME", "DOTNET_ROOT", "DOTNET_GCHeapHardLimit"):
+        val = env.get(key)
+        if val:
+            parts.append(f'export {key}={shlex.quote(str(val))}')
+    path_val = env.get("PATH")
+    if path_val:
+        parts.append(f'export PATH={shlex.quote(str(path_val))}')
+    return "\n".join(parts)
 
 
 def submit_bsub(
