@@ -256,7 +256,6 @@ verify:
 	@test -f $(FP_DIR)/bin/fragpipe && echo "  FragPipe: OK" || echo "  FragPipe: MISSING"
 	@test -f $(PQ_JAR) && test -d $(PQ_LIB) && echo "  PepQuery: OK" || echo "  PepQuery: MISSING"
 	@test -f $(PDV_JAR) && echo "  PDV: OK" || echo "  PDV: MISSING"
-	@test -f $(TRFP_BIN) && echo "  ThermoRawFileParser: OK" || echo "  ThermoRawFileParser: MISSING""
 	@test -f $(TRFP_BIN) && echo "  ThermoRawFileParser: OK" || echo "  ThermoRawFileParser: MISSING"
 
 clean:

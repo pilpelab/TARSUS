@@ -1,6 +1,5 @@
 """Validation framework — shared fixtures and expected-output helpers."""
 
-import os
 import yaml
 from pathlib import Path
 from xml.etree import ElementTree as ET

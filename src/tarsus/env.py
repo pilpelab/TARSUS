@@ -6,7 +6,6 @@ the tools directory, configurable via TARSUS_TOOLS_DIR env var.
 """
 
 import os
-import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -88,10 +87,10 @@ class ToolEnvironment:
             f"{self.java_home}/bin:{self.dotnet_root}"
             f"{os.pathsep}{env.get('PATH', '')}"
         )
-        # Required for ThermoRawFileParser on systems without ICU
-        env["DOTNET_SYSTEM_GLOBALIZATION_INVARIANT"] = "1"
-        # Limit GC heap to prevent startup OOM on some Linux kernels
-        env["DOTNET_GCHeapHardLimit"] = "0x10000000"
+        # Limit GC heap to prevent startup OOM on some Linux kernels.
+        # 4 GB (0x100000000) matches LSF --mem=7000 request.
+        # Astral DDA raw files with ~350k scans need ~3-4 GB.
+        env["DOTNET_GCHeapHardLimit"] = "0x100000000"
         return env
 
     def verify(self) -> dict[str, tuple[bool, str]]:

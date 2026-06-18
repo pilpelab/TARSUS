@@ -5,7 +5,7 @@ from .steps.step01_convert import step01_convert
 
 
 @click.group()
-def main():
+def main() -> None:
     """TARSUS — TArgeted SUbstitution Search pipeline."""
 
 
@@ -23,7 +23,7 @@ def main():
               help="CPUs per job")
 @click.option("--local", is_flag=True,
               help="Run locally instead of submitting to LSF")
-def convert(inputs, output_dir, queue, memory, cpus, local):
+def convert(inputs: tuple[str, ...], output_dir: str, queue: str, memory: int, cpus: int, local: bool) -> None:
     """Step 1: Convert .raw files to .mzML."""
     tool_env = ToolEnvironment.from_env()
     raw_files = [Path(f) for f in inputs]

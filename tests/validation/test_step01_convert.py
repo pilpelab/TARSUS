@@ -1,7 +1,6 @@
 """Step 1 validation: RAW to mzML conversion."""
 
 import pytest
-from pathlib import Path
 
 from src.tarsus.steps.step01_convert import step01_convert
 from .conftest import load_expected, capture_expected, validate_mzml
