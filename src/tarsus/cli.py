@@ -5,8 +5,8 @@ Usage:
     tarsus convert ...
 """
 
+import os
 import sys
-import textwrap
 from pathlib import Path
 
 import click
@@ -273,6 +273,8 @@ def run(fasta: str, inputs: tuple[str, ...], output_dir: str, queue: str) -> Non
     click.echo(f"Generated orchestration script: {master_py}")
 
     # Submit master job to LSF
+    # Unbuffered Python output — all print() calls flush immediately to the log
+    os.environ["PYTHONUNBUFFERED"] = "1"
     python_bin = sys.executable  # venv Python (works on compute node via shared FS)
     tool_env = ToolEnvironment.from_env()
     log_path = outdir / "master.log"
