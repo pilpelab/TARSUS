@@ -120,3 +120,15 @@
 **Context:** PDV requires an X11 display even in CLI mode (JFrame created in constructor). Both 2.1.2 and 2.2.3 crash with HeadlessException without a display. The cluster has Xvfb available via EasyBuild modules (no sudo).
 **Decision:** Bundle PDV 2.1.2 JAR (matches reference), symlink lib/ from 2.2.3 for shared dependencies. Add `XvfbDisplay` context manager in env.py: automatically detects and starts Xvfb from the cluster module system when `$DISPLAY` is not set.
 **Rationale:** No version-specific GUI workarounds needed. Xvfb is already on the cluster. The context manager pattern ensures clean startup/shutdown with zero GUI windows.
+
+## D-021: Unbuffered Python Output for LSF Jobs
+**Date:** 2025-06-29
+**Context:** The master job's `print()` calls were fully buffered when stdout was redirected to a file by `bsub -oo`. Logs showed no progress until the buffer filled or the job exited.
+**Decision:** Set `PYTHONUNBUFFERED=1` in `os.environ` before submitting the master bsub job. This propagates via `tool_env.env()` and ensures all Python output flushes immediately to the LSF log file.
+**Rationale:** Real-time log visibility is critical for monitoring long-running pipeline jobs. No downside — all Python output, including from child subprocesses, becomes unbuffered.
+
+## D-022: PDV Export Path Resolution
+**Date:** 2025-06-29
+**Context:** Step 7 (`analyze_outputs`) reads a TSV file with PDV ion annotations. The master.py orchestration script had the path hardcoded to `pdv_export.tsv`, but PDV actually writes `PDVExportResult.txt` inside the `pdv_spectra/` directory.
+**Decision:** Corrected the path in the master.py template to `06_aggregated/pdv_spectra/PDVExportResult.txt`. Verified against the reference pipeline's actual file naming convention.
+**Rationale:** The wrong path caused Step 7 to silently skip PDV ion data (the try/except caught the FileNotFoundError), which meant the two-fragment coverage filter was always bypassed. This fix restores the intended filtering behavior.

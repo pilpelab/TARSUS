@@ -55,9 +55,24 @@ ready for end-to-end validation against trial data.
 - `tarsus run` command generates master.py, submits it via bsub
 - mypy clean, 134/134 unit tests pass
 
+## Phase 4: First Pipeline Run on Trial Data (in progress)
+
+### Completed
+- D-021: PYTHONUNBUFFERED=1 — all master job output flushes immediately to log
+- D-022: Fixed PDV export path — Step 7 now reads `pdv_spectra/PDVExportResult.txt`
+- `tarsus run` submitted master job 874700 against trial data (E. coli K12, 2 raw files)
+- Step 1 conversion completed successfully:
+  - HouYM-25-G140-AstralDDA-AlaGGC-HS-1: 6.0 GB mzML (golden: 6,077 MB ✓)
+  - HouYM-25-G140-AstralDDA-AlaGGC-LS-1: estimated 8.4 GB mzML (in progress)
+- All 6 tools verified, 134 unit tests pass, mypy clean
+
+### In Progress (2025-06-29)
+- Pipeline run 874700: Step 1 conversion running (~22 min elapsed)
+- HS-1: DONE (6.0 GB, golden 6,077 MB ✓)
+- LS-1: 85% (7.2 GB of ~8.4 GB written, golden 8,427 MB) — estimated 3 min remaining
+
 ### Open Tasks
-1. Run `tarsus run` against trial data on LSF, validate outputs
-2. Resolve Step 7 PDV ion export path (currently: `pdv_export.tsv` — verify against PDV output)
-3. Capture golden files for Steps 2-11
-4. Compare final `subs_localized.csv` against reference pipeline output
-5. Write user documentation for cross-lab setup
+1. Monitor pipeline run to completion (should take ~hours depending on queue times)
+2. Capture golden files for Steps 2-11
+3. Compare final `subs_localized.csv` against reference pipeline output
+4. Write user documentation for cross-lab setup
