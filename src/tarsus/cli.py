@@ -178,7 +178,7 @@ analyze_outputs(
     second_psm_path=outdir / "03c_second_pass" / "second" / "psm.tsv",
     ptmall_path=outdir / "06_aggregated" / "ptmall.txt",
     psmrankall_path=outdir / "06_aggregated" / "psmrankall.txt",
-    pdv_path=outdir / "06_aggregated" / "pdv_export.tsv",
+    pdv_path=outdir / "06_aggregated" / "pdv_spectra" / "PDVExportResult.txt",
     output_ipc=_07_out / "subs.ipc",
 )
 _log("S07", f"Done → {{_07_out / 'subs.ipc'}}")
