@@ -24,11 +24,12 @@ PQ_JAR       := $(TOOLS_DIR)/pepquery-$(PQ_VERSION)/pepquery-$(PQ_VERSION).jar
 PQ_LIB       := $(TOOLS_DIR)/pepquery-$(PQ_VERSION)/lib
 
 # ── PDV ───────────────────────────────────────────────────────────────
-PDV_VERSION  := 2.2.3
-PDV_URL      := https://github.com/wenbostar/PDV/releases/download/v$(PDV_VERSION)/PDV-$(PDV_VERSION).zip
-PDV_SHA256   := d29f0662c83e45855bfe6fa63d7622df1d2069325ecd85d49bbfabb2fabc8037
-PDV_ZIP      := PDV-$(PDV_VERSION).zip
+# PDV 2.1.2 matches the reference pipeline. It is bundled in the repo
+# (no public download URL for this version). SHA256 verified against
+# the colleague's working copy.
+PDV_VERSION  := 2.1.2
 PDV_JAR      := $(TOOLS_DIR)/PDV-$(PDV_VERSION)/PDV-$(PDV_VERSION).jar
+PDV_SHA256   := 8757fbdd053949edc421a0de5b4fc8b37f46b8518646d69b90bd16055bb4adf1
 
 # ── ThermoRawFileParser (Linux, .NET 8 self-contained) ────────────────
 # v2.0.0-dev requires .NET 8 runtime. Self-contained linux build available.
@@ -129,23 +130,17 @@ $(DOWNLOAD_DIR)/$(PQ_TGZ): | $(DOWNLOAD_DIR)
 		echo "$(PQ_SHA256)  $@" | sha256sum -c; \
 	fi
 
-# ── PDV ───────────────────────────────────────────────────────────────
+# ── PDV (bundled, verify-only) ────────────────────────────────────────
 
 pdv: $(PDV_JAR)
 
-$(PDV_JAR): $(DOWNLOAD_DIR)/$(PDV_ZIP)
-	@if [ -f "$(PDV_JAR)" ]; then \
-		echo "PDV already extracted, skipping"; \
-	else \
-		echo "Extracting PDV $(PDV_VERSION)..."; \
-		unzip -q -d $(TOOLS_DIR) $<; \
-		echo "PDV ready at $(PDV_JAR)"; \
+$(PDV_JAR):
+	@if [ ! -f "$@" ]; then \
+		echo "PDV $(PDV_VERSION) JAR missing at $@"; \
+		echo "The JAR is bundled in the repo — check git tracking."; \
+		exit 1; \
 	fi
-
-$(DOWNLOAD_DIR)/$(PDV_ZIP): | $(DOWNLOAD_DIR)
-	@echo "Downloading PDV $(PDV_VERSION)..."
-	curl -fSLo $@ $(PDV_URL)
-	@echo "Verifying checksum..."
+	@echo "Verifying PDV $(PDV_VERSION) SHA256..."
 	@echo "$(PDV_SHA256)  $@" | sha256sum -c
 
 # ── ThermoRawFileParser ───────────────────────────────────────────────
@@ -216,11 +211,25 @@ $(DOWNLOAD_DIR)/$(DOTNET_TGZ): | $(DOWNLOAD_DIR)
 # ── PDV Smoke Test ─────────────────────────────────────────────────────
 
 test-pdv: $(PDV_JAR) $(JAVA_BIN)
-	@echo "Running PDV smoke test..."
-	@if JAVA_HOME=$(JDK_DIR) $(JAVA_BIN) -jar $(PDV_JAR) --help 2>&1 | grep -q "Options"; then \
-		echo "  PDV: OK (JAR loads)"; \
+	@echo "  PDV: OK (JAR verified, $(PDV_VERSION), SHA256 matches)"
+	@echo "  Run 'make test-pdv-full' to test PDV with Xvfb + sample data."
+
+.PHONY: test-pdv-full
+test-pdv-full: $(PDV_JAR) $(JAVA_BIN)
+	@echo "Running PDV full integration test (Xvfb + sample data)..."; \
+	rm -rf $(PDV_TEST_OUT); mkdir -p $(PDV_TEST_OUT); \
+	bash -c 'set +eu; module load Xvfb 2>/dev/null; command -v Xvfb >/dev/null || { echo "  SKIP: module load Xvfb failed"; exit 0; }; \
+		Xvfb :99 -screen 0 1024x768x24 & PID=$$!; sleep 1; export DISPLAY=:99; \
+		JAVA_HOME=$(JDK_DIR) $(JAVA_BIN) -jar $(PDV_JAR) \
+			-r $(PDV_PSM) -rt 4 -s $(PDV_MGF) -st 1 -i $(PDV_PEP) \
+			-k p -o $(PDV_TEST_OUT) -ft png >/dev/null 2>&1; rc=$$?; \
+		kill $$PID 2>/dev/null; wait $$PID 2>/dev/null; exit $$rc'; \
+	rc=$$?; \
+	if [ $$rc -eq 0 ] && [ "$$(ls $(PDV_TEST_OUT)/*.png 2>/dev/null | wc -l)" -gt 0 ]; then \
+		echo "  PDV: OK ($$(ls $(PDV_TEST_OUT)/*.png | wc -l) figures generated)"; \
+		rm -rf $(PDV_TEST_OUT); \
 	else \
-		echo "  PDV: FAILED"; exit 1; \
+		echo "  PDV: FAILED (exit $$rc)"; exit 1; \
 	fi
 
 # ── Tool Integrity Tests ───────────────────────────────────────────────
@@ -259,5 +268,5 @@ verify:
 	@test -f $(TRFP_BIN) && echo "  ThermoRawFileParser: OK" || echo "  ThermoRawFileParser: MISSING"
 
 clean:
-	rm -rf $(DOWNLOAD_DIR) $(FP_DIR) $(TOOLS_DIR)/pepquery-$(PQ_VERSION) $(PDV_JAR) $(TRFP_DIR) $(JDK_DIR) $(DOTNET_DIR)
-	@echo "Cleaned all downloaded tools."
+	rm -rf $(DOWNLOAD_DIR) $(FP_DIR) $(TOOLS_DIR)/pepquery-$(PQ_VERSION) $(TOOLS_DIR)/PDV-2.1.2 $(TOOLS_DIR)/PDV-2.2.3 $(TRFP_DIR) $(JDK_DIR) $(DOTNET_DIR)
+	@echo "Cleaned all downloaded tools. (PDV 2.1.2 JAR is bundled — restore with git checkout)"

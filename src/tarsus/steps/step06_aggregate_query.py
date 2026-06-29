@@ -2,11 +2,14 @@
 
 Concatenates per-chunk PepQuery outputs (psm_rank.txt, ptm_detail.txt,
 psm_rank.mgf), adds header rows, and runs PDV for ion extraction.
+
+PDV requires an X11 display even in CLI mode. We use the cluster's
+Xvfb module (virtual framebuffer) to provide one without GUI windows.
 """
 
 import subprocess
 from pathlib import Path
-from ..env import ToolEnvironment
+from ..env import ToolEnvironment, XvfbDisplay
 
 
 def step06_aggregate_query(
@@ -72,7 +75,7 @@ def step06_aggregate_query(
             for f in mgf_files:
                 out.write(f.read_text() + "\n")
 
-    # 5. Run PDV
+    # 5. Run PDV (requires X11 — use cluster Xvfb if no $DISPLAY)
     pdv_jar = tool_env.pdv_jar
     if not pdv_jar.is_file():
         raise FileNotFoundError(f"PDV JAR not found: {pdv_jar}")
@@ -86,21 +89,24 @@ def step06_aggregate_query(
         mgf_path = output_dir / "mgfall.mgf"
         mgf_path.touch()
 
-    subprocess.run(
-        [
-            str(java_bin), f"-Xmx{java_heap_mb}m",
-            "-jar", str(pdv_jar),
-            "-r", str(psmrankall),
-            "-rt", "4",
-            "-s", str(mgf_path),
-            "-st", "1",
-            "-i", str(peptides),
-            "-k", "p",
-            "-o", str(pdv_spectra),
-            "-ft", "pdf",
-        ],
-        env=tool_env.env(), check=True, capture_output=True, text=True,
-    )
+    with XvfbDisplay() as display_env:
+        pdv_env = tool_env.env()
+        pdv_env["DISPLAY"] = display_env.get("DISPLAY", "")
+        subprocess.run(
+            [
+                str(java_bin), f"-Xmx{java_heap_mb}m",
+                "-jar", str(pdv_jar),
+                "-r", str(psmrankall),
+                "-rt", "4",
+                "-s", str(mgf_path),
+                "-st", "1",
+                "-i", str(peptides),
+                "-k", "p",
+                "-o", str(pdv_spectra),
+                "-ft", "pdf",
+            ],
+            env=pdv_env, check=True, capture_output=True, text=True,
+        )
 
     if not pdv_spectra.is_dir() or not any(pdv_spectra.iterdir()):
         raise RuntimeError(f"PDV spectra not generated at {pdv_spectra}")

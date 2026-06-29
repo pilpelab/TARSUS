@@ -67,7 +67,7 @@ class TestToolEnvironment:
 
     def test_pdv_jar(self) -> None:
         env = ToolEnvironment(tools_dir=Path("/t"))
-        assert env.pdv_jar == Path("/t/PDV-2.2.3/PDV-2.2.3.jar")
+        assert env.pdv_jar == Path("/t/PDV-2.1.2/PDV-2.1.2.jar")
 
     def test_thermorawfileparser_bin(self) -> None:
         env = ToolEnvironment(tools_dir=Path("/t"))

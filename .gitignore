@@ -27,7 +27,8 @@ data/*
 # Tools — downloaded binaries, not tracked
 tools/**
 !tools/README.md
-!tools/Makefile
+!tools/PDV-2.1.2/
+!tools/PDV-2.1.2/PDV-2.1.2.jar
 
 # Pipeline outputs (user-generated, not committed)
 output/**

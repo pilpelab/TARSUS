@@ -9,8 +9,8 @@ from src.tarsus.env import ToolEnvironment
 def _make_env(tmp_path: Path) -> ToolEnvironment:
     (tmp_path / "jdk-21.0.11" / "bin").mkdir(parents=True)
     (tmp_path / "jdk-21.0.11" / "bin" / "java").touch()
-    (tmp_path / "PDV-2.2.3").mkdir()
-    (tmp_path / "PDV-2.2.3" / "PDV-2.2.3.jar").touch()
+    (tmp_path / "PDV-2.1.2").mkdir()
+    (tmp_path / "PDV-2.1.2" / "PDV-2.1.2.jar").touch()
     return ToolEnvironment(tools_dir=tmp_path)
 
 
