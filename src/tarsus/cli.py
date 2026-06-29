@@ -78,11 +78,11 @@ from pathlib import Path
 
 
 def _log(step: str, msg: str = "") -> None:
-    print(f"[{{datetime.now():%Y-%m-%d %H:%M:%S}}] {{step}}: {{msg}}")
+    print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] {step}: {msg}")
 
 
 def _fail(step: str, msg: str) -> None:
-    print(f"[FATAL] {{step}}: {{msg}}", file=sys.stderr)
+    print(f"[FATAL] {step}: {msg}", file=sys.stderr)
     sys.exit(1)
 
 
@@ -93,11 +93,11 @@ raw_files = [Path(f) for f in sys.argv[3:]]
 from tarsus.env import ToolEnvironment
 tool_env = ToolEnvironment.from_env()
 
-_log("INIT", f"Output: {{outdir}}")
-_log("INIT", f"FASTA:  {{fasta}}")
-_log("INIT", f"Files:  {{len(raw_files)}} raw file(s)")
+_log("INIT", f"Output: {outdir}")
+_log("INIT", f"FASTA:  {fasta}")
+_log("INIT", f"Files:  {len(raw_files)} raw file(s)")
 for f in raw_files:
-    _log("INIT", f"  {{f.name}}")
+    _log("INIT", f"  {f.name}")
 
 # ── Step 1: Convert .raw → .mzML ─────────────────────────────────────
 _log("S01", "Converting .raw → .mzML (LSF)")
@@ -181,7 +181,7 @@ analyze_outputs(
     pdv_path=outdir / "06_aggregated" / "pdv_spectra" / "PDVExportResult.txt",
     output_ipc=_07_out / "subs.ipc",
 )
-_log("S07", f"Done → {{_07_out / 'subs.ipc'}}")
+_log("S07", f"Done → {_07_out / 'subs.ipc'}")
 
 # ── Step 8: Reference validation prep ────────────────────────────────
 _log("S08", "Preparing reference validation inputs")
@@ -231,7 +231,7 @@ localize(
     output_ipc=_11_out / "subs_localized.ipc",
     output_csv=_11_out / "subs_localized.csv",
 )
-_log("S11", f"Done → {{_11_out / 'subs_localized.csv'}}")
+_log("S11", f"Done → {_11_out / 'subs_localized.csv'}")
 
 _log("DONE", "Pipeline complete.")
 """  # noqa: E501 — long template string

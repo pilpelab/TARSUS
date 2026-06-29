@@ -8,12 +8,21 @@ SHELL       := bash
 .SHELLFLAGS := -eu -o pipefail -c
 
 # ── FragPipe (Linux) ──────────────────────────────────────────────────
-# Bundles: MSFragger, Philosopher, IonQuant, Percolator, MSBooster, etc.
+# Bundles: Philosopher, IonQuant, Percolator, MSBooster, etc.
+# MSFragger IS NOT bundled — it must be downloaded separately (see below).
 FP_VERSION   := 24.0
 FP_URL       := https://github.com/Nesvilab/FragPipe/releases/download/$(FP_VERSION)/FragPipe-$(FP_VERSION)-linux.zip
 FP_SHA256    := 6a7ad80b81d7e93e8fa194c1d22228ee35ea9a2ae8ba8dc6964bb26ea4385137
 FP_ZIP       := FragPipe-$(FP_VERSION)-linux.zip
 FP_DIR       := $(TOOLS_DIR)/fragpipe-$(FP_VERSION)
+
+# ── MSFragger (required by FragPipe, NOT bundled) ─────────────────────
+MF_VERSION   := 4.4.1
+MF_JAR       := $(FP_DIR)/tools/MSFragger-$(MF_VERSION)/MSFragger-$(MF_VERSION).jar
+MF_SHA256    := d5268024c10f29317a20c4b5f42a2ec142dc282c0e8fc733ca286ff76537644a
+# No public download URL — obtain the ZIP from the MSFragger website
+# (https://msfragger.nesvilab.org) and place it at the path below.
+MF_SOURCE_ZIP := /home/labs/pilpel/slavat/fragpipe-24.0/tools/MSFragger-$(MF_VERSION).zip
 
 # ── PepQuery ──────────────────────────────────────────────────────────
 PQ_VERSION   := 2.0.2
@@ -69,12 +78,12 @@ PDV_TEST_OUT  := $(PDV_TEST_DIR)/pdv_output
 # ── Targets ───────────────────────────────────────────────────────────
 
 .PHONY: setup clean java dotnet \
-        fragpipe pepquery pdv thermorawfileparser \
-        test-tools test-java test-dotnet test-fragpipe test-pepquery \
-        test-pdv test-thermorawfileparser \
+        fragpipe msfragger pepquery pdv thermorawfileparser \
+        test-tools test-java test-dotnet test-fragpipe test-msfragger \
+        test-pepquery test-pdv test-pdv-full test-thermorawfileparser \
         verify
 
-setup: java dotnet fragpipe pepquery pdv thermorawfileparser
+setup: java dotnet fragpipe msfragger pepquery pdv thermorawfileparser
 	@echo ""
 	@echo "All tools installed. Run 'make test-tools' to verify integrity."
 
@@ -105,6 +114,28 @@ $(DOWNLOAD_DIR)/$(FP_ZIP): | $(DOWNLOAD_DIR)
 	curl -fSLo $@ $(FP_URL)
 	@echo "Verifying checksum..."
 	@echo "$(FP_SHA256)  $@" | sha256sum -c
+
+# ── MSFragger ─────────────────────────────────────────────────────────
+
+msfragger: $(MF_JAR)
+
+$(MF_JAR):
+	@if [ -f "$(MF_JAR)" ]; then \
+		echo "MSFragger $(MF_VERSION) already extracted, skipping"; \
+	else \
+		if [ ! -f "$(MF_SOURCE_ZIP)" ]; then \
+			echo "MSFragger $(MF_VERSION) ZIP not found at $(MF_SOURCE_ZIP)"; \
+			echo "Download it from https://msfragger.nesvilab.org and place it in"; \
+			echo "  $(TOOLS_DIR)/_downloads/MSFragger-$(MF_VERSION).zip"; \
+			echo "Or set MF_SOURCE_ZIP to the path of your downloaded ZIP."; \
+			exit 1; \
+		fi; \
+		echo "Verifying MSFragger ZIP checksum..."; \
+		echo "$(MF_SHA256)  $(MF_SOURCE_ZIP)" | sha256sum -c; \
+		echo "Extracting MSFragger $(MF_VERSION)..."; \
+		unzip -q -d $(FP_DIR)/tools "$(MF_SOURCE_ZIP)"; \
+		echo "MSFragger ready at $(MF_JAR)"; \
+	fi
 
 # ── PepQuery ──────────────────────────────────────────────────────────
 
@@ -243,6 +274,13 @@ test-dotnet: $(DOTNET_BIN)
 test-fragpipe: $(FP_DIR) $(JAVA_BIN)
 	@echo -n "  FragPipe: "; JAVA_HOME=$(JDK_DIR) $(FP_DIR)/bin/fragpipe --version 2>&1 | head -1 || echo "  FragPipe: WARN (--version not supported)"
 
+test-msfragger: $(MF_JAR)
+	@if [ -f "$(MF_JAR)" ]; then \
+		echo "  MSFragger: OK ($(MF_VERSION))"; \
+	else \
+		echo "  MSFragger: MISSING"; exit 1; \
+	fi
+
 test-pepquery: $(PQ_JAR) $(JAVA_BIN)
 	@echo -n "  PepQuery: "; JAVA_HOME=$(JDK_DIR) $(JAVA_BIN) -jar $(PQ_JAR) 2>&1 | head -1 || true; echo "  PepQuery: OK (JAR loads)"
 
@@ -252,7 +290,7 @@ test-thermorawfileparser: $(TRFP_BIN)
 	echo -n "  ThermoRawFileParser: "; \
 	( $(TRFP_BIN) --help || true ) 2>&1 | grep -q "Usage" && echo "OK" || { echo "FAILED"; exit 1; }
 
-test-tools: test-java test-dotnet test-fragpipe test-pepquery test-pdv test-thermorawfileparser
+test-tools: test-java test-dotnet test-fragpipe test-msfragger test-pepquery test-pdv test-thermorawfileparser
 	@echo ""
 	@echo "All tool checks complete."
 
@@ -263,6 +301,7 @@ verify:
 	@test -f $(JAVA_BIN) && echo "  JDK: OK" || echo "  JDK: MISSING"
 	@test -f $(DOTNET_BIN) && echo "  .NET: OK" || echo "  .NET: MISSING"
 	@test -f $(FP_DIR)/bin/fragpipe && echo "  FragPipe: OK" || echo "  FragPipe: MISSING"
+	@test -f $(MF_JAR) && echo "  MSFragger: OK" || echo "  MSFragger: MISSING"
 	@test -f $(PQ_JAR) && test -d $(PQ_LIB) && echo "  PepQuery: OK" || echo "  PepQuery: MISSING"
 	@test -f $(PDV_JAR) && echo "  PDV: OK" || echo "  PDV: MISSING"
 	@test -f $(TRFP_BIN) && echo "  ThermoRawFileParser: OK" || echo "  ThermoRawFileParser: MISSING"
