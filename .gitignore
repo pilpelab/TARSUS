@@ -33,5 +33,9 @@ tools/**
 # Pipeline outputs (user-generated, not committed)
 output/**
 
+# Philosopher/FragPipe artifacts
+.meta/
+*-decoys-*.fas
+
 # macOS
 .DS_Store
