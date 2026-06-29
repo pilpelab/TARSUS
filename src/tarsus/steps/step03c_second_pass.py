@@ -5,6 +5,7 @@ Depends on Step 3a output directory and Step 3b pep_candidates.fa.
 
 import re
 from pathlib import Path
+from ..assets import WORKFLOW_TEMPLATE
 from ..env import ToolEnvironment
 from ..lsf import submit_bsub, wait_for_jobs, _build_env_cmd
 
@@ -37,10 +38,7 @@ def step03c_second_pass(
     if not fragpipe.is_file():
         raise FileNotFoundError(f"FragPipe not found: {fragpipe}")
 
-    workflow_template = (
-        Path(__file__).resolve().parent.parent.parent.parent
-        / "TARSUS_elizabev" / "generic.workflow"
-    )
+    workflow_template = WORKFLOW_TEMPLATE
     if not workflow_template.is_file():
         raise FileNotFoundError(f"Workflow template not found: {workflow_template}")
 

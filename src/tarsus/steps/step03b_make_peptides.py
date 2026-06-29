@@ -7,6 +7,7 @@ peptides not already observed in the data.
 
 from pathlib import Path
 import polars as pl
+from ..assets import SUBS_EXCLUDE_CSV
 
 
 def _load_substitution_matrix(path: Path) -> dict[str, dict[str, bool]]:
@@ -50,16 +51,21 @@ def _single_substitutions(
 
 def make_peptide_candidates(
     peptide_tsv: Path,
-    substitution_matrix: Path,
-    output_fasta: Path,
+    substitution_matrix: Path | None = None,
+    output_fasta: Path | None = None,
 ) -> None:
     """Generate candidate variant peptides and write a FASTA file.
 
     Args:
         peptide_tsv: FragPipe first-pass peptide.tsv (tab-separated).
         substitution_matrix: CSV with substitution exclusion rules.
+            Defaults to the bundled subs_exclude.csv.
         output_fasta: Output FASTA path (e.g. pep_candidates.fa).
     """
+    if substitution_matrix is None:
+        substitution_matrix = SUBS_EXCLUDE_CSV
+    if output_fasta is None:
+        output_fasta = peptide_tsv.parent / "pep_candidates.fa"
     matrix = _load_substitution_matrix(substitution_matrix)
 
     peptides = pl.read_csv(

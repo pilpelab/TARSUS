@@ -90,3 +90,33 @@
 **Context:** Test data exists in `data/` (protein.fasta + two .raw files from the same E. coli K12 sample).
 **Decision:** The trial data is the canonical reference for all validation. Every validation test uses these exact files. Expected output schemas are derived from running on this data. Adding new trial data requires updating the validation expected files.
 **Rationale:** Using real rather than synthetic data ensures the validation catches real pipeline issues. The trial data is small enough (relative to production) for iteration.
+
+## D-016: LSF Verified Working
+**Date:** 2025-06-29
+**Context:** Before building pipeline orchestration, needed to confirm the cluster is accessible.
+**Decision:** Verified: `bsub` available (IBM Spectrum LSF 10.1.0.0), `gsla-cpu` queue Open:Active. Test job (ID 854986) submitted and completed. Trial data files present (protein.fasta 1.9 MB, two .raw files 7.3+11 GB). No blockers for LSF-based execution.
+**Rationale:** Confirms the target environment matches the original architecture decision D-001.
+
+## D-017: Master-Job Architecture (All-LSF)
+**Date:** 2025-06-29
+**Context:** User requires all pipeline steps to execute on LSF — nothing on the login node beyond initial submission.
+**Decision:** A single "master" LSF job orchestrates the entire pipeline. Heavy-tool steps (1, 2, 3a, 3c, 5, 9) submit child bsub jobs and wait. Python analysis steps (3b, 4, 6, 7, 8, 10, 11) run inline on the master job's compute node. The login node is only used for `bsub` submission.
+**Rationale:** Keeps login nodes free for interactive use. Child jobs get appropriate resource allocations (memory, CPUs) per step. Python steps are lightweight and don't need separate LSF jobs.
+
+## D-018: Bundled Reference Assets
+**Date:** 2025-06-29
+**Context:** Steps 3a/3c need `generic.workflow` (FragPipe workflow template). Step 3b needs `subs_exclude.csv` (AA substitution exclusion matrix). Both were referenced from `TARSUS_elizabev/`.
+**Decision:** Bundle both files in `src/tarsus/assets/`. Import via module constant (`WORKFLOW_TEMPLATE`, `SUBS_EXCLUDE_CSV`). Remove all runtime dependencies on `TARSUS_elizabev/`.
+**Rationale:** Makes the package fully self-contained — no external file references. Matches D-006 (TARSUS_elizabev is read-only reference). Users don't need the reference directory at all.
+
+## D-019: Minimal CLI Interface
+**Date:** 2025-06-29
+**Context:** The pipeline has many internal paths (workflow templates, exclusion matrices, output subdirectories) but users should not need to know them.
+**Decision:** `tarsus run` requires only 3 flags: `--fasta`, `--input` (repeatable), `--output-dir`. All other paths are auto-derived. Internal assets are bundled in the package. Advanced options (queue, memory, CPUs) have sensible defaults.
+**Rationale:** Reduces cognitive load for new users. Follows the "convention over configuration" pattern. Advanced users can still override via environment variables.
+
+## D-020: PDV 2.1.2 with Xvfb Display Manager
+**Date:** 2025-06-29
+**Context:** PDV requires an X11 display even in CLI mode (JFrame created in constructor). Both 2.1.2 and 2.2.3 crash with HeadlessException without a display. The cluster has Xvfb available via EasyBuild modules (no sudo).
+**Decision:** Bundle PDV 2.1.2 JAR (matches reference), symlink lib/ from 2.2.3 for shared dependencies. Add `XvfbDisplay` context manager in env.py: automatically detects and starts Xvfb from the cluster module system when `$DISPLAY` is not set.
+**Rationale:** No version-specific GUI workarounds needed. Xvfb is already on the cluster. The context manager pattern ensures clean startup/shutdown with zero GUI windows.

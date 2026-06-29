@@ -36,17 +36,28 @@
 - Added `click`, `pyyaml` dependencies; configured build system and console_scripts entry point
 
 ### Current State
-All external tools downloaded, verified, and smoke-tested. The Python package is scaffolded
-with CLI, LSF submission, configuration, and Step 1 implementation complete. The project is
-fully self-contained — clone + `make setup && make test-tools` gives a working environment.
+All external tools downloaded, verified, and smoke-tested. All 11 pipeline steps ported as
+Python modules with 134 unit tests passing. PDV 2.1.2 bundled (matches reference), works via
+cluster Xvfb module. LSF verified working (bsub, gsla-cpu queue). Reference assets
+(generic.workflow, subs_exclude.csv) bundled in `src/tarsus/assets/`. `tarsus run` command
+wired — generates master orchestration script and submits as single LSF job. The pipeline is
+ready for end-to-end validation against trial data.
 
-### Open Tasks (Future Sessions)
-1. Run `tarsus convert` on trial data via LSF, capture expected outputs
-2. Port Step 7 (analyze_outputs.py) to package with tests
-3. Port Step 4 (extract_psm.py) to package with tests
-4. Port Step 8 (ref_validation_prep.py) to package with tests
-5. Port Step 11 (localize.py) to package with tests
-6. Port Step 3b (make_peptides.py) to package with tests
-7. Create Python orchestration for remaining pipeline steps
-8. Write user documentation for cross-lab setup
-9. Validate entire pipeline on cluster with real data
+## Phase 3: CLI Wiring and Orchestration (completed)
+
+### Completed
+- D-016: LSF verified working (2025-06-29) — bsub functional, gsla-cpu queue Open:Active
+- D-017: Master-job architecture — single LSF job orchestrates all 11 steps on a compute node
+- D-018: Bundled assets — generic.workflow and subs_exclude.csv in `src/tarsus/assets/`
+- D-019: Minimal CLI — only 3 required flags (--fasta, --input, --output-dir)
+- D-020: PDV downgraded to 2.1.2, XvfbDisplay context manager added
+- Step modules updated to use bundled asset paths (no more TARSUS_elizabev references)
+- `tarsus run` command generates master.py, submits it via bsub
+- mypy clean, 134/134 unit tests pass
+
+### Open Tasks
+1. Run `tarsus run` against trial data on LSF, validate outputs
+2. Resolve Step 7 PDV ion export path (currently: `pdv_export.tsv` — verify against PDV output)
+3. Capture golden files for Steps 2-11
+4. Compare final `subs_localized.csv` against reference pipeline output
+5. Write user documentation for cross-lab setup
