@@ -1,10 +1,13 @@
-"""Step 2: Build PepQuery index from mzML files.
+"""Step 2: Build PepQuery index from mzML files (per-file parallel).
 
-Submits a single LSF job to build a PepQuery database index from all
-mzML files in the input directory. The index enables fast PepQuery
-validation in later steps.
+Submits one PepQuery index job per mzML file.  Each job indexes a
+single file (6-8 GB) with a dedicated 8 GB Java heap to avoid the
+OutOfMemoryError that occurs when indexing multiple large files in
+a single JVM.  After all jobs complete, the per-file index fragments
+are merged into a single ``pepquery_index/`` directory.
 """
 
+import shutil
 from pathlib import Path
 from ..env import ToolEnvironment
 from ..lsf import submit_bsub, wait_for_jobs
@@ -15,20 +18,22 @@ def step02_make_index(
     output_dir: Path,
     tool_env: ToolEnvironment,
     queue: str = "gsla-cpu",
-    memory_mb: int = 12000,
-    cpus: int = 10,
-    java_heap_mb: int = 4096,
+    memory_mb: int = 10000,
+    cpus: int = 1,
+    java_heap_mb: int = 8192,
 ) -> Path:
-    """Build PepQuery index from mzML files.
+    """Build PepQuery index — one LSF job per mzML file, then merge.
 
-    Validates inputs before submitting, then waits for the LSF job.
+    Each job indexes a single file with 8 GB heap (safe for 6-8 GB
+    mzML files).  The per-file index fragments are merged into the
+    final ``pepquery_index/`` after all jobs succeed.
 
     Returns:
-        Path to the created index directory.
+        Path to the merged ``pepquery_index/`` directory.
 
     Raises:
-        FileNotFoundError: if mzml_dir does not exist or contains no .mzML files.
-        FileNotFoundError: if PepQuery JAR does not exist.
+        FileNotFoundError:  mzml_dir missing, no .mzML files, or tool missing.
+        RuntimeError:       any indexing job failed or merge produced no output.
     """
     if not mzml_dir.is_dir():
         raise FileNotFoundError(f"mzML directory not found: {mzml_dir}")
@@ -44,34 +49,74 @@ def step02_make_index(
     if not java_bin.is_file():
         raise FileNotFoundError(f"Java binary not found: {java_bin}")
 
+    # ── Per-file staging directories ──────────────────────────────────
+    staging = output_dir / "_staging"
+    staging.mkdir(parents=True, exist_ok=True)
+
+    # ── Submit one PepQuery index job per mzML file ───────────────────
+    job_ids: list[int] = []
+    per_file_dirs: dict[Path, Path] = {}  # mzml_path → staging_dir
+
+    for mzml_path in mzml_files:
+        staging_dir = staging / mzml_path.stem
+        staging_dir.mkdir(exist_ok=True)
+        per_file_dirs[mzml_path] = staging_dir
+
+        cmd = [
+            str(java_bin),
+            f"-Xmx{java_heap_mb}m",
+            "-jar", str(pepquery_jar),
+            "index",
+            "-i", str(mzml_path.resolve()),
+            "-o", str(staging_dir.resolve()),
+        ]
+
+        log_path = output_dir / f"step02_{mzml_path.stem}.log"
+        jid = submit_bsub(
+            cmd,
+            job_name=f"pqidx_{mzml_path.stem[:30]}",
+            queue=queue,
+            memory_mb=memory_mb,
+            cpus=cpus,
+            log_path=log_path,
+            tool_env=tool_env,
+        )
+        job_ids.append(jid)
+
+    # ── Wait for all indexing jobs ────────────────────────────────────
+    wait_for_jobs(job_ids)
+
+    # ── Merge per-file fragments into final index ─────────────────────
     index_dir = output_dir / "pepquery_index"
     index_dir.mkdir(parents=True, exist_ok=True)
+    tmp_dir = index_dir / "tmp"
+    tmp_dir.mkdir(exist_ok=True)
 
-    cmd = [
-        str(java_bin),
-        f"-Xmx{java_heap_mb}m",
-        "-jar", str(pepquery_jar),
-        "index",
-        "-r",
-        "-i", str(mzml_dir.resolve()),
-        "-o", str(index_dir.resolve()),
-    ]
+    for idx, (mzml_path, staging_dir) in enumerate(per_file_dirs.items()):
+        src_tmp = staging_dir / "tmp"
+        if not src_tmp.is_dir():
+            raise RuntimeError(
+                f"PepQuery index tmp/ not created for {mzml_path.name}. "
+                f"Check log: {output_dir / f'step02_{mzml_path.stem}.log'}"
+            )
+        # Copy each per-file fragment dir into the merged tmp/
+        for fragment in sorted(src_tmp.iterdir()):
+            if fragment.is_dir():
+                dest = tmp_dir / f"{mzml_path.name}_{idx}"
+                if dest.exists():
+                    shutil.rmtree(dest)
+                shutil.copytree(fragment, dest)
+                break  # only one per file
 
-    log_path = output_dir / "step02_pepquery_index.log"
-    jid = submit_bsub(
-        cmd,
-        job_name="pepquery_index",
-        queue=queue,
-        memory_mb=memory_mb,
-        cpus=cpus,
-        log_path=log_path,
-        tool_env=tool_env,
-    )
-    wait_for_jobs([jid])
+    # Generate summary.txt (PepQuery lists indexed files here)
+    with (index_dir / "summary.txt").open("w") as f:
+        for mzml_path in mzml_files:
+            f.write(f"{mzml_path.resolve()}\n")
 
-    if not index_dir.is_dir() or not any(index_dir.iterdir()):
+    if not tmp_dir.is_dir() or not any(tmp_dir.iterdir()):
         raise RuntimeError(
-            f"PepQuery index not created at {index_dir}. "
-            f"Check LSF log: {log_path}"
+            f"PepQuery index merge produced no output at {index_dir}. "
+            f"Check per-file logs in {output_dir}/"
         )
+
     return index_dir
