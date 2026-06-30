@@ -132,3 +132,9 @@
 **Context:** Step 7 (`analyze_outputs`) reads a TSV file with PDV ion annotations. The master.py orchestration script had the path hardcoded to `pdv_export.tsv`, but PDV actually writes `PDVExportResult.txt` inside the `pdv_spectra/` directory.
 **Decision:** Corrected the path in the master.py template to `06_aggregated/pdv_spectra/PDVExportResult.txt`. Verified against the reference pipeline's actual file naming convention.
 **Rationale:** The wrong path caused Step 7 to silently skip PDV ion data (the try/except caught the FileNotFoundError), which meant the two-fragment coverage filter was always bypassed. This fix restores the intended filtering behavior.
+
+## D-023: Mock Dev Dataset for Fast Iteration
+**Date:** 2025-06-30
+**Context:** Pipeline debugging requires 60+ minute iterations because each step processes 6-8 GB mzML files. A 10 MB mock dataset with 50 spectra would reduce iteration time to seconds.
+**Decision:** Create a small mock mzML file by extracting the first 50 spectra from the real mzML using a Python script (`scripts/make_mock_mzml.py`). Track it in `data/test-mock/` alongside a mock FASTA. Add validation tests (golden-file pattern) for Steps 2, 3a, 7 that run against the mock data without requiring LSF.
+**Rationale:** Enables sub-minute feedback cycles for pipeline development. Uses the existing golden-file validation pattern (capture on first run, compare on subsequent). Does not require LSF — steps are called directly. The mock data is valid mzML (subset of real data), so pipeline behavior is representative.
