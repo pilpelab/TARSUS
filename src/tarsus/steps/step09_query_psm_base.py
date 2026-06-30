@@ -15,6 +15,7 @@ def step09_query_psm_base(
     mgf_path: Path,
     output_dir: Path,
     tool_env: ToolEnvironment,
+    fasta_path: Path | None = None,
     queue: str = "gsla-cpu",
     memory_mb: int = 5000,
     cpus: int = 1,
@@ -27,6 +28,7 @@ def step09_query_psm_base(
         index_dir: pepquery_index/ from Step 2.
         mgf_path: mgfall_fakes.mgf from Step 8.
         output_dir: Output directory for results.
+        fasta_path: Reference proteome FASTA (passed to PepQuery as -db).
 
     Returns:
         Path to pepquery_result_recheck_base/ directory.
@@ -37,6 +39,8 @@ def step09_query_psm_base(
         raise FileNotFoundError(f"PepQuery index not found: {index_dir}")
     if not mgf_path.is_file():
         raise FileNotFoundError(f"Fake MGF not found: {mgf_path}")
+    if fasta_path is not None and not fasta_path.is_file():
+        raise FileNotFoundError(f"FASTA not found: {fasta_path}")
     pepquery_jar = tool_env.pepquery_jar
     if not pepquery_jar.is_file():
         raise FileNotFoundError(f"PepQuery JAR not found: {pepquery_jar}")
@@ -79,7 +83,7 @@ def step09_query_psm_base(
             "-s", "2",
             "-ms", str(mgf_path.resolve()),
             "-indexType", "2",
-            "-db", str(index_dir.resolve()),
+            "-db", str(fasta_path.resolve()) if fasta_path else "-",
             "-o", str(chunk_result.resolve()),
             "-e", "2",
             "-c", "2",

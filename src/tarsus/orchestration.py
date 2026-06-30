@@ -115,6 +115,7 @@ def run_pipeline(outdir: Path, fasta: Path, raw_files: list[Path]) -> None:
             index_dir=outdir / "02_index" / "pepquery_index",
             output_dir=outdir / "05_pepquery",
             tool_env=tool_env,
+            fasta_path=fasta,
         )
         _s5.touch()
         _log("S05", "Done")
@@ -177,6 +178,7 @@ def run_pipeline(outdir: Path, fasta: Path, raw_files: list[Path]) -> None:
             mgf_path=outdir / "08_base_input" / "mgfall_fakes.mgf",
             output_dir=outdir / "09_pepquery_base",
             tool_env=tool_env,
+            fasta_path=fasta,
         )
         _s9.touch()
         _log("S09", "Done")

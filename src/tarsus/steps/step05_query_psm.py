@@ -14,6 +14,7 @@ def step05_query_psm(
     index_dir: Path,
     output_dir: Path,
     tool_env: ToolEnvironment,
+    fasta_path: Path | None = None,
     queue: str = "gsla-cpu",
     memory_mb: int = 1500,
     cpus: int = 1,
@@ -28,6 +29,7 @@ def step05_query_psm(
         index_dir: Step 2 output (pepquery_index/).
         output_dir: Directory for results (pepquery_result/ created inside).
         tool_env: Resolved tool environment.
+        fasta_path: Reference proteome FASTA (passed to PepQuery as -db).
 
     Returns:
         Path to pepquery_result/ directory.
@@ -36,6 +38,8 @@ def step05_query_psm(
         raise FileNotFoundError(f"PSM input not found: {psm_input}")
     if not index_dir.is_dir():
         raise FileNotFoundError(f"PepQuery index not found: {index_dir}")
+    if fasta_path is not None and not fasta_path.is_file():
+        raise FileNotFoundError(f"FASTA not found: {fasta_path}")
     pepquery_jar = tool_env.pepquery_jar
     if not pepquery_jar.is_file():
         raise FileNotFoundError(f"PepQuery JAR not found: {pepquery_jar}")
@@ -76,7 +80,7 @@ def step05_query_psm(
             "-aa",
             "-m", "1",
             "-ms", str(index_dir.resolve()),
-            "-db", str(index_dir.resolve()),
+            "-db", str(fasta_path.resolve()) if fasta_path else "-",
             "-o", str((result_dir / chunk_file.name).resolve()),
             "-e", "2",
             "-c", "2",
