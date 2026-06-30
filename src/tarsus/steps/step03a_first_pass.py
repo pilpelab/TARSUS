@@ -170,12 +170,12 @@ def step03a_first_pass(
     )
     wait_for_jobs([jid])
 
-    # 6. Warn if output files missing (validation tests check wiring, not PSMs)
+    # 6. Validate outputs
     psm_tsv = output_dir / "psm.tsv"
     peptide_tsv = output_dir / "peptide.tsv"
     if not psm_tsv.is_file():
-        print(f"[WARN] psm.tsv not created. Check log: {log_path}")
+        raise RuntimeError(f"First-pass psm.tsv not created. Check log: {log_path}")
     if not peptide_tsv.is_file():
-        print(f"[WARN] peptide.tsv not created. Check log: {log_path}")
+        raise RuntimeError(f"First-pass peptide.tsv not created. Check log: {log_path}")
 
     return output_dir

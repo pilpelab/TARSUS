@@ -1,4 +1,4 @@
-"""Step 3a validation: FragPipe first pass — verify pipeline wiring."""
+"""Step 3a validation: FragPipe first pass against mock data."""
 
 import time
 import shutil
@@ -12,7 +12,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 @pytest.mark.lsf
 def test_step03a_first_pass(mock_data, tool_env):
-    """Run FragPipe first pass on mock mzML — verify wiring, not PSMs."""
+    """Run FragPipe first pass on mock mzML — verify PSM output exists."""
     fasta = mock_data["fasta"]
     mzml = mock_data["mzml"]
     assert fasta.is_file()
@@ -30,28 +30,24 @@ def test_step03a_first_pass(mock_data, tool_env):
     try:
         result = step03a_first_pass(fasta, mzml_dir, output_dir, tool_env)
 
+        psm_tsv = result / "psm.tsv"
+        peptide_tsv = result / "peptide.tsv"
         actual = {
             "output_dir_exists": result.is_dir(),
-            "workflow_exists": (result / "first.workflow").is_file(),
-            "manifest_exists": (result / "first.manifest").is_file(),
-            "runner_exists": (result / "step03a_runner.sh").is_file(),
+            "psm_exists": psm_tsv.is_file(),
+            "peptide_exists": peptide_tsv.is_file(),
+            "psm_size_kb": psm_tsv.stat().st_size // 1024 if psm_tsv.is_file() else 0,
         }
-        psm_tsv = result / "psm.tsv"
-        if psm_tsv.is_file():
-            actual["psm_size_kb"] = psm_tsv.stat().st_size // 1024
 
         expected = load_expected("step03a")
         if expected is None:
             capture_expected("step03a", actual)
             pytest.skip("Expected output captured — re-run to validate")
         else:
-            assert actual["output_dir_exists"], "Output dir not created"
-            assert actual["workflow_exists"], "Workflow file not created"
-            assert actual["manifest_exists"], "Manifest file not created"
-            assert actual["runner_exists"], "Runner script not created"
-            if "psm_size_kb" in expected:
-                assert actual.get("psm_size_kb", 0) >= expected["psm_size_kb"] * 0.5, \
-                    f"psm.tsv too small: {actual.get('psm_size_kb', 0)}KB < 50% of {expected['psm_size_kb']}KB"
+            assert actual["psm_exists"], "psm.tsv not created"
+            assert actual["peptide_exists"], "peptide.tsv not created"
+            for key, val in expected.items():
+                assert actual.get(key) >= val * 0.5, f"step03a.{key}: {actual.get(key)} < 50% of expected {val}"
     finally:
         if shared.exists():
             shutil.rmtree(shared, ignore_errors=True)
