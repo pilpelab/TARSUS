@@ -73,6 +73,9 @@ class TestWorkflowPatching:
             "msfragger.clip_nTerm_M=true\n"
             "msfragger.misc.fragger.enzyme-dropdown-1=stricttrypsin\n"
             "msbooster.find-best-rt-model=true\n"
+            "msbooster.run-msbooster=true\n"
+            "msbooster.predict-rt=true\n"
+            "msbooster.predict-spectra=true\n"
         )
         import re
         content = workflow.read_text()
@@ -81,9 +84,15 @@ class TestWorkflowPatching:
             (r"^msfragger\.misc\.fragger\.enzyme-dropdown-1=.*$",
              "msfragger.misc.fragger.enzyme-dropdown-1=nocleavage"),
             (r"^msbooster\.find-best-rt-model=.*$", "msbooster.find-best-rt-model=false"),
+            (r"^msbooster\.run-msbooster=.*$", "msbooster.run-msbooster=false"),
+            (r"^msbooster\.predict-rt=.*$", "msbooster.predict-rt=false"),
+            (r"^msbooster\.predict-spectra=.*$", "msbooster.predict-spectra=false"),
         ]
         for pattern, replacement in patches:
             content = re.sub(pattern, replacement, content, count=1, flags=re.MULTILINE)
         assert "msfragger.clip_nTerm_M=false" in content
         assert "enzyme-dropdown-1=nocleavage" in content
         assert "msbooster.find-best-rt-model=false" in content
+        assert "msbooster.run-msbooster=false" in content
+        assert "msbooster.predict-rt=false" in content
+        assert "msbooster.predict-spectra=false" in content

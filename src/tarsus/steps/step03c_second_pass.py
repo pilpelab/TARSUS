@@ -101,6 +101,9 @@ def step03c_second_pass(
         (r"^msfragger\.search_enzyme_name_1=.*$", "msfragger.search_enzyme_name_1=nocleavage"),
         (r"^msfragger\.search_enzyme_nocut_1=.*$", "msfragger.search_enzyme_nocut_1=@"),
         (r"^msbooster\.find-best-rt-model=.*$", "msbooster.find-best-rt-model=false"),
+        (r"^msbooster\.run-msbooster=.*$", "msbooster.run-msbooster=false"),
+        (r"^msbooster\.predict-rt=.*$", "msbooster.predict-rt=false"),
+        (r"^msbooster\.predict-spectra=.*$", "msbooster.predict-spectra=false"),
     ]
     with workflow_template.open("r") as f:
         content = f.read()
