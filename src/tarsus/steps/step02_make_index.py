@@ -18,9 +18,9 @@ def step02_make_index(
     output_dir: Path,
     tool_env: ToolEnvironment,
     queue: str = "gsla-cpu",
-    memory_mb: int = 10000,
+    memory_mb: int = 20000,
     cpus: int = 1,
-    java_heap_mb: int = 8192,
+    java_heap_mb: int = 16384,
 ) -> Path:
     """Build PepQuery index — one LSF job per mzML file, then merge.
 

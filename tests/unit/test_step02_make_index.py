@@ -93,7 +93,7 @@ class TestCommandConstruction:
         assert len(submitted_cmds) == 1  # one job per mzML file
         cmd = submitted_cmds[0]
         assert "java" in str(cmd[0])
-        assert "-Xmx8192m" in cmd  # default java_heap_mb=8192
+        assert "-Xmx16384m" in cmd  # default java_heap_mb=16384
         assert "-jar" in cmd
         assert "pepquery-2.0.2.jar" in str(cmd[3])
         assert "index" in cmd
