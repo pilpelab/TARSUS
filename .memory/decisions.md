@@ -1,5 +1,47 @@
 # Decisions Log
 
+## D-034: IonQuant 1.11.20 Added as Required Tool Dependency
+**Date:** 2026-06-30
+**Context:** FragPipe 24.0's Linux ZIP distribution does not bundle IonQuant.jar (unlike the Windows distribution). The pipeline failed with missing IonQuant at Step 3a/3c when FragPipe internally calls IonQuant for quantification.
+**Decision:** Add IonQuant 1.11.20 as a separate tool dependency in `tools/Makefile`. Copy the JAR from the reference installation at `/home/labs/pilpel/slavat/fragpipe-24.0/tools/IonQuant-1.11.20.jar`. Add `ionquant` target and `test-ionquant` check to `make setup`.
+**Rationale:** IonQuant is a hard dependency of FragPipe's quantification module. Without it, FragPipe exits with an error before producing any results. Including it in `make setup` ensures it is always present.
+
+## D-033: Target-Decoy FASTA Generated Inline for Both 3a and 3c Passes
+**Date:** 2026-06-30
+**Context:** FragPipe requires a target-decoy FASTA for FDR estimation (it reads the `rev_` tag to identify decoys). The reference pipeline assumed decoys were baked into the workflow configuration. Steps 3a and 3c both need decoys but the raw FASTA has none.
+**Decision:** Add `_make_decoy_fasta()` to both `step03a_first_pass.py` and `step03c_second_pass.py`. This function reads the input FASTA, writes forward sequences plus reversed copies with `>rev_` prefix, outputting `protein_decoy.fasta`. The workflow `database.db-path` is set to the decoy FASTA, and `database.decoy-tag=rev_` is patched.
+**Rationale:** Generates decoys inline without requiring pre-processed FASTA files. Both passes get independent decoy FASTA files in their own output directories. The reversed-sequence approach is the standard FragPipe convention.
+
+## D-032: FragPipe 24.0 Scan Number Mismatch — Peptide-Only PepQuery Input
+**Date:** 2026-06-30
+**Context:** FragPipe 24.0 uses internal scan numbering that does not match the native mzML scan numbers. Step 4 originally extracted `peptide:scan:charge` spectrum titles for PepQuery's targeted search mode, but the scan numbers from FragPipe's `Spectrum` column did not correspond to PepQuery's indexed scan numbers. This caused "Matched spectra: 0" for every peptide.
+**Decision:** Switch Step 4 output from two-column (peptide + spectrum_title) to one-column (peptide only). PepQuery runs in open-search mode (`-aa` flag), which searches all indexed spectra for each peptide without requiring a scan number match. Step 4's `extract_psm()` function now writes only peptide sequences.
+**Rationale:** PepQuery's open-search mode finds matching spectra by peptide sequence alone — scan numbers are irrelevant. This bypasses the FragPipe/PepQuery scan numbering mismatch entirely. For the variant-peptide validation use case (confirming variant peptides exist in the data), open-search is correct: it returns all spectra matching the peptide sequence regardless of scan position.
+
+## D-031: Header-Free PepQuery Input (Peptide-Only Format)
+**Date:** 2026-06-30
+**Context:** Step 4 output originally had a TSV header line (`peptide\tspectrum_title`). Step 5 (`step05_query_psm`) split this file into chunks and prepended the header to each chunk. PepQuery interpreted the header repetition as data, causing parse errors and zero matched spectra.
+**Decision:** Remove the TSV header from Step 4 output entirely. Step 5 splits raw lines without header handling — each line is one peptide. PepQuery receives peptide-only input with no header, column names, or spectrum titles.
+**Rationale:** PepQuery's open-search mode reads one peptide per line. Headers and spectrum titles are not expected and cause parse errors. Peptide-only input is simpler, faster, and correct for the use case.
+
+## D-030: PepQuery `-db` Must Point to Raw FASTA, Not Index Directory
+**Date:** 2026-06-30
+**Context:** The `-db` flag in PepQuery validation (Steps 5 and 9) was set to `str(index_dir.resolve())` — the PepQuery index directory. PepQuery uses the `-db` path to resolve sequence annotations for matched spectra. Pointing it at the index caused PepQuery to fail silently (no error, no matches).
+**Decision:** Pass the user's `--fasta` path through orchestration to both `step05_query_psm()` and `step09_query_psm_base()`. Use `str(fasta_path.resolve())` for the `-db` flag instead of the index directory. Add `fasta_path: Path | None = None` parameter to both functions.
+**Rationale:** The FASTA file is required for PepQuery to annotate matched spectra with protein names and sequence context. The index directory path was a copy-paste error from the reference implementation.
+
+## D-029: MSBooster Fully Disabled in Step 3c Second Pass
+**Date:** 2026-06-30
+**Context:** The FragPipe workflow template has `msbooster.run-msbooster=true`, `msbooster.predict-rt=true`, and `msbooster.predict-spectra=true` by default. Step 3c (variant-peptide second pass) was only disabling `find-best-rt-model=false`. MSBooster was still attempting to calibrate RT/spectra predictions on the nocleavage search results, causing silent hangs and excessive wall time (30+ minutes).
+**Decision:** Add three additional MSBooster workflow patches to `step03c_second_pass.py`: `msbooster.run-msbooster=false`, `msbooster.predict-rt=false`, `msbooster.predict-spectra=false`.
+**Rationale:** MSBooster calibration requires training data that does not exist for variant-peptide second-pass searches (different enzyme, different search space). Fully disabling all MSBooster features prevents wasted compute and potential hanging.
+
+## D-028: Step 2 Reordered After Step 3a — Index `_sub.mzML`, Not Original mzML
+**Date:** 2026-06-30
+**Context:** Step 2 (PepQuery index) originally ran immediately after Step 1, indexing the full mzML files in `01_mzml/`. But PepQuery validation (Step 5) searches against `*_sub.mzML` — the unidentified spectra output by FragPipe's first pass. The index must contain only the spectra that Step 5 will actually search against. Indexing full mzML was also wasteful: 60 minutes to index spectra that would never be searched.
+**Decision:** Reorder pipeline execution so Step 2 runs AFTER Step 3a. The index directory is built from `03a_first_pass/*_sub.mzML` instead of `01_mzml/*.mzML`. The `summary.txt` also strips `_sub` from `ms_file` paths (D-027) so PepQuery can match spectrum filenames. Data flow changes from `01_mzml → 02_index` to `03a_first_pass → 02_index`.
+**Rationale:** Only the unidentified spectra from Step 3a's `_sub.mzML` files are searched by Step 5. Indexing the full mzML is a 2× waste (60 min indexing of already-identified spectra). The reorder also simplifies workflow: Step 3b (variant peptide generation) uses Step 3a's `peptide.tsv`, which is now produced before Step 2 runs. The `summary.txt` `_sub` stripping ensures PepQuery's internal filename matching works correctly.
+
 ## D-001: LSF Cluster as Deployment Target
 **Date:** 2025-06-11
 **Context:** The reference pipeline relies on LSF (bsub) for job submission. The institute operates an LSF cluster.
@@ -150,6 +192,16 @@
 **Context:** Step 3c (FragPipe second pass, nocleavage) was pointed at the original mzML files from Step 1 (`01_mzml/`). It should search against `*_sub.mzML` files from Step 3a (`03a_first_pass/`) — the unidentified spectra that didn't match in the first pass.
 **Decision:** Changed `orchestration.py` line 87 from `mzml_dir=outdir / "01_mzml"` to `mzml_dir=outdir / "03a_first_pass"`.
 **Rationale:** Running the second pass on ALL spectra instead of only unidentified spectra defeats the purpose of the two-pass pipeline. It wastes compute on already-identified peptides and artificially inflates the search space. The `*_sub.mzML` files are the correct input — they contain only the spectra that need variant-peptide searching.
+
+## D-027: PepQuery Index Must Be Flat .mgf at Root, Multi-File Bins Concatenated
+**Date:** 2026-06-30
+**Context:** Step 05 (PepQuery validation) ran successfully (LSF exit 0) but produced zero results — every `detail.txt` was header-only and no `psm_rank.txt` appeared. Root cause investigation via chunk logs showed three bugs in step02's merge logic:
+1. MGF files were placed in `pepquery_index/tmp/<mzml_name>_<idx>/` subdirectories, but PepQuery search looks for files flat at the root of the index directory.
+2. Files were left as `.mgf.gz`; PepQuery search expects uncompressed `.mgf`.
+3. The native `summary.txt` generated by PepQuery's own `index` command was overwritten with a custom version that stripped `_sub` from `ms_file` paths, pointing to non-existent files.
+Additionally: PepQuery organises spectra into mass-bin files (named by `floor(precursor_mass × ~20)`). Both HS-1 and LS-1 `_sub.mzML` files share overlapping mass-bin ranges, so a naive flat merge overwrites one file's spectra with the other's. Files must be **concatenated** (append mode).
+**Decision:** Rewrite step02 merge logic to: (a) decompress `.mgf.gz` → `.mgf`, (b) place files flat at `pepquery_index/` root, (c) open each dest in append mode so same-mass-bin spectra from multiple mzML files are concatenated, (d) preserve the native PepQuery `summary.txt` (merge across files) instead of generating a custom one.
+**Rationale:** PepQuery's `MsLibrarySearchWorker` constructs paths as `<index_dir>/<bin_id>.mgf` directly — no subdirectory traversal. Subdirectories and `.gz` extensions both cause silent "File doesn't exist" warnings and 0 matched spectra. The FASTA `.sqldb` warning seen in logs is benign — PepQuery re-indexes on the fly and continues.
 
 ## D-026: I/L Ambiguity in Mass Spectrometry
 **Date:** 2025-06-30

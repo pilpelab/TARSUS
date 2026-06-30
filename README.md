@@ -16,7 +16,7 @@ make setup                  # download all external tools (JDK, .NET, FragPipe, 
 source .venv/bin/activate   # activate Python venv
 
 # 2. Verify tools
-make test-tools             # all 6 tools should pass
+make test-tools             # all 8 tools should pass (JDK, .NET, FragPipe, MSFragger, IonQuant, PepQuery, PDV, ThermoRawFileParser)
 
 # 3. Run the pipeline (everything on LSF)
 tarsus run --fasta protein.fasta \
@@ -66,6 +66,8 @@ output/my-run/
 
 All steps run on LSF. A single master job orchestrates heavy tools (ThermoRawFileParser, FragPipe, PepQuery) via child bsub jobs and runs Python analysis (mutagenesis, filtering, localization) inline on the compute node. The login node is only used for the initial submission.
 
+**Note:** Step 2 (PepQuery index) now runs **after** Step 3a (FragPipe first pass) to index only the unidentified spectra (`_sub.mzML` files). Step 4 produces peptide-only output (no spectrum titles) — PepQuery runs in open-search mode to work around FragPipe 24.0 scan number incompatibility.
+
 See `.context/architecture.md` for full details.
 
 ## Setup
@@ -81,9 +83,9 @@ make test-tools   # verify everything works
 ## Tests
 
 ```bash
-uv run pytest                                      # 134 unit tests
+uv run pytest                                      # 151 tests (142 unit + 9 validation)
 uv run mypy src/tarsus                              # type checking
-make test-tools                                    # tool integrity
+make test-tools                                    # tool integrity (8 tools including IonQuant)
 make test-pdv-full                                 # PDV + Xvfb integration
 ```
 
@@ -91,7 +93,7 @@ make test-pdv-full                                 # PDV + Xvfb integration
 
 ```
 src/tarsus/     Python package (steps, CLI, env, LSF helpers)
-tests/          pytest tests (134)
+tests/          pytest tests (151)
 tools/          External tools (downloaded via make setup)
 data/           Test datasets (gitignored)
 .context/       Architecture and reference docs

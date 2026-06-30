@@ -12,19 +12,19 @@ Login node:
 LSF compute node (master job):
   ┌──────────────────────────────────────────────────────┐
   │ master.py:                                           │
-  │   Step 1: bsub ThermoRawFileParser × N, wait         │
-  │   Step 2: bsub PepQuery index, wait                   │
-  │   Step 3a: bsub FragPipe first pass, wait              │
-  │   Step 3b: Python (inline — in-silico mutagenesis)    │
-  │   Step 3c: bsub FragPipe second pass, wait             │
-  │   Step 4:  Python (inline — extract PSMs)              │
-  │   Step 5:  bsub PepQuery × chunks, wait                │
-  │   Step 6:  Python (inline — concat + PDV via Xvfb)    │
-  │   Step 7:  Python (inline — SAV filtering)             │
-  │   Step 8:  Python (inline — ref validation prep)       │
-  │   Step 9:  bsub PepQuery base × chunks, wait           │
-  │   Step 10: Python (inline — concat base)               │
-  │   Step 11: Python (inline — PyAscore localization)     │
+  │   Step 1:  bsub ThermoRawFileParser × N, wait        │
+  │   Step 3a: bsub FragPipe first pass, wait (decoy)    │
+  │   Step 2:  bsub PepQuery index, wait (from _sub.mzML)│
+  │   Step 3b: Python (inline — in-silico mutagenesis)   │
+  │   Step 3c: bsub FragPipe second pass, wait (decoy)   │
+  │   Step 4:  Python (inline — extract PSMs)            │
+  │   Step 5:  bsub PepQuery × chunks, wait              │
+  │   Step 6:  Python (inline — concat + PDV via Xvfb)   │
+  │   Step 7:  Python (inline — SAV filtering)           │
+  │   Step 8:  Python (inline — ref validation prep)     │
+  │   Step 9:  bsub PepQuery base × chunks, wait         │
+  │   Step 10: Python (inline — concat base)             │
+  │   Step 11: Python (inline — PyAscore localization)   │
   └──────────────────────────────────────────────────────┘
 ```
 
@@ -35,15 +35,14 @@ Raw MS files (.raw)
     | Step 1: step01_convert (ThermoRawFileParser via LSF)
     v
 01_mzml/ (.mzML files)
-    | Step 2: step02_make_index (PepQuery index via LSF)
-    v
-02_index/ (pepquery_index/)
-    |
-    | Step 3a: step03a_first_pass (FragPipe via LSF)
+    | Step 3a: step03a_first_pass (FragPipe via LSF)   ← runs BEFORE Step 2
     |         +--- psm.tsv, peptide.tsv, protein.tsv
     |         +--- *_sub.mzML (unidentified spectra)
     v
 03a_first_pass/
+    | Step 2: step02_make_index (PepQuery index via LSF) ← indexes _sub.mzML
+    v
+02_index/ (pepquery_index/)
     | Step 3b: make_peptide_candidates (in-silico mutagenesis, inline)
     |         +--- pep_candidates.fa
     v
@@ -90,9 +89,11 @@ Raw MS files (.raw)
 ## Component Dependency Graph
 
 ```
-step01_convert ──> 01_mzml/ ──> step02_make_index ──> 02_index/
-                              │
-                              └──> step03a_first_pass ──> 03a_first_pass/
+step01_convert ──> 01_mzml/ ──> step03a_first_pass ──> 03a_first_pass/
+                                                           │
+                                                    step02_make_index (indexes *_sub.mzML)
+                                                           │
+                                                      02_index/
                                    │                          │
                                    │                    make_peptide_candidates
                                    │                          │
@@ -151,17 +152,21 @@ tarsus run --fasta data/protein.fasta \
 | 1 | ThermoRawFileParser | gsla-cpu | 7000 MB | 1 |
 | 2 | PepQuery index | gsla-cpu | 12000 MB | 10 |
 | 3a | FragPipe first pass | gsla-cpu | 30000 MB | 10 |
+| 3b | in-silico mutagenesis | inline (master) | 4000 MB | 1 |
 | 3c | FragPipe second pass | gsla-cpu | 30000 MB | 10 |
 | 5 | PepQuery validation | gsla-cpu | 1500 MB | 1 |
 | 9 | PepQuery base rescoring | gsla-cpu | 5000 MB | 1 |
 | master | orchestration | gsla-cpu | 4000 MB | 1 |
+
+Note: Steps 3a and 3c generate inline target-decoy FASTA (`protein_decoy.fasta`).
+Step 3c has MSBooster fully disabled (`run-msbooster=false`, `predict-rt=false`, `predict-spectra=false`).
 
 ## Output Directory Convention
 
 ```
 --output-dir/
 ├── 01_mzml/               Step 1: .mzML files
-├── 02_index/              Step 2: PepQuery index
+├── 02_index/              Step 2: PepQuery index (from _sub.mzML, runs after Step 3a)
 ├── 03a_first_pass/        Step 3a: FragPipe first pass
 ├── 03b_candidates/        Step 3b: pep_candidates.fa
 ├── 03c_second_pass/       Step 3c: FragPipe second pass
@@ -182,11 +187,18 @@ tarsus run --fasta data/protein.fasta \
 ### I/L Ambiguity
 Mass spectrometry cannot distinguish isoleucine (I) from leucine (L) — they have identical monoisotopic mass (113.08406 Da). The pipeline uses "I" as the canonical representation in peptide sequences. The FASTA header retains "I/L" notation to indicate the positional ambiguity, but the actual sequence never contains "/".
 
+### FragPipe 24.0 Scan Number Mismatch
+FragPipe 24.0 uses internal scan numbering that does not match native mzML scan numbers. This means spectrum titles extracted from FragPipe's `psm.tsv` (`Spectrum` column) cannot be used for targeted PepQuery search. The pipeline works around this by running PepQuery in open-search mode (`-aa` flag) with peptide-only input — no spectrum titles. PepQuery searches all indexed spectra for each peptide sequence, which is correct for the variant-peptide validation use case.
+
+### PepQuery Index Must Contain Only Searched Spectra
+Step 2 indexes `*_sub.mzML` files (unidentified spectra from FragPipe first pass), not the full mzML files. This is by design: indexing the full mzML would waste compute on already-identified spectra. However, it means the pipeline must run Step 3a before Step 2.
+
 ## Runtime Requirements
 
 - **Java 21** (bundled in `tools/jdk-21.0.11/`, Eclipse Temurin)
 - **.NET 8 runtime** (bundled in `tools/dotnet-8.0.28/`, Microsoft)
 - **Python 3.11** with polars, numpy, pyteomics, pyascore
+- **IonQuant 1.11.20** (bundled in `tools/IonQuant-1.11.20.jar`; note: not bundled in FragPipe Linux ZIP)
 - **Linux x86_64** with shared filesystem (LSF compute nodes access same paths)
 - **LSF cluster** — all steps use `gsla-cpu` queue by default
 - **Xvfb** available via EasyBuild module (for PDV headless rendering)
@@ -202,7 +214,7 @@ TARSUS_BC/
 │   ├── cli.py             # click CLI (convert, run)
 │   ├── env.py             # tool env resolver + XvfbDisplay
 │   └── lsf.py             # bsub submission helpers
-├── tests/                 # pytest tests (134 unit tests)
+├── tests/                 # pytest tests (151 total, 142 unit + 9 validation)
 ├── data/                  # gitignored workspace (test fixtures tracked)
 ├── tools/                 # External tool Makefile + runtimes (gitignored)
 ├── .context/              # Architecture and reference docs
@@ -215,13 +227,14 @@ TARSUS_BC/
 ```
 TARSUS_BC/
 |-- src/tarsus/              # Python package (tracked)
-|-- tests/                   # pytest tests (tracked)
+|-- tests/                   # pytest tests (151, tracked)
 |-- scripts/                 # utility scripts (tracked)
-|-- docs/                    # user documentation (tracked)
+|-- .planning/               # planning documents (tracked)
 |-- tools/                   # External tool Makefile + README (tracked)
 |   |-- Makefile             #   downloads, verifies, installs tools
 |   |-- README.md            #   version table
 |   |-- pepquery-2.0.2.jar   #   (downloaded, gitignored)
+|   |-- IonQuant-1.11.20.jar #   (downloaded, gitignored)
 |   |-- fragpipe-24.0/       #   (downloaded, gitignored)
 |   |-- PDV-2.2.3/           #   (downloaded, gitignored)
 |   `-- thermorawfileparser-2.0.0-dev/  # (downloaded, gitignored)
