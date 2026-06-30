@@ -20,7 +20,6 @@ def extract_psm(psm_path: Path, output_path: Path) -> None:
     ) as fout:
         reader = csv.DictReader(fin, delimiter="\t")
         writer = csv.writer(fout, delimiter="\t")
-        writer.writerow(["peptide", "spectrum_title"])
 
         for row in reader:
             try:

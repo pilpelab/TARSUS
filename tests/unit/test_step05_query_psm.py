@@ -43,7 +43,7 @@ class TestInputValidation:
     def test_empty_psm_file(self, tmp_path: Path) -> None:
         env = _make_env(tmp_path)
         psm = tmp_path / "input.tsv"
-        psm.write_text("peptide\tspectrum_title\n")
+        psm.write_text("")
         index = tmp_path / "index"
         index.mkdir()
         with pytest.raises(ValueError, match="no data rows"):

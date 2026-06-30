@@ -24,8 +24,7 @@ class TestExtractPsm:
         out = tmp_path / "psm_input4pepquery.tsv"
         extract_psm(psm, out)
         lines = out.read_text().strip().split("\n")
-        assert lines[0] == "peptide\tspectrum_title"
-        assert lines[1] == "PEPTIDE\tsample:100:2"
+        assert lines[0] == "PEPTIDE\tsample:100:2"
 
     def test_multiple_rows(self, tmp_path: Path) -> None:
         psm = tmp_path / "psm.tsv"
@@ -36,7 +35,7 @@ class TestExtractPsm:
         out = tmp_path / "out.tsv"
         extract_psm(psm, out)
         lines = out.read_text().strip().split("\n")
-        assert len(lines) == 3
+        assert len(lines) == 2
         assert "PEP1\ta:1:2" in lines
         assert "PEP2\tb:50:3" in lines
 
@@ -49,8 +48,8 @@ class TestExtractPsm:
         out = tmp_path / "out.tsv"
         extract_psm(psm, out)
         lines = out.read_text().strip().split("\n")
-        assert len(lines) == 2
-        assert "PEP1" not in lines[1]
+        assert len(lines) == 1
+        assert "PEP1" not in lines[0]
 
     def test_filters_negative_intensity(self, tmp_path: Path) -> None:
         psm = tmp_path / "psm.tsv"
@@ -59,7 +58,7 @@ class TestExtractPsm:
         ])
         out = tmp_path / "out.tsv"
         extract_psm(psm, out)
-        assert out.read_text().strip().split("\n") == ["peptide\tspectrum_title"]
+        assert out.read_text().strip() == ""
 
     def test_handles_leading_zeros_in_scan(self, tmp_path: Path) -> None:
         psm = tmp_path / "psm.tsv"
@@ -84,11 +83,11 @@ class TestExtractPsm:
         _make_psm(psm, [])
         out = tmp_path / "out.tsv"
         extract_psm(psm, out)
-        assert out.read_text().strip() == "peptide\tspectrum_title"
+        assert out.read_text().strip() == ""
 
     def test_missing_intensity_column(self, tmp_path: Path) -> None:
         psm = tmp_path / "psm.tsv"
         psm.write_text("Spectrum\tPeptide\tCharge\nfile.1.1.2\tPEP\t2\n")
         out = tmp_path / "out.tsv"
         extract_psm(psm, out)
-        assert out.read_text().strip() == "peptide\tspectrum_title"
+        assert out.read_text().strip() == ""

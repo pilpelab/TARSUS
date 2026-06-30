@@ -52,21 +52,19 @@ def step05_query_psm(
     result_dir.mkdir(parents=True, exist_ok=True)
     log_dir.mkdir(parents=True, exist_ok=True)
 
-    lines = psm_input.read_text().strip().split("\n")
-    header = lines[0] if lines else ""
-    data_lines = [ln for ln in lines[1:] if ln.strip()] if len(lines) > 1 else []
+    lines = [ln for ln in psm_input.read_text().split("\n") if ln.strip()]
 
-    if not data_lines:
+    if not lines:
         raise ValueError("PSM input file has no data rows")
 
-    chunks = [data_lines[i:i + chunk_size] for i in range(0, len(data_lines), chunk_size)]
+    chunks = [lines[i:i + chunk_size] for i in range(0, len(lines), chunk_size)]
     inputs_dir = output_dir / "pepquery_inputs"
     inputs_dir.mkdir(exist_ok=True)
 
     job_ids: list[int] = []
     for idx, chunk in enumerate(chunks):
         chunk_file = inputs_dir / f"chunk_{idx:04d}.tsv"
-        chunk_file.write_text("\n".join([header] + chunk) + "\n")
+        chunk_file.write_text("\n".join(chunk) + "\n")
 
         cmd = [
             str(java_bin),
