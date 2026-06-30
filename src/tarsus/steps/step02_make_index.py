@@ -157,15 +157,31 @@ def step02_make_index(
                 f"No .mgf.gz files in staging for {mzml_path.name}. "
                 f"Check log: {output_dir / f'step02_{mzml_path.stem}.log'}"
             )
-        fragment_dir = tmp_dir / f"{mzml_path.name}_{idx}"
+        # Strip _sub suffix so PepQuery can match spectrum titles
+        # (step04 strips _sub from spectrum titles, so the index
+        # subdirectory name must match without _sub to avoid "Matched
+        # spectra: 0").
+        base_name = mzml_path.name.replace("_sub", "")
+        fragment_dir = tmp_dir / f"{base_name}_{idx}"
         fragment_dir.mkdir(exist_ok=True)
         for mgf in mgf_files:
             shutil.move(str(mgf), str(fragment_dir / mgf.name))
 
-    # Generate summary.txt (PepQuery lists indexed files here)
+    # Generate summary.txt in native PepQuery key=value format
+    from datetime import datetime
+    total_spectra = sum(
+        len(list((tmp_dir / d).iterdir()))
+        for d in tmp_dir.iterdir() if d.is_dir()
+    )
+    index_dir.mkdir(parents=True, exist_ok=True)
     with (index_dir / "summary.txt").open("w") as f:
+        f.write(f"date={datetime.now()}\n")
+        f.write(f"total_ms_file={len(mzml_files)}\n")
         for mzml_path in mzml_files:
-            f.write(f"{mzml_path.resolve()}\n")
+            # Strip _sub from path for PepQuery filename matching
+            clean_path = Path(str(mzml_path.resolve()).replace("_sub", ""))
+            f.write(f"ms_file={clean_path}\n")
+        f.write(f"total_msms_spectra={total_spectra}\n")
 
     if not tmp_dir.is_dir() or not any(tmp_dir.iterdir()):
         raise RuntimeError(
