@@ -24,6 +24,13 @@ MF_SHA256    := d5268024c10f29317a20c4b5f42a2ec142dc282c0e8fc733ca286ff76537644a
 # (https://msfragger.nesvilab.org) and place it at the path below.
 MF_SOURCE_ZIP := /home/labs/pilpel/slavat/fragpipe-24.0/tools/MSFragger-$(MF_VERSION).zip
 
+# ── IonQuant (required by FragPipe, NOT bundled) ──────────────────────
+IQ_JAR       := $(FP_DIR)/tools/IonQuant-1.11.20.jar
+IQ_SHA256    := c38e3cc75dfb82f0b991d49397a49b6e8b98879f804018171d23db0fb3bbb8e3
+# No public download URL — obtain the JAR from the MSFragger/IonQuant website
+# and place it alongside the FragPipe tools.
+IQ_SOURCE_JAR := /home/labs/pilpel/slavat/fragpipe-24.0/tools/IonQuant-1.11.20.jar
+
 # ── PepQuery ──────────────────────────────────────────────────────────
 PQ_VERSION   := 2.0.2
 PQ_URL       := http://pepquery.org/data/pepquery-$(PQ_VERSION).tar.gz
@@ -78,12 +85,12 @@ PDV_TEST_OUT  := $(PDV_TEST_DIR)/pdv_output
 # ── Targets ───────────────────────────────────────────────────────────
 
 .PHONY: setup clean java dotnet \
-        fragpipe msfragger pepquery pdv thermorawfileparser \
-        test-tools test-java test-dotnet test-fragpipe test-msfragger \
+        fragpipe msfragger ionquant pepquery pdv thermorawfileparser \
+        test-tools test-java test-dotnet test-fragpipe test-msfragger test-ionquant \
         test-pepquery test-pdv test-pdv-full test-thermorawfileparser \
         verify
 
-setup: java dotnet fragpipe msfragger pepquery pdv thermorawfileparser
+setup: java dotnet fragpipe msfragger ionquant pepquery pdv thermorawfileparser
 	@echo ""
 	@echo "All tools installed. Run 'make test-tools' to verify integrity."
 
@@ -135,6 +142,25 @@ $(MF_JAR):
 		echo "Extracting MSFragger $(MF_VERSION)..."; \
 		unzip -q -d $(FP_DIR)/tools "$(MF_SOURCE_ZIP)"; \
 		echo "MSFragger ready at $(MF_JAR)"; \
+	fi
+
+# ── IonQuant ──────────────────────────────────────────────────────────
+
+ionquant: $(IQ_JAR)
+
+$(IQ_JAR):
+	@if [ -f "$(IQ_JAR)" ]; then \
+		echo "IonQuant already copied, skipping"; \
+	else \
+		if [ ! -f "$(IQ_SOURCE_JAR)" ]; then \
+			echo "IonQuant JAR not found at $(IQ_SOURCE_JAR)"; \
+			echo "Download it and place it at $(IQ_SOURCE_JAR)"; \
+			exit 1; \
+		fi; \
+		echo "Verifying IonQuant checksum..."; \
+		echo "$(IQ_SHA256)  $(IQ_SOURCE_JAR)" | sha256sum -c; \
+		cp "$(IQ_SOURCE_JAR)" "$(IQ_JAR)"; \
+		echo "IonQuant ready at $(IQ_JAR)"; \
 	fi
 
 # ── PepQuery ──────────────────────────────────────────────────────────
@@ -281,6 +307,13 @@ test-msfragger: $(MF_JAR)
 		echo "  MSFragger: MISSING"; exit 1; \
 	fi
 
+test-ionquant: $(IQ_JAR)
+	@if [ -f "$(IQ_JAR)" ]; then \
+		echo "  IonQuant: OK (1.11.20)"; \
+	else \
+		echo "  IonQuant: MISSING"; exit 1; \
+	fi
+
 test-pepquery: $(PQ_JAR) $(JAVA_BIN)
 	@echo -n "  PepQuery: "; JAVA_HOME=$(JDK_DIR) $(JAVA_BIN) -jar $(PQ_JAR) 2>&1 | head -1 || true; echo "  PepQuery: OK (JAR loads)"
 
@@ -290,7 +323,7 @@ test-thermorawfileparser: $(TRFP_BIN)
 	echo -n "  ThermoRawFileParser: "; \
 	( $(TRFP_BIN) --help || true ) 2>&1 | grep -q "Usage" && echo "OK" || { echo "FAILED"; exit 1; }
 
-test-tools: test-java test-dotnet test-fragpipe test-msfragger test-pepquery test-pdv test-thermorawfileparser
+test-tools: test-java test-dotnet test-fragpipe test-msfragger test-ionquant test-pepquery test-pdv test-thermorawfileparser
 	@echo ""
 	@echo "All tool checks complete."
 
@@ -302,6 +335,7 @@ verify:
 	@test -f $(DOTNET_BIN) && echo "  .NET: OK" || echo "  .NET: MISSING"
 	@test -f $(FP_DIR)/bin/fragpipe && echo "  FragPipe: OK" || echo "  FragPipe: MISSING"
 	@test -f $(MF_JAR) && echo "  MSFragger: OK" || echo "  MSFragger: MISSING"
+	@test -f $(IQ_JAR) && echo "  IonQuant: OK" || echo "  IonQuant: MISSING"
 	@test -f $(PQ_JAR) && test -d $(PQ_LIB) && echo "  PepQuery: OK" || echo "  PepQuery: MISSING"
 	@test -f $(PDV_JAR) && echo "  PDV: OK" || echo "  PDV: MISSING"
 	@test -f $(TRFP_BIN) && echo "  ThermoRawFileParser: OK" || echo "  ThermoRawFileParser: MISSING"

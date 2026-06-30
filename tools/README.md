@@ -8,6 +8,7 @@ This directory contains third-party tools downloaded by `make setup` in the pare
 |------|---------|--------|---------|
 | FragPipe | 24.0 | [Nesvilab/FragPipe](https://github.com/Nesvilab/FragPipe) | Academic free |
 | MSFragger | 4.4.1 | https://msfragger.nesvilab.org | Academic free |
+| IonQuant | 1.11.20 | https://ionquant.nesvilab.org | Academic free |
 | Philosopher | 5.1.3-RC9 | (bundled with FragPipe) | Academic free |
 | IonQuant | 1.11.18 | (bundled with FragPipe) | Academic free |
 | Percolator | 3.7.1 | (bundled with FragPipe) | Academic free |
