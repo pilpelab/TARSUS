@@ -177,6 +177,11 @@ tarsus run --fasta data/protein.fasta \
 └── master.log             LSF log with step-by-step progress
 ```
 
+## Known Limitations
+
+### I/L Ambiguity
+Mass spectrometry cannot distinguish isoleucine (I) from leucine (L) — they have identical monoisotopic mass (113.08406 Da). The pipeline uses "I" as the canonical representation in peptide sequences. The FASTA header retains "I/L" notation to indicate the positional ambiguity, but the actual sequence never contains "/".
+
 ## Runtime Requirements
 
 - **Java 21** (bundled in `tools/jdk-21.0.11/`, Eclipse Temurin)
