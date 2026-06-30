@@ -94,10 +94,11 @@ class TestCommandConstruction:
         return ToolEnvironment(tools_dir=tmp_path)
 
     def _make_staging_output(self, output: Path, mzml_stem: str) -> None:
-        """Create the staging tmp/ directory PepQuery would produce."""
-        frag_dir = output / "_staging" / mzml_stem / "tmp" / f"{mzml_stem}.mzML_0"
-        frag_dir.mkdir(parents=True)
-        (frag_dir / "1.mgf").touch()
+        """Create flat .mgf.gz files PepQuery writes directly in staging dir."""
+        staging = output / "_staging" / mzml_stem
+        staging.mkdir(parents=True)
+        (staging / "1.mgf.gz").touch()
+        (staging / "2.mgf.gz").touch()
 
     def test_submits_basic_job(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         env = self._make_env(tmp_path)
@@ -199,7 +200,7 @@ class TestCommandConstruction:
         monkeypatch.setattr("src.tarsus.steps.step02_make_index.wait_for_jobs", fake_wait_3)
 
         # No staging output created → merge should fail
-        with pytest.raises(RuntimeError, match="PepQuery index tmp/ not created"):
+        with pytest.raises(RuntimeError, match="No .mgf.gz files in staging"):
             step02_make_index(mzml_dir, output, env)
 
     def test_two_files_parallel(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -141,26 +141,26 @@ def step02_make_index(
     wait_for_jobs(job_ids)
 
     # ── Merge per-file fragments into final index ─────────────────────
+    # PepQuery writes .mgf.gz files directly in the staging directory
+    # (flat, not in tmp/<file>.mzML_0/).  We collect them into per-file
+    # subdirectories under pepquery_index/tmp/ so PepQuery validation
+    # can distinguish spectra from different mzML files.
     index_dir = output_dir / "pepquery_index"
     index_dir.mkdir(parents=True, exist_ok=True)
     tmp_dir = index_dir / "tmp"
     tmp_dir.mkdir(exist_ok=True)
 
     for idx, (mzml_path, staging_dir) in enumerate(per_file_dirs.items()):
-        src_tmp = staging_dir / "tmp"
-        if not src_tmp.is_dir():
+        mgf_files = sorted(staging_dir.glob("*.mgf.gz"))
+        if not mgf_files:
             raise RuntimeError(
-                f"PepQuery index tmp/ not created for {mzml_path.name}. "
+                f"No .mgf.gz files in staging for {mzml_path.name}. "
                 f"Check log: {output_dir / f'step02_{mzml_path.stem}.log'}"
             )
-        # Copy each per-file fragment dir into the merged tmp/
-        for fragment in sorted(src_tmp.iterdir()):
-            if fragment.is_dir():
-                dest = tmp_dir / f"{mzml_path.name}_{idx}"
-                if dest.exists():
-                    shutil.rmtree(dest)
-                shutil.copytree(fragment, dest)
-                break  # only one per file
+        fragment_dir = tmp_dir / f"{mzml_path.name}_{idx}"
+        fragment_dir.mkdir(exist_ok=True)
+        for mgf in mgf_files:
+            shutil.move(str(mgf), str(fragment_dir / mgf.name))
 
     # Generate summary.txt (PepQuery lists indexed files here)
     with (index_dir / "summary.txt").open("w") as f:
