@@ -1,4 +1,4 @@
 output_dir_exists: true
-workflow_exists: true
-manifest_exists: true
-runner_exists: true
+psm_exists: true
+peptide_exists: true
+psm_size_kb: 4

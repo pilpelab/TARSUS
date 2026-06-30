@@ -1,0 +1,2 @@
+peptide	Spectrum_Title	ions
+PEPTIDE	spec1	[b3, y4+++, b5]
