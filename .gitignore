@@ -38,6 +38,7 @@ output/**
 # Philosopher/FragPipe artifacts
 .meta/
 *-decoys-*.fas
+*.mzBIN
 
 # macOS
 .DS_Store
