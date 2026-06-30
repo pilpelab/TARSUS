@@ -11,6 +11,46 @@ from ..env import ToolEnvironment
 from ..lsf import submit_bsub, wait_for_jobs, _build_env_cmd
 
 
+def _make_decoy_fasta(fasta_path: Path, output_dir: Path) -> Path:
+    """Generate a target-decoy FASTA with rev_ prefix decoy sequences."""
+    decoy_fasta = output_dir / "protein_decoy.fasta"
+    if decoy_fasta.is_file():
+        return decoy_fasta
+
+    with fasta_path.open("r") as fin, decoy_fasta.open("w") as fout:
+        header = None
+        seq_lines: list[str] = []
+        for line in fin:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if stripped.startswith(">"):
+                if header:
+                    seq = "".join(seq_lines)
+                    fout.write(f"{header}\n")
+                    for i in range(0, len(seq), 60):
+                        fout.write(seq[i:i + 60] + "\n")
+                    decoy_seq = seq[::-1]
+                    fout.write(f">rev_{header[1:]}\n")
+                    for i in range(0, len(decoy_seq), 60):
+                        fout.write(decoy_seq[i:i + 60] + "\n")
+                header = stripped
+                seq_lines = []
+            else:
+                seq_lines.append(stripped)
+        if header:
+            seq = "".join(seq_lines)
+            fout.write(f"{header}\n")
+            for i in range(0, len(seq), 60):
+                fout.write(seq[i:i + 60] + "\n")
+            decoy_seq = seq[::-1]
+            fout.write(f">rev_{header[1:]}\n")
+            for i in range(0, len(decoy_seq), 60):
+                fout.write(decoy_seq[i:i + 60] + "\n")
+
+    return decoy_fasta
+
+
 def _make_bash_script(
     output_dir: Path,
     philosopher: Path,
@@ -82,11 +122,14 @@ def step03a_first_pass(
     output_dir.mkdir(parents=True, exist_ok=True)
     log_path = output_dir / "step03a.log"
 
-    # 1. Patch workflow template with the actual FASTA path
+    # 1. Generate target-decoy FASTA (FragPipe requires decoys in the FASTA)
+    decoy_fasta = _make_decoy_fasta(fasta_path, output_dir)
+
+    # 2. Patch workflow template with the decoy FASTA path
     first_workflow = output_dir / "first.workflow"
     with workflow_template.open("r") as f:
         content = f.read()
-    db_line = f"database.db-path={fasta_path.resolve()}"
+    db_line = f"database.db-path={decoy_fasta.resolve()}"
     content = re.sub(
         r"^database\.db-path=.*$", db_line,
         content, count=1, flags=re.MULTILINE,
@@ -94,19 +137,19 @@ def step03a_first_pass(
     with first_workflow.open("w") as f:
         f.write(content)
 
-    # 2. Create FragPipe manifest
+    # 3. Create FragPipe manifest
     manifest = output_dir / "first.manifest"
     with manifest.open("w") as f:
         for mzml in mzml_files:
             f.write(f"{mzml.resolve()}\t\t\tDDA\n")
 
-    # 3. Write and submit the runner script
+    # 4. Write and submit the runner script
     runner = output_dir / "step03a_runner.sh"
     runner.write_text(_make_bash_script(
         output_dir=output_dir,
         philosopher=philosopher,
         fragpipe=fragpipe,
-        fasta_path=fasta_path,
+        fasta_path=decoy_fasta,
         first_workflow=first_workflow,
         manifest=manifest,
         fragpipe_ram_gb=fragpipe_ram_gb,
@@ -114,7 +157,7 @@ def step03a_first_pass(
     ))
     runner.chmod(0o755)
 
-    # 4. Submit via bsub as a single job
+    # 5. Submit via bsub as a single job
     cmd = ["bash", str(runner)]
     jid = submit_bsub(
         cmd,
@@ -127,7 +170,7 @@ def step03a_first_pass(
     )
     wait_for_jobs([jid])
 
-    # 5. Validate outputs
+    # 6. Validate outputs
     psm_tsv = output_dir / "psm.tsv"
     peptide_tsv = output_dir / "peptide.tsv"
     if not psm_tsv.is_file():

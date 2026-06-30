@@ -144,3 +144,9 @@
 **Context:** Steps 5 and 9 originally used the "short" queue, which was intermittently unavailable. All other steps already used gsla-cpu.
 **Decision:** All pipeline steps default to gsla-cpu queue. No step uses "short" by default.
 **Rationale:** Simplifies configuration, avoids queue-availability problems, and ensures consistent scheduling behavior across all steps.
+
+## D-025: Step 3c Must Use _sub.mzML (Unidentified Spectra)
+**Date:** 2025-06-30
+**Context:** Step 3c (FragPipe second pass, nocleavage) was pointed at the original mzML files from Step 1 (`01_mzml/`). It should search against `*_sub.mzML` files from Step 3a (`03a_first_pass/`) — the unidentified spectra that didn't match in the first pass.
+**Decision:** Changed `orchestration.py` line 87 from `mzml_dir=outdir / "01_mzml"` to `mzml_dir=outdir / "03a_first_pass"`.
+**Rationale:** Running the second pass on ALL spectra instead of only unidentified spectra defeats the purpose of the two-pass pipeline. It wastes compute on already-identified peptides and artificially inflates the search space. The `*_sub.mzML` files are the correct input — they contain only the spectra that need variant-peptide searching.

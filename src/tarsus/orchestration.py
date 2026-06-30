@@ -84,7 +84,7 @@ def run_pipeline(outdir: Path, fasta: Path, raw_files: list[Path]) -> None:
         _log("S03c", "FragPipe second-pass search (LSF)")
         from tarsus.steps.step03c_second_pass import step03c_second_pass
         step03c_second_pass(
-            mzml_dir=outdir / "01_mzml",
+            mzml_dir=outdir / "03a_first_pass",  # uses *_sub.mzML (unidentified spectra)
             pep_candidates=outdir / "03b_candidates" / "pep_candidates.fa",
             output_dir=outdir / "03c_second_pass",
             tool_env=tool_env,
