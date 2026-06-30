@@ -19,12 +19,19 @@ class TestLoadSubstitutionMatrix:
         assert matrix["K"]["A"] is True
         assert matrix["K"]["D"] is False
 
-    def test_normalizes_i_slash_l(self, tmp_path: Path) -> None:
+    def test_normalizes_i_slash_l_origin(self, tmp_path: Path) -> None:
         csv = tmp_path / "subs.csv"
         csv.write_text(",A,D\nI/L,FALSE,TRUE\n")
         matrix = _load_substitution_matrix(csv)
         assert "I" in matrix
         assert "I/L" not in matrix
+
+    def test_normalizes_i_slash_l_dest(self, tmp_path: Path) -> None:
+        csv = tmp_path / "subs.csv"
+        csv.write_text(",I/L,D\nE,FALSE,TRUE\n")
+        matrix = _load_substitution_matrix(csv)
+        assert "I" in matrix["E"]
+        assert "I/L" not in matrix["E"]
 
 
 class TestSingleSubstitutions:
@@ -43,6 +50,10 @@ class TestSingleSubstitutions:
     def test_same_origin_and_dest(self) -> None:
         result = _single_substitutions("ABC", "B", "B")
         assert result == [("ABC", 1)]
+
+    def test_i_slash_l_normalized_in_sequence(self) -> None:
+        result = _single_substitutions("AIC", "I", "I/L")
+        assert result == [("AIC", 1)]  # I/L → I, not "I/L" in sequence
 
 
 class TestMakePeptideCandidates:

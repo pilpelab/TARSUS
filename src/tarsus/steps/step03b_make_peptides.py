@@ -29,6 +29,8 @@ def _load_substitution_matrix(path: Path) -> dict[str, dict[str, bool]]:
             col_name = col.strip()
             if col_name == header[0] or col_name in ("",):
                 continue
+            if col_name in ("I/L",):
+                col_name = "I"
             dest_map[col_name] = str(val).strip().upper() == "TRUE"
         matrix[origin] = dest_map
     return matrix
@@ -39,8 +41,14 @@ def _single_substitutions(
 ) -> list[tuple[str, int]]:
     """Generate all single-AA substitutions in *peptide*.
 
+    Canonicalizes I/L to I — mass spec cannot distinguish isoleucine
+    from leucine (identical mass 113.08406 Da).  The FASTA header
+    retains "I/L" notation for informational purposes.
+
     Returns list of (variant_sequence, position).
     """
+    if dest == "I/L":
+        dest = "I"
     results: list[tuple[str, int]] = []
     for i, char in enumerate(peptide):
         if char == origin:
