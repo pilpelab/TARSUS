@@ -4,13 +4,45 @@ Tests cover:
   - Input validation (missing dir, empty dir, missing JAR, missing Java)
   - Command construction (one bsub job per mzML file)
   - Merge logic (per-file fragments → unified pepquery_index/)
+  - Heap/memory auto-scaling
   - Edge cases
 """
 
 from pathlib import Path
 import pytest
-from src.tarsus.steps.step02_make_index import step02_make_index
+from src.tarsus.steps.step02_make_index import (
+    step02_make_index, _resolve_heap_mb, _resolve_mem_mb,
+    _MIN_HEAP_MB, _MAX_HEAP_MB,
+)
 from src.tarsus.env import ToolEnvironment
+
+
+class TestHeapAutoScale:
+    def test_small_file_uses_min(self) -> None:
+        assert _resolve_heap_mb(None, _size_gb=1) == _MIN_HEAP_MB  # type: ignore
+
+    def test_medium_file_scales(self) -> None:
+        heap = _resolve_heap_mb(None, _size_gb=5)  # type: ignore
+        assert heap == 10240  # 5 GB × 2 × 1024
+
+    def test_large_file_clamped(self) -> None:
+        heap = _resolve_heap_mb(None, _size_gb=15)  # type: ignore
+        assert heap == _MAX_HEAP_MB  # clamped to 24 GB
+
+    def test_explicit_overrides(self) -> None:
+        assert _resolve_heap_mb(None, java_heap_mb=4096, _size_gb=10) == 4096  # type: ignore
+
+    def test_env_var_overrides(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("TARSUS_PEPQUERY_HEAP_MB", "32768")
+        assert _resolve_heap_mb(None, _size_gb=10) == 32768  # type: ignore
+
+
+class TestMemAutoScale:
+    def test_mem_from_heap(self) -> None:
+        assert _resolve_mem_mb(8192) == 12288  # 8192 + 4096
+
+    def test_mem_explicit_overrides(self) -> None:
+        assert _resolve_mem_mb(8192, memory_mb=16000) == 16000
 
 
 class TestInputValidation:
@@ -93,7 +125,7 @@ class TestCommandConstruction:
         assert len(submitted_cmds) == 1  # one job per mzML file
         cmd = submitted_cmds[0]
         assert "java" in str(cmd[0])
-        assert "-Xmx16384m" in cmd  # default java_heap_mb=16384
+        assert "-Xmx8192m" in cmd  # auto-scaled: 0-byte file → minimum 8 GB
         assert "-jar" in cmd
         assert "pepquery-2.0.2.jar" in str(cmd[3])
         assert "index" in cmd

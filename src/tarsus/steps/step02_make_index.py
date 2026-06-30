@@ -1,16 +1,66 @@
 """Step 2: Build PepQuery index from mzML files (per-file parallel).
 
-Submits one PepQuery index job per mzML file.  Each job indexes a
-single file (6-8 GB) with a dedicated 8 GB Java heap to avoid the
-OutOfMemoryError that occurs when indexing multiple large files in
-a single JVM.  After all jobs complete, the per-file index fragments
-are merged into a single ``pepquery_index/`` directory.
+Submits one PepQuery index job per mzML file.  The Java heap is
+auto-scaled to 2× the mzML file size (clamped to 8-24 GB), so both
+small and large files get appropriate resources without wasted memory.
+
+After all jobs complete, the per-file index fragments are merged
+into a single ``pepquery_index/`` directory.
+
+Override heap per file via ``TARSUS_PEPQUERY_HEAP_MB`` env var.
+Override memory reservation via ``TARSUS_PEPQUERY_MEM_MB`` env var.
 """
 
+import os
 import shutil
 from pathlib import Path
 from ..env import ToolEnvironment
 from ..lsf import submit_bsub, wait_for_jobs
+
+_MIN_HEAP_MB = 8192
+_MAX_HEAP_MB = 24576
+
+
+def _resolve_heap_mb(
+    mzml_path: Path,
+    java_heap_mb: int | None = None,
+    _size_gb: float | None = None,
+) -> int:
+    """Determine Java heap for a single mzML file.
+
+    Priority:
+      1. Explicit *java_heap_mb* argument
+      2. ``TARSUS_PEPQUERY_HEAP_MB`` env var
+      3. Auto: ``max(8192, min(file_gb * 2.0 * 1024, 24576))``
+
+    The ``_size_gb`` parameter is for testing only — do not use in production.
+    """
+    if java_heap_mb is not None:
+        return java_heap_mb
+    env_val = os.environ.get("TARSUS_PEPQUERY_HEAP_MB")
+    if env_val:
+        return int(env_val)
+    if _size_gb is not None:
+        file_gb = _size_gb
+    else:
+        file_gb = mzml_path.stat().st_size / (1024**3)
+    return max(_MIN_HEAP_MB, min(int(file_gb * 2.0 * 1024), _MAX_HEAP_MB))
+
+
+def _resolve_mem_mb(heap_mb: int, memory_mb: int | None = None) -> int:
+    """Determine LSF memory reservation.
+
+    Priority:
+      1. Explicit *memory_mb* argument
+      2. ``TARSUS_PEPQUERY_MEM_MB`` env var
+      3. *heap_mb* + 4096 (JVM overhead)
+    """
+    if memory_mb is not None:
+        return memory_mb
+    env_val = os.environ.get("TARSUS_PEPQUERY_MEM_MB")
+    if env_val:
+        return int(env_val)
+    return heap_mb + 4096
 
 
 def step02_make_index(
@@ -18,15 +68,15 @@ def step02_make_index(
     output_dir: Path,
     tool_env: ToolEnvironment,
     queue: str = "gsla-cpu",
-    memory_mb: int = 20000,
+    memory_mb: int | None = None,
     cpus: int = 1,
-    java_heap_mb: int = 16384,
+    java_heap_mb: int | None = None,
 ) -> Path:
     """Build PepQuery index — one LSF job per mzML file, then merge.
 
-    Each job indexes a single file with 8 GB heap (safe for 6-8 GB
-    mzML files).  The per-file index fragments are merged into the
-    final ``pepquery_index/`` after all jobs succeed.
+    The Java heap per file is auto-scaled based on mzML file size
+    (see ``_resolve_heap_mb``).  After all jobs succeed, per-file
+    index fragments are merged into ``pepquery_index/``.
 
     Returns:
         Path to the merged ``pepquery_index/`` directory.
@@ -62,9 +112,12 @@ def step02_make_index(
         staging_dir.mkdir(exist_ok=True)
         per_file_dirs[mzml_path] = staging_dir
 
+        heap_mb = _resolve_heap_mb(mzml_path, java_heap_mb)
+        mem_mb = _resolve_mem_mb(heap_mb, memory_mb)
+
         cmd = [
             str(java_bin),
-            f"-Xmx{java_heap_mb}m",
+            f"-Xmx{heap_mb}m",
             "-jar", str(pepquery_jar),
             "index",
             "-i", str(mzml_path.resolve()),
@@ -76,7 +129,7 @@ def step02_make_index(
             cmd,
             job_name=f"pqidx_{mzml_path.stem[:30]}",
             queue=queue,
-            memory_mb=memory_mb,
+            memory_mb=mem_mb,
             cpus=cpus,
             log_path=log_path,
             tool_env=tool_env,
