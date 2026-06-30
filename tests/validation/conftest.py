@@ -39,6 +39,20 @@ def tool_env() -> ToolEnvironment:
     return ToolEnvironment.from_env()
 
 
+# ── Mock data paths ─────────────────────────────────────────────────────
+
+MOCK_DATA_DIR = DATA_DIR / "test-mock"
+
+
+@pytest.fixture(scope="session")
+def mock_data() -> dict:
+    """Paths to mock test data (50 spectra, fast)."""
+    return {
+        "fasta": DATA_DIR / "protein.fasta",
+        "mzml": MOCK_DATA_DIR / "dev.mzML",
+    }
+
+
 # ── Expected output helpers ──────────────────────────────────────────────
 
 
