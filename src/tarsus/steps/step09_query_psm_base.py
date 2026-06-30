@@ -15,7 +15,7 @@ def step09_query_psm_base(
     mgf_path: Path,
     output_dir: Path,
     tool_env: ToolEnvironment,
-    queue: str = "short",
+    queue: str = "gsla-cpu",
     memory_mb: int = 5000,
     cpus: int = 1,
     java_heap_mb: int = 4096,

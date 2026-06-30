@@ -152,8 +152,8 @@ tarsus run --fasta data/protein.fasta \
 | 2 | PepQuery index | gsla-cpu | 12000 MB | 10 |
 | 3a | FragPipe first pass | gsla-cpu | 30000 MB | 10 |
 | 3c | FragPipe second pass | gsla-cpu | 30000 MB | 10 |
-| 5 | PepQuery validation | short / gsla-cpu | 1500 MB | 1 |
-| 9 | PepQuery base rescoring | short / gsla-cpu | 5000 MB | 1 |
+| 5 | PepQuery validation | gsla-cpu | 1500 MB | 1 |
+| 9 | PepQuery base rescoring | gsla-cpu | 5000 MB | 1 |
 | master | orchestration | gsla-cpu | 4000 MB | 1 |
 
 ## Output Directory Convention
@@ -183,7 +183,7 @@ tarsus run --fasta data/protein.fasta \
 - **.NET 8 runtime** (bundled in `tools/dotnet-8.0.28/`, Microsoft)
 - **Python 3.11** with polars, numpy, pyteomics, pyascore
 - **Linux x86_64** with shared filesystem (LSF compute nodes access same paths)
-- **LSF cluster** with `gsla-cpu` queue for bsub job submission
+- **LSF cluster** — all steps use `gsla-cpu` queue by default
 - **Xvfb** available via EasyBuild module (for PDV headless rendering)
 - **No sudo** — all dependencies are user-level
 

@@ -14,7 +14,7 @@ def step05_query_psm(
     index_dir: Path,
     output_dir: Path,
     tool_env: ToolEnvironment,
-    queue: str = "short",
+    queue: str = "gsla-cpu",
     memory_mb: int = 1500,
     cpus: int = 1,
     chunk_size: int = 10,
