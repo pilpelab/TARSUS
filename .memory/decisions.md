@@ -150,3 +150,9 @@
 **Context:** Step 3c (FragPipe second pass, nocleavage) was pointed at the original mzML files from Step 1 (`01_mzml/`). It should search against `*_sub.mzML` files from Step 3a (`03a_first_pass/`) — the unidentified spectra that didn't match in the first pass.
 **Decision:** Changed `orchestration.py` line 87 from `mzml_dir=outdir / "01_mzml"` to `mzml_dir=outdir / "03a_first_pass"`.
 **Rationale:** Running the second pass on ALL spectra instead of only unidentified spectra defeats the purpose of the two-pass pipeline. It wastes compute on already-identified peptides and artificially inflates the search space. The `*_sub.mzML` files are the correct input — they contain only the spectra that need variant-peptide searching.
+
+## D-026: I/L Ambiguity in Mass Spectrometry
+**Date:** 2025-06-30
+**Context:** The substitution exclusion matrix (`subs_exclude.csv`) uses "I/L" notation for isoleucine/leucine positions. This string was leaking into peptide sequences, causing FragPipe/MSBooster to fail with "WARNING: Trying to compute mass of non-residue: /".
+**Decision:** Normalize "I/L" → "I" in both the matrix column headers and the `_single_substitutions` function. FASTA headers retain "I/L" for informational clarity, but the actual peptide sequences use only canonical amino acid codes.
+**Rationale:** Mass spectrometry cannot distinguish isoleucine from leucine — they have identical monoisotopic mass (113.08406 Da). Using "I" as the canonical representation is the standard convention in proteomics. The "/" character is not a valid amino acid and breaks downstream tools.
