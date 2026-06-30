@@ -129,6 +129,7 @@ class TestCommandConstruction:
         assert "-jar" in cmd
         assert "pepquery-2.0.2.jar" in str(cmd[3])
         assert "index" in cmd
+        assert "-r" in cmd  # required for per-file tmp/ output format
         assert "-i" in cmd
         assert str((mzml_dir / "test.mzML").resolve()) in cmd  # per-file path, not dir
         assert "-o" in cmd

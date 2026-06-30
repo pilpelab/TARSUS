@@ -120,6 +120,7 @@ def step02_make_index(
             f"-Xmx{heap_mb}m",
             "-jar", str(pepquery_jar),
             "index",
+            "-r",
             "-i", str(mzml_path.resolve()),
             "-o", str(staging_dir.resolve()),
         ]
