@@ -64,7 +64,7 @@ Pipeline run 940573 in progress: Step 1 skipped (sentinel), Step 2 running (2 pa
 PepQuery index jobs with 16 GB heap + -r flag fix). Dynamic heap auto-scaling committed
 (e834a9f). The per-file parallel approach validated — HS-1 indexed in 60 min (339K spectra).
 
-## Phase 4: Mock Dev Data for Fast Iteration ── EXECUTABLE PLAN
+## Phase 4: Mock Dev Data for Fast Iteration ── EXECUTABLE PLAN (in progress — code done, LSF runs pending)
 
 ### Decision
 D-023 recorded (2025-06-30): Mock dev dataset for fast iteration. 10 MB mzML with 50
@@ -299,10 +299,17 @@ def test_step07_analyze(mock_data, tool_env, tmp_path):
   ```
 
 ### Verification checklist
-- [ ] `data/test-mock/dev.mzML` exists (~10 MB)
-- [ ] `scripts/make_mock_mzml.py` works
-- [ ] `.gitignore` allows `data/test-mock/**`
-- [ ] `test_step02_index.py` runs and produces `expected/step02.yaml`
-- [ ] `test_step03a_first_pass.py` runs and produces `expected/step03a.yaml`
-- [ ] All 142 unit tests still pass: `uv run pytest tests/unit/`
-- [ ] mypy clean: `uv run mypy src/tarsus`
+- [x] `data/test-mock/dev.mzML` exists (0.7 MB, 92 spectra)
+- [x] `scripts/make_mock_mzml.py` works (index-based streaming)
+- [x] `.gitignore` allows `data/test-mock/**`
+- [x] `test_step02_index.py` created (LSF golden-file)
+- [x] `test_step03a_first_pass.py` created (LSF golden-file)
+- [x] `test_step07_analyze.py` created (stubbed)
+- [x] All 142 unit tests pass: `uv run pytest tests/unit/`
+- [x] mypy clean: `uv run mypy src/tarsus`
+- [x] Collection: `uv run pytest tests/validation/ -m "not lsf"` → 4 deselected in 1.42s
+
+### Remaining
+1. Run `test_step02_index.py` against LSF to capture `expected/step02.yaml`
+2. Run `test_step03a_first_pass.py` against LSF to capture `expected/step03a.yaml`
+3. Wire `test_step07_analyze.py` after Steps 2-6 are validated
