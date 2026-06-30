@@ -48,15 +48,6 @@ def run_pipeline(outdir: Path, fasta: Path, raw_files: list[Path]) -> None:
         _s1.touch()
         _log("S01", "Done")
 
-    # ── Step 2: PepQuery index ───────────────────────────────────────
-    _s2 = outdir / "02_index" / ".done"
-    if not _skip_if_done(_s2, "S02"):
-        _log("S02", "Building PepQuery index (LSF)")
-        from tarsus.steps.step02_make_index import step02_make_index
-        step02_make_index(outdir / "01_mzml", outdir / "02_index", tool_env)
-        _s2.touch()
-        _log("S02", "Done")
-
     # ── Step 3a: FragPipe first pass ─────────────────────────────────
     _s3a = outdir / "03a_first_pass" / ".done"
     if not _skip_if_done(_s3a, "S03a"):
@@ -65,6 +56,15 @@ def run_pipeline(outdir: Path, fasta: Path, raw_files: list[Path]) -> None:
         step03a_first_pass(fasta, outdir / "01_mzml", outdir / "03a_first_pass", tool_env)
         _s3a.touch()
         _log("S03a", "Done")
+
+    # ── Step 2: PepQuery index from *_sub.mzML (runs after Step 3a) ──
+    _s2 = outdir / "02_index" / ".done"
+    if not _skip_if_done(_s2, "S02"):
+        _log("S02", "Building PepQuery index from *_sub.mzML (LSF)")
+        from tarsus.steps.step02_make_index import step02_make_index
+        step02_make_index(outdir / "03a_first_pass", outdir / "02_index", tool_env)
+        _s2.touch()
+        _log("S02", "Done")
 
     # ── Step 3b: In-silico mutagenesis ───────────────────────────────
     _s3b = outdir / "03b_candidates" / ".done"
