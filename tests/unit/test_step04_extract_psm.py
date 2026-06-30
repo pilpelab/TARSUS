@@ -24,7 +24,7 @@ class TestExtractPsm:
         out = tmp_path / "psm_input4pepquery.tsv"
         extract_psm(psm, out)
         lines = out.read_text().strip().split("\n")
-        assert lines[0] == "PEPTIDE\tsample:100:2"
+        assert lines[0] == "PEPTIDE"
 
     def test_multiple_rows(self, tmp_path: Path) -> None:
         psm = tmp_path / "psm.tsv"
@@ -36,8 +36,8 @@ class TestExtractPsm:
         extract_psm(psm, out)
         lines = out.read_text().strip().split("\n")
         assert len(lines) == 2
-        assert "PEP1\ta:1:2" in lines
-        assert "PEP2\tb:50:3" in lines
+        assert "PEP1" in lines
+        assert "PEP2" in lines
 
     def test_filters_zero_intensity(self, tmp_path: Path) -> None:
         psm = tmp_path / "psm.tsv"
@@ -60,23 +60,14 @@ class TestExtractPsm:
         extract_psm(psm, out)
         assert out.read_text().strip() == ""
 
-    def test_handles_leading_zeros_in_scan(self, tmp_path: Path) -> None:
+    def test_filters_negative_intensity(self, tmp_path: Path) -> None:
         psm = tmp_path / "psm.tsv"
         _make_psm(psm, [
-            {"Spectrum": "file_sub.00234.00234.3", "Peptide": "PEPTIDE", "Charge": "3", "Intensity": "500"},
+            {"Spectrum": "a_sub.1.1.2", "Peptide": "PEP1", "Charge": "2", "Intensity": "-5"},
         ])
         out = tmp_path / "out.tsv"
         extract_psm(psm, out)
-        assert "234" in out.read_text()
-
-    def test_handles_no_sub_suffix(self, tmp_path: Path) -> None:
-        psm = tmp_path / "psm.tsv"
-        _make_psm(psm, [
-            {"Spectrum": "file.100.100.2", "Peptide": "PEP", "Charge": "2", "Intensity": "100"},
-        ])
-        out = tmp_path / "out.tsv"
-        extract_psm(psm, out)
-        assert "file:100:2" in out.read_text()
+        assert out.read_text().strip() == ""
 
     def test_empty_psm(self, tmp_path: Path) -> None:
         psm = tmp_path / "psm.tsv"

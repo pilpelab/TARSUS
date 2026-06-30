@@ -1,7 +1,12 @@
 """Step 4: Extract PSM data for PepQuery validation.
 
 Reads the FragPipe second-pass psm.tsv, filters on Intensity > 0,
-and writes a two-column TSV: peptide\tspectrum_title for PepQuery.
+and writes peptide sequences (one per line) for PepQuery open search.
+
+FragPipe 24.0 uses internal scan numbering that does not match the
+native mzML scan numbers.  PepQuery open search (peptide-only input)
+bypasses this by searching all indexed spectra for each peptide,
+which is correct for the variant-peptide validation use case.
 """
 
 import csv
@@ -9,10 +14,10 @@ from pathlib import Path
 
 
 def extract_psm(psm_path: Path, output_path: Path) -> None:
-    """Extract peptide and spectrum title pairs from FragPipe psm.tsv.
+    """Extract peptide sequences from FragPipe psm.tsv for PepQuery.
 
-    The Spectrum field has format: <file>_sub.<scan>.<scan>.<charge>
-    We strip the _sub suffix and produce: <file>:<scan>:<charge>
+    Output is one peptide per line — no spectrum title column.
+    PepQuery open search finds matching spectra automatically.
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with psm_path.open("r", newline="") as fin, output_path.open(
@@ -28,10 +33,4 @@ def extract_psm(psm_path: Path, output_path: Path) -> None:
                 continue
             if intensity <= 0:
                 continue
-
-            parts = row["Spectrum"].split(".")
-            file_name = parts[0].split("_sub")[0]
-            scan_num = str(int(parts[1]))
-            charge = row["Charge"]
-            spectrum_title = f"{file_name}:{scan_num}:{charge}"
-            writer.writerow([row["Peptide"], spectrum_title])
+            writer.writerow([row["Peptide"]])
