@@ -76,6 +76,7 @@ def step05_query_psm(
             "-aa",
             "-m", "1",
             "-ms", str(index_dir.resolve()),
+            "-db", str(index_dir.resolve()),
             "-o", str((result_dir / chunk_file.name).resolve()),
             "-e", "2",
             "-c", "2",
