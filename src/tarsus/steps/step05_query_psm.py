@@ -66,6 +66,10 @@ def step05_query_psm(
         chunk_file = inputs_dir / f"chunk_{idx:04d}.tsv"
         chunk_file.write_text("\n".join(chunk) + "\n")
 
+        # Resume: skip chunks that already have results from a prior run
+        if (result_dir / chunk_file.name / "psm_rank.txt").is_file():
+            continue
+
         cmd = [
             str(java_bin),
             f"-Xmx{java_heap_mb}m",

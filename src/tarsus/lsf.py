@@ -72,7 +72,11 @@ def wait_for_jobs(job_ids: list[int], poll_seconds: int = 30) -> None:
                 capture_output=True, text=True,
             )
             status = result.stdout.strip()
-            if status in ("RUN", "PEND", "WAIT", ""):
+            stderr = result.stderr.strip()
+            # Purged from LSF records: "not found" on stderr, empty stdout
+            if "not found" in stderr or not status:
+                continue
+            if status in ("RUN", "PEND", "WAIT"):
                 active.append(jid)
         if not active:
             break
