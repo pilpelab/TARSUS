@@ -208,26 +208,10 @@ Step 2 indexes `*_sub.mzML` files (unidentified spectra from FragPipe first pass
 
 ```
 TARSUS_BC/
-├── src/tarsus/            # Python package (tracked)
-│   ├── assets/            # Bundled ref. assets (generic.workflow, subs_exclude.csv)
-│   ├── steps/             # 11 pipeline step modules
-│   ├── cli.py             # click CLI (convert, run)
-│   ├── env.py             # tool env resolver + XvfbDisplay
-│   └── lsf.py             # bsub submission helpers
-├── tests/                 # pytest tests (151 total, 142 unit + 9 validation)
-├── data/                  # gitignored workspace (test fixtures tracked)
-├── tools/                 # External tool Makefile + runtimes (gitignored)
-├── .context/              # Architecture and reference docs
-├── .memory/               # Project memory, decisions, progress
-└── TARSUS_elizabev/       # READ-ONLY reference (do not modify)
-```
-
-## Directory Structure
-
-```
-TARSUS_BC/
-|-- src/tarsus/              # Python package (tracked)
-|-- tests/                   # pytest tests (151, tracked)
+|-- src/tarsus/              # Python package (11 pipeline steps, CLI, env, LSF)
+|   |-- assets/              #   bundled ref. assets (generic.workflow, subs_exclude.csv)
+|   |-- steps/               #   step01_convert through step11_localize
+|-- tests/                   # pytest tests (142 unit + 9 validation)
 |-- scripts/                 # utility scripts (tracked)
 |-- .planning/               # planning documents (tracked)
 |-- tools/                   # External tool Makefile + README (tracked)

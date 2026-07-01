@@ -28,7 +28,7 @@ def trial_data() -> dict:
     return {
         "fasta": DATA_DIR / "protein.fasta",
         "raw_files": sorted(DATA_DIR.glob("*.raw")),
-        "mzml_dir": OUTPUT_DIR / "01_mzml",
+        "mzml_dir": OUTPUT_DIR / "trial" / "01_mzml",
         "base_name_ls": "HouYM-25-G140-AstralDDA-AlaGGC-LS-1",
         "base_name_hs": "HouYM-25-G140-AstralDDA-AlaGGC-HS-1",
     }
