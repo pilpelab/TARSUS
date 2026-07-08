@@ -75,12 +75,13 @@ class TestWaitForJobsPurgedJob:
         wait_for_jobs([12345])
 
     @patch("src.tarsus.lsf.subprocess.run")
-    def test_exit_job_is_terminal(self, mock_run: MagicMock) -> None:
-        """EXIT status is terminal (job failed but is done)."""
+    def test_exit_job_raises(self, mock_run: MagicMock) -> None:
+        """EXIT status means the child job failed; do not proceed silently."""
         mock_run.return_value = MagicMock(
             stdout="EXIT", stderr="", returncode=0
         )
-        wait_for_jobs([12345])  # EXIT is not in active list → exits immediately
+        with pytest.raises(RuntimeError, match="LSF job 12345 exited with failure"):
+            wait_for_jobs([12345])
 
     @patch("src.tarsus.lsf.subprocess.run")
     def test_pend_job_then_purged_exits(self, mock_run: MagicMock) -> None:

@@ -1,2 +1,2 @@
 spectrum_title	confident
-spec1	Yes
+dev_sub:1:2	Yes

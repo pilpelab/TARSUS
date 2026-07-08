@@ -6,8 +6,9 @@ the tools directory, configurable via TARSUS_TOOLS_DIR env var.
 
 Also provides XvfbDisplay — a context manager that ensures an X11
 display is available for GUI tools (PDV) that require one. Uses the
-existing $DISPLAY if set; otherwise starts a virtual Xvfb framebuffer
-from the cluster's EasyBuild module tree (no sudo required).
+existing $DISPLAY if set; otherwise starts a self-contained virtual
+Xvfb framebuffer bundled in tools/xvfb/ (binary + its shared libs,
+no cluster module system / `module load` required, no sudo required).
 """
 
 import os
@@ -26,44 +27,29 @@ from typing import Iterator
 class XvfbDisplay:
     """Context manager that ensures an X11 display is available.
 
-    If ``$DISPLAY`` is already set, uses it as-is (no Xvfb needed).
-    Otherwise locates and starts an Xvfb virtual framebuffer on the
-    cluster's EasyBuild software tree and sets ``$DISPLAY`` accordingly.
+    If ``$DISPLAY`` is already set, uses it as-is (no Xvfb needed) —
+    this lets a user with their own X server / VNC session skip Xvfb
+    entirely. Otherwise starts the self-contained Xvfb bundled at
+    ``tools/xvfb/`` (binary + all its non-universal shared libs,
+    fetched once via ``make xvfb`` — see tools/README.md). No
+    ``module load`` and no cluster-specific paths are used at runtime.
 
     Usage::
 
         with XvfbDisplay() as display_env:
             subprocess.run(["java", "-jar", "PDV.jar", ...], env=display_env)
 
-    Raises ``RuntimeError`` if no display is available and Xvfb cannot
-    be found or started.
+    Raises ``RuntimeError`` if no display is available and the bundled
+    Xvfb cannot be found or started.
     """
 
-    _XVFB_SEARCH_PATHS = [
-        "/apps/easybd/easybuild/amd/software/Xvfb",
-    ]
-
-    def __init__(self) -> None:
+    def __init__(self, tools_dir: Path | None = None) -> None:
         self._xvfb_proc: "subprocess.Popen[bytes] | None" = None
         self._display: str | None = None
-
-    @staticmethod
-    def _find_xvfb() -> str | None:
-        """Locate the Xvfb binary.
-
-        Searches EasyBuild software tree (latest version first), then PATH.
-        """
-        for base in XvfbDisplay._XVFB_SEARCH_PATHS:
-            basepath = Path(base)
-            if not basepath.is_dir():
-                continue
-            # Sort descending so newest version is tried first
-            versions = sorted(basepath.iterdir(), reverse=True)
-            for ver_dir in versions:
-                xvfb = ver_dir / "bin" / "Xvfb"
-                if xvfb.is_file():
-                    return str(xvfb)
-        return shutil.which("Xvfb")
+        if tools_dir is None:
+            tools_dir = Path(__file__).resolve().parent.parent.parent / "tools"
+        self._xvfb_bin = tools_dir / "xvfb" / "bin" / "Xvfb"
+        self._xvfb_lib = tools_dir / "xvfb" / "lib"
 
     def __enter__(self) -> dict[str, str]:
         # If user already has a display, use it
@@ -72,29 +58,66 @@ class XvfbDisplay:
             self._display = existing
             return os.environ.copy()
 
-        xvfb_bin = self._find_xvfb()
-        if not xvfb_bin:
-            raise RuntimeError(
-                "No X11 display available and Xvfb not found. "
-                "Run: module load Xvfb && Xvfb :99 -screen 0 1024x768x24 &"
-            )
-
-        # Try display numbers starting from 99 downward
-        for disp in (":99", ":98", ":97", ":96"):
-            try:
-                self._xvfb_proc = subprocess.Popen(
-                    [xvfb_bin, disp, "-screen", "0", "1024x768x24"],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
+        xvfb_bin = self._xvfb_bin
+        if not xvfb_bin.is_file():
+            # Fall back to a system Xvfb on PATH, if any (e.g. dev laptop).
+            found = shutil.which("Xvfb")
+            if not found:
+                raise RuntimeError(
+                    f"No X11 display available and no bundled Xvfb found at "
+                    f"{xvfb_bin}. Run `make xvfb` in tools/ to fetch it, or "
+                    f"set $DISPLAY to an existing X11/VNC session."
                 )
-                time.sleep(0.3)  # Let Xvfb initialize
+            xvfb_bin = Path(found)
+            ld_lib_path = os.environ.get("LD_LIBRARY_PATH", "")
+        else:
+            # Self-contained: only our own bundled lib dir, no system paths
+            # relied upon beyond the universal libc/libm/libpthread/ld-linux
+            # baseline that every glibc Linux system already provides.
+            existing_ld = os.environ.get("LD_LIBRARY_PATH", "")
+            ld_lib_path = f"{self._xvfb_lib}:{existing_ld}" if existing_ld else str(self._xvfb_lib)
+
+        errors: list[str] = []
+        # Many PDV shard jobs may land on the same compute node. Each needs
+        # its own Xvfb display, so try a broad range rather than only the
+        # traditional :99..:96 set. Xvfb itself arbitrates races via /tmp
+        # .X*-lock files; if one candidate is busy, we move to the next.
+        display_numbers = list(range(99, 49, -1)) + list(range(100, 200))
+        for display_number in display_numbers:
+            disp = f":{display_number}"
+            proc_env = os.environ.copy()
+            proc_env["LD_LIBRARY_PATH"] = ld_lib_path
+            proc = subprocess.Popen(
+                [str(xvfb_bin), disp, "-screen", "0", "1024x768x24"],
+                env=proc_env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+            )
+            # Xvfb + its xkbcomp keymap-compile helper can take a couple of
+            # seconds to become ready; poll rather than a single fixed sleep.
+            ready = False
+            for _ in range(20):
+                time.sleep(0.3)
+                if proc.poll() is not None:
+                    break  # died
+                if Path(f"/tmp/.X11-unix/X{disp.lstrip(':')}").exists():
+                    ready = True
+                    break
+            if ready:
+                self._xvfb_proc = proc
                 self._display = disp
                 break
-            except FileNotFoundError:
-                continue
+            if proc.poll() is None:
+                proc.terminate()
+                proc.wait(timeout=5)
+            stderr = proc.stderr.read().decode(errors="replace") if proc.stderr else ""
+            errors.append(f"{disp}: {stderr.strip()}")
 
         if self._xvfb_proc is None:
-            raise RuntimeError("Failed to start Xvfb on any display port.")
+            details = "\n".join(errors) or "no candidates attempted"
+            raise RuntimeError(
+                f"Failed to start bundled Xvfb ({xvfb_bin}) on any display port:\n{details}"
+            )
 
         env = os.environ.copy()
         assert self._display is not None  # guaranteed by __enter__ branches

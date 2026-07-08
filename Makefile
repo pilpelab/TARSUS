@@ -75,6 +75,40 @@ DOTNET_DIR     := $(TOOLS_DIR)/dotnet-$(DOTNET_VERSION)
 DOTNET_BIN     := $(DOTNET_DIR)/dotnet
 DOTNET_SHA256  := 8150781339e2088da942a98d043131eb7569349856a59666352d137db5021882
 
+# ── Xvfb (self-contained virtual X11 display for headless PDV) ────────
+# PDV requires a real X11 display even in "CLI mode" (JFrame constructed
+# unconditionally). We bundle Xvfb + its X11 library closure ourselves so
+# no cluster `module load` / Lmod dependency is needed at runtime.
+# Provenance: Xvfb binary + most libs sourced from this cluster's EasyBuild
+# install (Xvfb/21.1.9-GCCcore-13.2.0 built against X11/20231019-GCCcore-13.2.0,
+# freetype/2.13.2, libpng/1.6.40, pixman/0.42.2 — same toolchain, ABI-consistent).
+# libbz2.so.1.0 (the one library missing from that build) is sourced separately
+# from conda-forge's standalone bzip2 package (public URL, pinned checksum,
+# only depends on libc — safe to mix).
+# See tools/xvfb/CHECKSUMS.sha256 for the full manifest.
+XVFB_DIR     := $(TOOLS_DIR)/xvfb
+XVFB_BIN     := $(XVFB_DIR)/bin/Xvfb
+BZ2_URL      := https://conda.anaconda.org/conda-forge/linux-64/bzip2-1.0.8-h7f98852_4.tar.bz2
+BZ2_SHA256   := cb521319804640ff2ad6a9f118d972ed76d86bea44e5626c09a13d38f562e1fa
+BZ2_TARBALL  := bzip2-1.0.8-h7f98852_4.tar.bz2
+
+# ── Xvfb (self-contained virtual X11 display for headless PDV) ────────
+# PDV requires a real X11 display even in "CLI mode" (JFrame constructed
+# unconditionally). We bundle Xvfb + its X11 library closure ourselves so
+# no cluster `module load` / Lmod dependency is needed at runtime.
+# Provenance: Xvfb binary + most libs sourced from this cluster's EasyBuild
+# install (Xvfb/21.1.9-GCCcore-13.2.0 built against X11/20231019-GCCcore-13.2.0,
+# freetype/2.13.2, libpng/1.6.40, pixman/0.42.2 -- same toolchain, ABI-consistent).
+# libbz2.so.1.0 (the one library missing from that build) is sourced separately
+# from conda-forge's standalone bzip2 package (public URL, pinned checksum,
+# only depends on libc -- safe to mix).
+# See tools/xvfb/CHECKSUMS.sha256 for the full manifest.
+XVFB_DIR     := $(TOOLS_DIR)/xvfb
+XVFB_BIN     := $(XVFB_DIR)/bin/Xvfb
+BZ2_URL      := https://conda.anaconda.org/conda-forge/linux-64/bzip2-1.0.8-h7f98852_4.tar.bz2
+BZ2_SHA256   := cb521319804640ff2ad6a9f118d972ed76d86bea44e5626c09a13d38f562e1fa
+BZ2_TARBALL  := bzip2-1.0.8-h7f98852_4.tar.bz2
+
 # ── PDV Smoke Test Data ────────────────────────────────────────────────
 PDV_TEST_DIR  := data/test-pdv
 PDV_PSM       := $(PDV_TEST_DIR)/psm_rank_small.txt
@@ -85,12 +119,12 @@ PDV_TEST_OUT  := $(PDV_TEST_DIR)/pdv_output
 # ── Targets ───────────────────────────────────────────────────────────
 
 .PHONY: setup clean java dotnet \
-        fragpipe msfragger ionquant pepquery pdv thermorawfileparser \
+        fragpipe msfragger ionquant pepquery pdv thermorawfileparser xvfb \
         test-tools test-java test-dotnet test-fragpipe test-msfragger test-ionquant \
-        test-pepquery test-pdv test-pdv-full test-thermorawfileparser \
+        test-pepquery test-pdv test-pdv-full test-thermorawfileparser test-xvfb \
         verify
 
-setup: java dotnet fragpipe msfragger ionquant pepquery pdv thermorawfileparser
+setup: java dotnet fragpipe msfragger ionquant pepquery pdv thermorawfileparser xvfb
 	@echo ""
 	@echo "All tools installed. Run 'make test-tools' to verify integrity."
 
@@ -265,6 +299,57 @@ $(DOWNLOAD_DIR)/$(DOTNET_TGZ): | $(DOWNLOAD_DIR)
 	@echo "Verifying checksum..."
 	@echo "$(DOTNET_SHA256)  $@" | sha256sum -c
 
+# ── Xvfb (verify-only — binary + libs are committed under tools/xvfb/) ────
+# The Xvfb binary + most X11 libs were extracted once from this cluster's
+# EasyBuild install and committed to the repo (see provenance note above).
+# This target only verifies checksums and fetches the one library that IS
+# publicly downloadable (libbz2, from conda-forge).
+
+xvfb: $(XVFB_BIN) $(XVFB_DIR)/lib/libbz2.so.1.0
+	@echo "Verifying Xvfb bundle checksums..."
+	@(cd $(XVFB_DIR) && sha256sum -c CHECKSUMS.sha256)
+	@echo "Xvfb bundle ready at $(XVFB_DIR)"
+
+$(XVFB_BIN):
+	@if [ ! -f "$@" ]; then \
+		echo "Xvfb binary missing at $@"; \
+		echo "This is committed in the repo under tools/xvfb/bin/ — check git tracking."; \
+		echo "To rebuild from scratch on a machine with an EasyBuild-style Xvfb"; \
+		echo "install, copy the binary + its ldd closure (excluding libc/libm/"; \
+		echo "libdl/libpthread/ld-linux) into tools/xvfb/{bin,lib}/."; \
+		exit 1; \
+	fi
+
+$(XVFB_DIR)/lib/libbz2.so.1.0: $(DOWNLOAD_DIR)/$(BZ2_TARBALL)
+	@if [ -f "$@" ]; then \
+		echo "libbz2 already present, skipping"; \
+	 else \
+		mkdir -p $(DOWNLOAD_DIR)/bz2_extract; \
+		tar -xjf $< -C $(DOWNLOAD_DIR)/bz2_extract; \
+		cp -L $(DOWNLOAD_DIR)/bz2_extract/lib/libbz2.so.1.0 $@; \
+		rm -rf $(DOWNLOAD_DIR)/bz2_extract; \
+		echo "libbz2 ready at $@"; \
+	fi
+
+$(DOWNLOAD_DIR)/$(BZ2_TARBALL): | $(DOWNLOAD_DIR)
+	@echo "Downloading bzip2 (conda-forge, standalone)..."
+	curl -fSLo $@ $(BZ2_URL)
+	@echo "Verifying checksum..."
+	@echo "$(BZ2_SHA256)  $@" | sha256sum -c
+
+test-xvfb: $(XVFB_BIN)
+	@echo "Testing self-contained Xvfb (no module load, own lib/ only)..."; \
+	LD_LIBRARY_PATH="$(XVFB_DIR)/lib" $(XVFB_BIN) :95 -screen 0 1024x768x24 >/dev/null 2>&1 & PID=$$!; \
+	ready=0; \
+	for i in 1 2 3 4 5 6 7 8 9 10; do \
+		sleep 0.3; \
+		kill -0 $$PID 2>/dev/null || break; \
+		[ -e /tmp/.X11-unix/X95 ] && { ready=1; break; }; \
+	done; \
+	kill $$PID 2>/dev/null; wait $$PID 2>/dev/null; \
+	if [ $$ready -eq 1 ]; then echo "  Xvfb: OK (self-contained, display ready)"; \
+	else echo "  Xvfb: FAILED (did not become ready)"; exit 1; fi
+
 # ── PDV Smoke Test ─────────────────────────────────────────────────────
 
 test-pdv: $(PDV_JAR) $(JAVA_BIN)
@@ -272,11 +357,13 @@ test-pdv: $(PDV_JAR) $(JAVA_BIN)
 	@echo "  Run 'make test-pdv-full' to test PDV with Xvfb + sample data."
 
 .PHONY: test-pdv-full
-test-pdv-full: $(PDV_JAR) $(JAVA_BIN)
-	@echo "Running PDV full integration test (Xvfb + sample data)..."; \
+test-pdv-full: $(PDV_JAR) $(JAVA_BIN) $(XVFB_BIN)
+	@echo "Running PDV full integration test (self-contained Xvfb + sample data)..."; \
 	rm -rf $(PDV_TEST_OUT); mkdir -p $(PDV_TEST_OUT); \
-	bash -c 'set +eu; module load Xvfb 2>/dev/null; command -v Xvfb >/dev/null || { echo "  SKIP: module load Xvfb failed"; exit 0; }; \
-		Xvfb :99 -screen 0 1024x768x24 & PID=$$!; sleep 1; export DISPLAY=:99; \
+	bash -c 'set +eu; \
+		LD_LIBRARY_PATH="$(XVFB_DIR)/lib" $(XVFB_BIN) :99 -screen 0 1024x768x24 & PID=$$!; \
+		for i in 1 2 3 4 5 6 7 8 9 10; do sleep 0.3; kill -0 $$PID 2>/dev/null || break; [ -e /tmp/.X11-unix/X99 ] && break; done; \
+		export DISPLAY=:99; \
 		JAVA_HOME=$(JDK_DIR) $(JAVA_BIN) -jar $(PDV_JAR) \
 			-r $(PDV_PSM) -rt 4 -s $(PDV_MGF) -st 1 -i $(PDV_PEP) \
 			-k p -o $(PDV_TEST_OUT) -ft png >/dev/null 2>&1; rc=$$?; \
@@ -323,7 +410,7 @@ test-thermorawfileparser: $(TRFP_BIN)
 	echo -n "  ThermoRawFileParser: "; \
 	( $(TRFP_BIN) --help || true ) 2>&1 | grep -q "Usage" && echo "OK" || { echo "FAILED"; exit 1; }
 
-test-tools: test-java test-dotnet test-fragpipe test-msfragger test-ionquant test-pepquery test-pdv test-thermorawfileparser
+test-tools: test-java test-dotnet test-fragpipe test-msfragger test-ionquant test-pepquery test-pdv test-thermorawfileparser test-xvfb
 	@echo ""
 	@echo "All tool checks complete."
 
@@ -339,7 +426,8 @@ verify:
 	@test -f $(PQ_JAR) && test -d $(PQ_LIB) && echo "  PepQuery: OK" || echo "  PepQuery: MISSING"
 	@test -f $(PDV_JAR) && echo "  PDV: OK" || echo "  PDV: MISSING"
 	@test -f $(TRFP_BIN) && echo "  ThermoRawFileParser: OK" || echo "  ThermoRawFileParser: MISSING"
+	@test -f $(XVFB_BIN) && echo "  Xvfb: OK" || echo "  Xvfb: MISSING"
 
 clean:
 	rm -rf $(DOWNLOAD_DIR) $(FP_DIR) $(TOOLS_DIR)/pepquery-$(PQ_VERSION) $(TOOLS_DIR)/PDV-2.1.2 $(TOOLS_DIR)/PDV-2.2.3 $(TRFP_DIR) $(JDK_DIR) $(DOTNET_DIR)
-	@echo "Cleaned all downloaded tools. (PDV 2.1.2 JAR is bundled — restore with git checkout)"
+	@echo "Cleaned all downloaded tools. (PDV 2.1.2 JAR and tools/xvfb/ are bundled — restore with git checkout)"

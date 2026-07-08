@@ -125,15 +125,19 @@ def step03a_first_pass(
     # 1. Generate target-decoy FASTA (FragPipe requires decoys in the FASTA)
     decoy_fasta = _make_decoy_fasta(fasta_path, output_dir)
 
-    # 2. Patch workflow template with the decoy FASTA path
+    # 2. Patch workflow template: decoy FASTA path + disable MSBooster
     first_workflow = output_dir / "first.workflow"
     with workflow_template.open("r") as f:
         content = f.read()
     db_line = f"database.db-path={decoy_fasta.resolve()}"
-    content = re.sub(
-        r"^database\.db-path=.*$", db_line,
-        content, count=1, flags=re.MULTILINE,
-    )
+    patches: list[tuple[str, str]] = [
+        (r"^database\.db-path=.*$", db_line),
+        (r"^msbooster\.run-msbooster=.*$", "msbooster.run-msbooster=false"),
+        (r"^msbooster\.predict-rt=.*$", "msbooster.predict-rt=false"),
+        (r"^msbooster\.predict-spectra=.*$", "msbooster.predict-spectra=false"),
+    ]
+    for pattern, replacement in patches:
+        content = re.sub(pattern, replacement, content, count=1, flags=re.MULTILINE)
     with first_workflow.open("w") as f:
         f.write(content)
 

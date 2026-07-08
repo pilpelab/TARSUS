@@ -1,2 +1,2 @@
 peptide	Spectrum_Title	ions
-PEPTIDE	spec1	[b3, y4+++, b5]
+VARIANT	dev_sub:1:2	[b4, b5]

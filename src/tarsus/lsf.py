@@ -78,6 +78,8 @@ def wait_for_jobs(job_ids: list[int], poll_seconds: int = 30) -> None:
                 continue
             if status in ("RUN", "PEND", "WAIT"):
                 active.append(jid)
+            elif status == "EXIT":
+                raise RuntimeError(f"LSF job {jid} exited with failure")
         if not active:
             break
         time.sleep(poll_seconds)

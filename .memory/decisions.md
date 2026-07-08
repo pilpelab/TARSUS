@@ -1,5 +1,348 @@
 # Decisions Log
 
+## D-046: Option A (Targeted PepQuery) Blocked by a Deeper Issue — PepQuery's Own Index Precursor Mass Disagrees with FragPipe's Assigned Mass
+**Date:** 2026-07-07
+**Status:** Open. User chose Option A; this entry records why it is not yet implementable and is a pre-existing characteristic of the reference method, not a TARSUS_BC porting bug.
+**Context:** Following D-045's NPE discovery, continued live experimentation (scratch-only, no production files touched) to see if Option A could actually be made to work.
+
+**Fix found and confirmed:** The `NullPointerException` in D-045 Finding 4 is caused specifically by requesting PepQuery modification ID 33 ("Acetylation of *protein* N-term") in `-varMod`, which requires protein-mapping context that novel/candidate peptides don't have (`PeptideUtils.isNterm` → `Peptide.getProteinMapping()` is null for a peptide absent from `-db`). Substituting modification ID 5 ("Acetylation of *peptide* N-term", same +42.0106 Da mass, but "Peptide N-term" context — no protein mapping needed) eliminates the crash entirely (`-varMod 2,5` instead of `-varMod 2,33`). This is a real, usable fix.
+
+**New, more serious finding:** Even with the NPE fixed, live targeted-mode runs still returned "Matched spectra: 0". Root cause: Step 2's PepQuery index is built via **PepQuery's own `index -r -i <mzml> -o <dir>` command** (`step02_make_index.py:127-134` — this exactly matches the reference `make_index.sh`, so it is not a TARSUS_BC-introduced difference). PepQuery computes its own precursor monoisotopic mass/charge for every spectrum from the mzML during indexing, entirely independently of FragPipe/MSFragger's own mass assignment for the PSM it reports in `psm.tsv`. Measured directly on 28 of 30 Step 3c candidates (2 titles not found in the sampled index subset): the PepQuery-index-recorded neutral mass vs. FragPipe's `Calculated Peptide Mass` for the *same native scan* disagree by anywhere from **-162 Da to +943 Da**, with only 2/28 candidates agreeing to within ~1 Da. This is far outside any plausible modification-adjusted tolerance (the workflow's own enabled variable mods only span +15.99/+42.01 Da) — it reflects PepQuery's monoisotopic-peak-picking/deisotoping algorithm disagreeing with MSFragger's, likely because this is complex Orbitrap Astral DDA data with dense isotope envelopes. PepQuery's targeted search still filters candidate spectra by *its own* recorded precursor mass against the query peptide's theoretical mass (`-tol`/`-itol`), so even a perfectly-titled, perfectly-mapped target spectrum is invisible to it whenever this disagreement exceeds tolerance — which is most of the time in this dataset.
+
+**This is not a new bug we introduced.** The reference pipeline built its PepQuery index the identical way (`pepquery-2.0.2.jar index -r -i <mzml_dir> -o <output>` in `make_index.sh`) and its `query_psm.sh` also relies on PepQuery's own precursor-mass filtering during targeted search. Whether the reference pipeline's targeted validation ever actually worked well is now an open question — this mass-disagreement issue may have always existed but gone unnoticed, or the reference's original FragPipe 23.1 + non-Astral(?) data may have had much better PepQuery/FragPipe mass agreement than FragPipe 24.0 + this Orbitrap Astral DDA trial dataset.
+
+**Decision:** Per `superpowers:systematic-debugging`'s "3+ failed fixes → question the architecture" rule — title format, `-varMod`, `-indexType`, and `-s` task type have all been tried and tuned, and the blocker persists for a structural reason unrelated to any of them. Do not attempt further ad hoc PepQuery flag tuning. Before any further Option A implementation work, this needs an explicit decision from the user on how to proceed, e.g.:
+  (a) widen `-tol`/`-itol` drastically for the targeted call (scientifically weaker, converges toward Option C anyway),
+  (b) investigate replacing PepQuery's self-computed index masses with FragPipe's own assigned masses (would require a custom MGF/index-writer instead of PepQuery's `index` subcommand — nontrivial engineering, diverges from both reference and current implementation),
+  (c) accept Option C (hybrid proximity) as the practical near-term path, since it does not depend on PepQuery's internal precursor-mass agreement at all — it only needs peptide-level open-search hits (already working) plus RT/mass/charge/file proximity computed directly from FragPipe's own numbers.
+**No code changed.** All testing was against scratch copies/single MGF files; `output/trial/` and `src/tarsus/` are untouched.
+
+## D-045: Step 4/5→7 Lineage Forensics — D-032's Stated Cause Is Wrong; Targeted PepQuery Hits a New PepQuery Bug
+**Date:** 2026-07-07
+**Status:** Open — forensics complete, repair strategy not yet implemented. Supersedes D-044's open question with concrete findings.
+**Context:** D-044 identified the Step 7 zero-row blocker as a Step 4/5→7 lineage contract break and required a forensic session (per `.planning/step07-lineage-repair.md`) before choosing a repair. This entry records that session's findings.
+
+**Finding 1 — D-032's root cause claim is false.** Directly verified (5 sampled scans: 2213, 2702, 3091, 3193, 3482) that FragPipe 24.0's `Spectrum` column scan number in `03c_second_pass/second/psm.tsv` **exactly matches** the native `scan=` number in the corresponding `_sub.mzML` file (cross-checked via retention time and charge). There is no FragPipe/mzML scan-number mismatch. D-032's stated justification for switching Step 4/5 to peptide-only open search was incorrect (or at least never verified).
+
+**Finding 2 — the real title-format bug was `_sub` stripping, and it's already fixed in Step 7.** PepQuery's own index MGF `TITLE=` lines (`output/trial/02_index/pepquery_index/*.mgf`) and Step 5's `psm_rank.txt` `spectrum_title` column both use the format `<file>_sub:<scan>:<charge>` — `_sub` **preserved**. The reference `extract_psm.py` strips `_sub` (`file_name = d[0].split('_sub')[0]`), which would have produced titles that never match this index. Step 7's current `_spectrum_to_title()`/`_normalize_spectrum_title()` (fixed same day, see progress.md 2026-07-07 session) already compute the correct `file_sub:scan:charge` form. This means a deterministic mapping from Step 3c's `Spectrum` column to PepQuery's indexed titles **does exist** and is already implemented correctly in Step 7 — it was just never wired into Step 4/5's PepQuery input.
+
+**Finding 3 — most Step 3c candidates carry unaccounted-for modifications.** Sampled 5,000 Step 3c positive-intensity rows: **4,330 (86.6%)** have `Modified Peptide` != `Peptide` (mainly `n[43]` protein N-term acetylation, +42.0106 Da, and M oxidation, +15.9949 Da — both enabled in `fragpipe-second-pass.workflow`'s `var-mods` table). A naive targeted PepQuery call using bare `Peptide` text and PepQuery's defaults (`-varMod 2` oxidation only) computes precursor-mass bins from the *unmodified* mass and misses the real spectrum's bin entirely (confirmed: candidate GVAEQAR/scan 3193 computed bins ~7274–7324, none of which exist in the 24,944-bin index; the real spectrum lives in bin 9344, matching its *actual* recorded mass). Fixed by passing `-varMod 2,33` (Oxidation of M; Acetylation of protein N-term, per `pepquery -printPTM`) — this eliminated the "file doesn't exist" bin warnings entirely.
+
+**Finding 4 — new blocker: PepQuery 2.0.2 throws in its targeted-PSM-input code path for novel peptides.** Live experiment (`java -jar pepquery-2.0.2.jar ... -i <peptide>\t<spectrum_title> ...`, format (4) as documented by `pepquery -h`, matching what the reference `query_psm.sh` also does): even with correct `_sub`-preserving titles, correct `-varMod`, and `-indexType 2` (spectrum title, not 1-based index) set explicitly, PepQuery's `generatePeptideInputs` step threw `NullPointerException: Cannot invoke "TreeMap.keySet()" because ... "Peptide.getProteinMapping()" is null` for the tested candidate peptides, and every run terminated with `Matched spectra: 0` / `Peptides with matched spectra: 0`. This reproduced across a 30-candidate batch and a single hand-picked candidate/spectrum pair (GVAEQAR / scan 3193, confirmed physically present in the index). **This NPE does not occur** in the current production peptide-only open-search invocation (verified against real `output/trial/05_pepquery/pepquery_logs/chunk_1104.tsv.log`, which completes cleanly: "Matched spectra: 57", "Peptides with matched spectra: 8"). The NPE is specific to giving PepQuery the two-column peptide+spectrum-title `-i` input for peptides absent from the reference FASTA (i.e., exactly the novel/substituted peptides this pipeline needs to validate) — an apparent bug or unsupported combination in PepQuery 2.0.2's targeted-validation code path, not a data or config error on our side.
+
+**Decision:** Do not implement Option A (restore targeted lineage) yet — it is blocked by Finding 4, a PepQuery-internal issue requiring its own investigation (candidates: decompile `PeptideSearchMT.generatePeptideInputs`/`Peptide.getProteinMapping()` to find the exact null condition; try `-s 2` known-peptide mode; check for a newer PepQuery patch release; or pad `-db` with `03b_candidates/pep_candidates.fa` to see if giving novel peptides a "protein mapping" avoids the null). Do not implement Option B/D-032-as-is silently either — Findings 1-2 show its premise was wrong, so keeping pure peptide-only open search means Step 7 is validating "some spectrum somewhere," not the Step 3c-identified spectrum, and this was never an explicit, reviewed scientific choice.
+**Recommended near-term path:** Option C (hybrid proximity acceptance) using the **existing, already-working** peptide-only open-search results (`05_pepquery`/`06_aggregated` as they exist today — no rerun needed) filtered by file/charge/retention-time/precursor-mass proximity to each Step 3c candidate's own spectrum, since ~23,171 of 45,678 candidate peptides already have *some* open-search hit in Step 6 (peptide-only overlap per D-044). This unblocks Step 7 without waiting on the PepQuery bug, and is honestly weaker evidence than exact-spectrum validation — it should be presented to the user as an explicit scientific-method choice before implementing, per D-044's Phase 2 instruction not to silently redesign Step 7.
+**Rationale:** Systematic debugging (per `superpowers:systematic-debugging`) requires root-causing before fixing. The forensic session fully confirmed the reference lineage contract (targeted validation, `_sub`-preserving titles) and proved it is technically implementable end-to-end *except* for a newly discovered PepQuery library bug that blocks the exact-spectrum path for novel peptides — a materially different and more specific blocker than D-032/D-044 had assumed.
+**Next steps if Option A is pursued later:** modify `src/tarsus/steps/step04_extract_psm.py` to write `peptide\tspectrum_title` (title format = current `_spectrum_to_title()` logic, i.e. preserve `_sub`); modify `src/tarsus/steps/step05_query_psm.py` to pass `-indexType 2 -varMod 2,33 -maxVar 4` and the two-column chunk file; but only after resolving Finding 4's NPE. **Sentinels to invalidate:** `04_psm_input/`, `05_pepquery/`, `06_aggregated/`, `07_analyze/`, `08_base_input/` (Steps 1-3c are unaffected and must be preserved).
+**Next steps if Option C is pursued instead:** modify `src/tarsus/steps/step07_analyze_outputs.py`'s join logic to add proximity-based acceptance (file name + charge equality, RT/precursor-mass tolerance windows) alongside (or instead of) the exact spectrum-title join; no Step 4/5/6 changes or reruns needed, only Step 7 onward. **Sentinels to invalidate:** `07_analyze/` through `11_localized/` only.
+
+## D-044: Step 7 Blocker Is a Step 4/5→7 Lineage Contract Break, Not Step 6 Corruption
+**Date:** 2026-07-07
+**Status:** Open design blocker; do not work around silently.
+**Context:** The trial run now completes Steps 1-6 and produces a complete Step 6 PDV report, but Step 7 outputs `subs.ipc` with 0 rows. Step 8 then creates no base-rescoring input files and orchestration correctly stops before Steps 9-11 (D-043). The user suspected Step 6/PDV sharding was corrupting or losing evidence.
+**Investigation:** Audited the current `output/trial/06_aggregated/` artifacts:
+- `psmrankall.txt`: 617,573 data rows; 158,476 unique `(spectrum_title, peptide)` pairs.
+- `pdv_spectra/PDVExportResult.txt`: 617,573 data rows; 158,476 unique `(Spectrum_Title, peptide)` pairs.
+- Pair-set difference between `psmrankall.txt` and PDV export is zero in both directions.
+- Full `(spectrum_title, peptide)` multiplicity counters are exactly equal between `psmrankall.txt` and PDV export.
+- Step 3c second-pass positive rows / unique pairs: 45,678.
+- Exact Step 3c `(spectrum_title, dependent peptide)` overlap with Step 6 `psmrankall.txt`: 0.
+- Exact Step 3c overlap with Step 6 PDV export: 0.
+- Spectrum-only Step 3c overlap with Step 6 PDV: 2,069.
+- Peptide-only Step 3c overlap with Step 6 PDV: 23,171.
+**Decision:** Treat the blocker as a lineage contract break introduced by D-032's peptide-only/open-search workaround, not as Step 6 data corruption. Step 4 currently writes only peptide sequences for PepQuery; Step 5 validates those peptides in open-search mode (`-aa`) against any indexed spectrum; Step 7 still assumes the original FragPipe second-pass spectrum title can be joined exactly to PepQuery/PDV spectrum titles. That assumption is invalid under the current Step 4/5 contract.
+**Rationale:** Step 6 faithfully transforms Step 5 output into PDV ion evidence. The exact pairs Step 7 wants are already absent from Step 5/6 input, so rerunning Steps 1-6 cannot fix the issue. The pipeline must either restore targeted spectrum lineage or explicitly redesign Step 7 around open-search evidence with scientific approval.
+**Required next step:** Run a focused design/forensics session before changing pipeline behavior. Priority order:
+1. Re-read original reference `extract_psm.py`, `query_psm.sh`, and `analyze_outputs.py` to confirm the intended lineage contract.
+2. Audit title namespaces from FragPipe Step 3c, PepQuery index MGF titles, Step 5 `psm_rank.txt`, and PDV export.
+3. Test whether a deterministic mapping can restore targeted PepQuery from Step 3c spectra to PepQuery indexed spectra.
+4. If mapping is possible, restore targeted lineage in Steps 4/5 and keep Step 7's exact-pair evidence model.
+5. If mapping is impossible, choose between an explicit open-search Step 7 redesign or a hybrid acceptance rule using file/charge/retention-time/precursor-mass proximity. Do not silently implement either as a bugfix because both change the scientific method.
+
+## D-043: Do Not Mark Downstream Done When Step 8 Has No Base-Rescoring Inputs
+**Date:** 2026-07-07
+**Status:** Corrects/supersedes the earlier same-day empty-result fast path.
+**Context:** After Step 6 produced a complete PDV report, Step 7 initially
+produced `subs.ipc` with 0 rows, Step 8 created no base-rescoring input chunks,
+and the first implementation marked Steps 9-11 `.done` with empty placeholder
+outputs. The user correctly flagged this as unsafe: it can hide upstream
+spectrum-title/peptide-lineage bugs and gives the appearance of a valid full run
+when expected downstream files are absent.
+**Decision:** Remove the empty-result fast path. Orchestration now raises a
+`RuntimeError` if Step 8 produces no files in `08_base_input/pepquery_input_base/`,
+stopping before Steps 9-11 and instructing the operator to inspect Step 7 lineage
+and candidate counts. The invalid prior outputs (`07_analyze` through
+`11_localized`) were moved to `output/trial/invalid_empty_downstream_*/`; Steps
+1-6 were left intact.
+**Rationale:** A true empty scientific result may eventually need an explicit,
+well-designed final-output contract, but it must not be inferred silently from
+missing intermediate inputs. Failing loudly is safer until Step 7 candidate
+lineage is proven correct.
+**Verification:** Real LSF rerun job 30275 (2026-07-07) resumed at Step 7,
+produced `07_analyze/.done` and `08_base_input/.done`, then stopped with the
+intended RuntimeError after Step 8 produced no `pepquery_input_base` chunks. No
+`.done` files were created for Steps 9, 10, or 11.
+
+## D-042: Step 7 Memory Optimization + Master Memory Default
+**Date:** 2026-07-07
+**Context:** Step 7 initially exceeded 4GB and then 32GB LSF memory while loading
+large Step 6 tables (`ptmall.txt` ~9.4GB, `psmrankall.txt`, PDV report). The
+eager `pl.read_csv()` calls materialized many unused columns.
+**Decision:** Step 7 now reads only columns it actually uses:
+- `ptmall.txt`: `peptide`, `spectrum_title`, `ptm_peptide`, `ptm_modification`,
+  `ptm_score`.
+- `psmrankall.txt`: `spectrum_title`, `confident`.
+- `PDVExportResult.txt`: `Spectrum_Title`, `peptide`, `ions`.
+Also added `--memory` to `tarsus run`, defaulting the master orchestration job
+to 32GB because Steps 7-11 are not lightweight for full datasets.
+**Rationale:** This preserves scientific behavior while reducing memory pressure
+substantially. On the trial data, Step 7 max memory fell to ~9GB and completed.
+The CLI memory option allows future runs to tune the master job without code
+edits.
+
+## D-041: PDV Report Mode + Shard Failure Safety
+**Date:** 2026-07-07
+**Context:** The initial sharded Step 6 implementation used `-ft pdf`, matching
+the active line in the reference `aggregate_query.sh`, but PDV source shows
+`PDVExportResult.txt` is only written when `-ft report`. Step 7 consumes
+`PDVExportResult.txt`; PDFs are not used downstream. Sharded runs also revealed
+that failed PDV shards may leave partial report files behind, and the old LSF
+polling helper treated `EXIT` as merely terminal.
+**Decision:** Step 6 production PDV runs now use `-ft report`, not `-ft pdf`.
+Shard resume/merge treats an export as reusable only if the shard log has no
+failure markers (`Traceback`, `Exited with exit code`, etc.). `wait_for_jobs()`
+now raises immediately on `EXIT`, preventing partial child-job output from being
+merged silently. `XvfbDisplay` now tries a broad display-number range so dozens
+of shard jobs can coexist on one compute node without `:99..:96` exhaustion.
+**Rationale:** The pipeline's required PDV artifact is the ion report, not image
+figures. Failing fast on child-job failures and refusing partial shard reports
+prevents incomplete PDV ion annotations from contaminating Step 7 confidence
+filtering.
+
+## D-040: Inherited Duplicate `(peptide, spectrum_title)` Ion-Annotation Overwrite Caveat
+**Date:** 2026-07-07
+**Context:** Step 7 builds a nested dict from PDV's `PDVExportResult.txt` using
+`pdv_export[peptide][spectrum_title] = ions`. This silently overwrites earlier
+rows when multiple PDV export rows share the same `(peptide, spectrum_title)`
+key. The current real dataset has substantial duplication at this level:
+617,573 PSM rows, 158,476 unique `(peptide, spectrum_title)` pairs, and 71,843
+pairs occurring more than once. This matters scientifically because Step 7's
+final two-fragment coverage filter uses the surviving ion string for that key;
+a different surviving duplicate could theoretically flip pass/fail for a
+candidate.
+**Investigation:** Confirmed this is not a new porting/sharding artifact. The
+original reference pipeline has the same silent overwrite behavior at
+`/home/labs/pilpel/elizabev/TARSUS/analyze_outputs.py:120`:
+`psmdict[psm['peptide']][psm['Spectrum_Title']] = ionseries`.
+PDV itself also writes PDFs with filenames based only on
+`spectrumTitle + "_" + peptide + ".pdf"`, so duplicate PDFs collide in the
+same last-write-wins style. PDV internally disambiguates repeated spectrum
+rows as `spectrum_title + "_rank_" + N`, but that rank suffix is only a
+HashMap key and is not written to `PDVExportResult.txt`.
+**Decision:** Do not silently change this scientific behavior in the port. Keep
+compatibility with the reference pipeline and document/report the caveat. Any
+future fix (e.g. carrying rank/modification through PDV export or aggregating
+all duplicate ion strings instead of overwriting) would change downstream
+confidence calls and needs explicit scientific review.
+**Rationale:** Scope discipline and scientific reproducibility: the current
+pipeline should first reproduce/reference-match the inherited method. Fixing
+this may be worthwhile, but it is a methodological change, not a safe bugfix.
+
+## D-039: PDV Parallelization by LSF Sharding, Grouped by `spectrum_title`
+**Date:** 2026-07-07
+**Context:** PDV has no usable thread/parallelism flag. Decompilation of
+`PDVCLIMainClass` and CLI experiments confirmed the CLI accepts no worker-count
+option; `-Djava.awt.headless=true` also cannot avoid GUI construction. A single
+PDV process processes the real Step 6 dataset too slowly (~4 PDFs/sec observed)
+and, when run inside the 4GB master job, can exceed LSF's memory limit because
+Python + a 4GB PDV JVM share the same LSF cgroup.
+**Decision:** Parallelize PDV externally in Step 6 by splitting `psmrankall.txt`
+rows into shards and submitting one `_pdv_worker.py` LSF child job per shard.
+Each shard gets its own rank file, peptide list, output directory, LSF memory
+reservation, and JVM heap. After all shard jobs finish, Step 6 merges
+`PDVExportResult.txt` with a single header and moves PDFs into the final
+`pdv_spectra/` directory.
+**Important refinement:** Shards are grouped by `spectrum_title`, not by raw row
+number alone. All rows for one spectrum stay in the same PDV process. This does
+not fix D-040's inherited duplicate overwrite behavior, but it avoids adding a
+new source of cross-shard nondeterminism to it.
+**Rationale:** This is the only practical speedup path without modifying PDV
+source. It also fixes the observed master-job memory-limit failure because the
+heavy JVMs now run as child LSF jobs with independent reservations instead of
+inside the master's 4GB envelope. Tests now monkeypatch `submit_bsub` and
+`wait_for_jobs` to guarantee unit tests never submit real LSF jobs.
+
+## D-037: Self-Contained Xvfb Bundle (supersedes D-036's module-load approach)
+**Date:** 2026-07-06
+**Context:** D-036 (same day, superseded within hours) fixed Xvfb startup by
+shelling out to `module load Xvfb/<ver>` before launching the binary. This
+worked, but ties the pipeline to this cluster's EasyBuild/Lmod module system
+— violating D-004 (self-contained tool distribution, no cluster-specific
+dependencies). The user flagged this immediately.
+**Investigation (in order):**
+1. **Checked if PDV has a real headless mode.** No: `-Djava.awt.headless=true`
+   still throws `HeadlessException`. `PDVCLIMainClass`'s constructor
+   unconditionally does `new JFrame(...)`, and Java's headless mode
+   categorically forbids `Window`/`Frame` construction — there is no flag or
+   property that bypasses this. Confirmed on both PDV 2.1.2 and 2.2.3.
+2. **Checked if Xvfb is part of the original reference pipeline.** No:
+   `TARSUS_elizabev/aggregate_query.sh` calls `java -jar PDV....jar` directly
+   with zero display handling. The original author must have run this
+   interactively with a real/forwarded X11 session (e.g. `ssh -X`). Xvfb was
+   entirely our own addition (D-020) to support unattended LSF batch
+   execution, and was never actually load-bearing tested outside a shell
+   that happened to have `module load` already active.
+3. **Tried conda-forge's `xorg-x11-server-xvfb` packages** (both the plain
+   `-conda-x86_64` variant and the portable `-cos7-x86_64` CDT baseline
+   variant, via a throwaway `micromamba` env — used only as a build-time
+   fetch tool, not a runtime dependency). Both are missing `libXfont2.so.2`,
+   `libXdmcp.so.6`, and `libcrypto.so.10`. `libXfont2` is not published as a
+   standalone package on conda-forge at all — a real, unfixable gap in that
+   feedstock. Dead end.
+4. **Vendored the working EasyBuild build ourselves.** The EasyBuild
+   `Xvfb/21.1.9-GCCcore-13.2.0` binary resolves every dependency except
+   `libbz2.so.1.0` (confirmed via `ldd`). Copied the binary + its full
+   non-universal `.so` closure (`libX11`, `libXext`, `libXau`, `libXdmcp`,
+   `libxcb`, `libXfont2`, `libfontenc`, `libfreetype`, `libpng16`,
+   `libpixman-1`, `libxshmfence`) into `tools/xvfb/{bin,lib}/`. Sourced
+   `libbz2.so.1.0` separately and safely from conda-forge's standalone
+   `bzip2` package (public URL, pinned SHA256, only depends on `libc`).
+   Discovered and fixed a second missing piece during testing: Xvfb forks a
+   helper binary (`xkbcomp`) at startup to compile the keyboard map; that
+   helper needed `libxkbfile.so.1`, also copied from the same EasyBuild X11
+   tree (matching toolchain version, ABI-consistent with the rest).
+**Decision:** `tools/xvfb/` is now a committed, self-contained bundle (7.1 MB,
+14 files, checksums in `tools/xvfb/CHECKSUMS.sha256`). `XvfbDisplay` in
+`src/tarsus/env.py` was rewritten to launch `tools/xvfb/bin/Xvfb` directly
+with `LD_LIBRARY_PATH` pointed only at `tools/xvfb/lib/` — no `module load`,
+no Lmod, no cluster-specific paths at runtime. `$DISPLAY`, if already set
+(e.g. user's own X11/VNC session), is still honored and skips Xvfb entirely.
+Added `make xvfb` / `make test-xvfb` targets (Makefile) matching the existing
+JDK/.NET bundling pattern; `.gitignore` updated to track `tools/xvfb/` despite
+the blanket `tools/**` ignore (same exception pattern as the PDV JAR).
+**Rationale:** Matches D-004's self-containment principle exactly — anyone
+cloning the repo gets a working headless PDV without needing this specific
+cluster's module system. The EasyBuild-sourced files are pinned by checksum
+for reproducibility but were extracted from a live cluster install rather
+than a public URL; this is documented as a known limitation in
+`tools/README.md` (a lab on a different cluster without an equivalent Xvfb
+build would need to redo the one-time extraction, or just set `$DISPLAY`).
+**Verification:** `make test-xvfb` passes (display becomes ready standalone).
+Ran the actual PDV command from the stalled pipeline run (125370) against it:
+the `HeadlessException`/`AWTError` is completely gone. A *different*,
+unrelated bug surfaced one layer deeper — see D-038.
+
+## D-038 (RESOLVED 2026-07-06, same day): PDV `TextImport.parseTextFile` ArrayIndexOutOfBoundsException
+**Date:** 2026-07-06
+**Context:** With D-037's Xvfb fix in place, re-running the exact PDV command
+that pipeline run 125370 hung on (Step 6, `output/trial/06_aggregated/`)
+produces a new failure, one layer past the display problem:
+```
+Exception in thread "main" java.lang.ArrayIndexOutOfBoundsException: Index 3
+out of bounds for length 1
+    at PDVCLI.TextImport.parseTextFile(TextImport.java:119)
+    at PDVCLI.TextImport.<init>(TextImport.java:80)
+    at PDVCLI.PDVCLIMainClass.importFile(PDVCLIMainClass.java:676)
+```
+This strongly suggests PDV is trying to parse `psmrankall.txt` (or
+`peptides.txt`) expecting more tab-separated columns than are present on at
+least one line — likely a format mismatch between what our Step 6
+aggregation logic (`step06_aggregate_query.py`) produces and what PDV's
+`TextImport` parser expects for the `-i` (peptide list) or `-r` (rank
+results) input.
+**Also observed:** after throwing this exception, the JVM does not exit —
+the process hangs indefinitely (observed via `subprocess.run(..., timeout=120)`
+timeout, and a 300s timeout in an earlier test). This means in production,
+Step 6 would not fail fast; it would hang until LSF's queue wall-time limit
+kills it. Worth wrapping the Step 6 PDV subprocess call with an explicit
+`timeout=` in `step06_aggregate_query.py` regardless of the root-cause fix
+below.
+**Root cause confirmed:** `grep -c "^$" psmrankall.txt` returned exactly
+4568 — matching the PepQuery chunk count. Decompiled `TextImport.class`
+with CFR to confirm the exact mechanism: `getParameters()` reads the header
+row of the `-r` file (`psmrankall.txt`) and maps column names
+(`spectrum_title`, `peptide`, `modification`, `charge`) to indices;
+`parseTextFile()` then indexes into every subsequent line by those fixed
+indices. `step06_aggregate_query.py`'s concatenation logic
+(`content.split("\n")` on a newline-terminated file always yields a trailing
+empty string; stripping the header via `lines[1:]` for `i > 0` files left
+that trailing empty string as a lone blank line for every chunk with a
+header-only, zero-match `psm_rank.txt`) produced exactly one stray blank
+line per zero-match chunk. A blank line splits by `\t` into a length-1
+array; PDV unconditionally indexes `values[3]`/`values[4]` →
+`ArrayIndexOutOfBoundsException: Index 3 out of bounds for length 1`. Exact
+match confirmed.
+**Fix applied:** filter `if line.strip()` when building the `lines` list for
+both the `psmrankall.txt` and `ptmall.txt` concatenation loops in
+`step06_aggregate_query.py`. Verified: regenerated `psmrankall.txt` has 0
+blank lines (previously 4568). 5/5 unit tests + mypy pass.
+**Also fixed (robustness, same function):** added an explicit `timeout=`
+to the PDV `subprocess.run()` call, since the JVM was observed not exiting
+reliably after an uncaught exception (would otherwise hang until LSF's
+wall-time limit). Initial value (1800s) was too conservative for
+production-scale data and had to be raised to 28800s (8h) after a real run
+was killed mid-flight at 7153/23171+ PDFs generated (~4/sec throughput
+observed, real datasets have tens of thousands of unique peptides). Verified
+`gsla-cpu` queue RUNLIMIT is 45000 min (750h) — no queue-level constraint
+for an 8h step.
+**Rerun via LSF:** used the existing sentinel-checkpoint resume mechanism
+(no code changes needed) — `tarsus run` with the same inputs skips Steps
+1–5 (`.done` present) and resumes at Step 6. Two resubmissions this session:
+job 920703 (killed by the initial 1800s timeout, later raised) and job
+928042 (running with the corrected 8h timeout as of session end). Backed up
+`master.log` before each resubmission (LSF's `-oo` overwrites it) so run
+history isn't lost.
+**Existing data preserved throughout:** the original
+`output/trial/05_pepquery/` PepQuery chunk results (the expensive,
+hours-long compute) were never touched, deleted, or regenerated at any
+point. The Step 6 aggregation files (`psmrankall.txt`, `mgfall.mgf`,
+`peptides.txt`, `ptmall.txt`) were intentionally regenerated by Step 6
+itself once fixed — expected, cheap (minutes), and correct behavior for a
+step re-run, not data loss.
+
+## D-036: XvfbDisplay Must Set Module LD_LIBRARY_PATH and Verify Process Liveness
+**Status:** SUPERSEDED by D-037 same day — kept for history, do not re-implement.
+**Date:** 2026-07-06
+**Context:** Pipeline run 125370 (2026-07-01) stalled at Step 6 with PDV failing
+`java.awt.AWTError: Can't connect to X11 window server using ':99'`. Root cause:
+`XvfbDisplay` (D-020) launches the EasyBuild Xvfb binary via bare `subprocess.Popen`
+without the toolchain's `LD_LIBRARY_PATH`. The binary dies immediately
+(`error while loading shared libraries: libbz2.so.1.0`), but `XvfbDisplay.__enter__`
+only catches `FileNotFoundError` and does not check whether the process is still
+running after the startup grace period. It sets `DISPLAY` regardless, so PDV
+fails downstream instead of failing fast with a clear error.
+**Decision:** `XvfbDisplay` now derives `LD_LIBRARY_PATH` (and other required env)
+from the selected Xvfb module's sibling directories (matching EasyBuild's module
+convention: the toolchain's `lib`/`lib64` directories under the same GCCcore
+version tree), and polls `Popen.poll()` after the startup sleep to confirm the
+process is still alive before returning `DISPLAY`. If a display candidate's Xvfb
+process dies, it tries the next display number; if all fail, it raises
+`RuntimeError` with the captured stderr instead of silently returning a dead
+display.
+**Rationale:** Fail fast with a diagnosable error rather than have the bug surface
+three steps and hours of compute later at PDV. This also matches D-013's principle
+of validating pipeline preconditions early. No change to the D-020 architecture
+(Xvfb-on-EasyBuild approach) — only to its robustness.
+
+## D-035: LSF Purged-Job Handling + Step05 Resume Logic
+**Date:** 2026-07-01
+**Context:** `wait_for_jobs()` in `src/tarsus/lsf.py` polls `bjobs` to detect when child
+jobs finish. LSF purges completed jobs from `bjobs` output after a short retention
+window, which produces empty stdout with exit code 0. The polling loop treated this
+as "job still active" (mistaking silence for pending state), causing indefinite
+stalls waiting on jobs that had, in fact, already finished (commonly for the 4500+
+chunked PepQuery step 5 jobs, which finish and get purged faster than slower steps
+are polled).
+**Decision:** `wait_for_jobs()` now treats empty stdout, or stderr containing "not
+found", as a terminal (finished) state rather than "still running". Additionally,
+`step05_query_psm()` gained resume logic: chunks with an existing `psm_rank.txt`
+are skipped on restart, so a partially-completed Step 5 (e.g. after a stall or
+manual restart) does not redo already-finished PepQuery chunk searches.
+**Rationale:** Prevents indefinite hangs caused by a state-detection gap in LSF
+polling. The resume logic makes Step 5 restart-safe and cheap to re-invoke after
+any master-job interruption, in line with the sentinel-checkpointing philosophy
+from D-017.
+
 ## D-034: IonQuant 1.11.20 Added as Required Tool Dependency
 **Date:** 2026-06-30
 **Context:** FragPipe 24.0's Linux ZIP distribution does not bundle IonQuant.jar (unlike the Windows distribution). The pipeline failed with missing IonQuant at Step 3a/3c when FragPipe internally calls IonQuant for quantification.

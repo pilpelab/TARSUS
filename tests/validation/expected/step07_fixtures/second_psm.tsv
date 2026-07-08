@@ -1,2 +1,2 @@
-Spectrum	Peptide	Intensity	Protein	Charge
-dev_sub.1.1.3	VARIANT	80000.0	sp|P12345|PROT1_A1G	2
+Spectrum	Peptide	Intensity	Protein	Charge	Protein Start
+dev_sub.1.1.2	VARIANT	80000.0	PEPTIDE_A3R	2	1

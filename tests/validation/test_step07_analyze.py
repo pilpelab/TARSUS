@@ -1,6 +1,5 @@
 """Step 7 validation: SAV filtering against synthetic data."""
 
-import pytest
 from pathlib import Path
 from src.tarsus.steps.step07_analyze_outputs import (
     load_ptm_details,
@@ -11,8 +10,6 @@ from src.tarsus.steps.step07_analyze_outputs import (
     _extract_base_name,
     analyze_outputs,
 )
-from .conftest import load_expected, capture_expected
-
 FIXTURES = Path(__file__).parent / "expected" / "step07_fixtures"
 
 
@@ -41,7 +38,7 @@ def test_step07_expected_ions():
 
 def test_step07_spectrum_to_title():
     """Convert FragPipe Spectrum column to canonical spectrum_title."""
-    assert _spectrum_to_title("file_sub.100.100.3") == "file:100:3"
+    assert _spectrum_to_title("file_sub.100.100.3") == "file_sub:100:3"
     assert _spectrum_to_title("file.50.50.2") == "file:50:2"
 
 
@@ -49,10 +46,10 @@ def test_step07_load_ptm_details():
     """Load PepQuery ptmall.txt, parse modifications, verify columns."""
     ptm = load_ptm_details(FIXTURES / "ptmall.txt")
     assert len(ptm) == 1
-    assert ptm["origin"][0] == "V"  # Val (1-letter)
-    assert ptm["dest"][0] == "P"    # Pro (1-letter)
+    assert ptm["origin"][0] == "A"  # Ala (1-letter)
+    assert ptm["dest"][0] == "R"    # Arg (1-letter)
     assert ptm["mistranslated_pos"][0] == 2  # position - 1
-    assert ptm["spectrum_title"][0] == "spec1"
+    assert ptm["spectrum_title"][0] == "dev_sub:1:2"
 
 
 def test_step07_filter_single_sav_psms():
@@ -61,17 +58,12 @@ def test_step07_filter_single_sav_psms():
     singles = filter_single_sav_psms(ptm)
     # With a single valid SAAV (PEPTIDE/Ala->Gly@1), should keep 1 row
     assert len(singles) == 1
-    assert singles["spectrum_title"][0] == "spec1"
+    assert singles["spectrum_title"][0] == "dev_sub:1:2"
     assert singles["ptm_score"][0] == 0.95
 
 
-@pytest.mark.xfail(
-    reason="BUG: second_psms has no 'base' column for join on line 309. "
-           "join_cols=['base','Charge'] but second_psms uses 'dependent'. "
-           "Fix: add base column to second_psms or change join key."
-)
 def test_step07_analyze_end_to_end(tmp_path):
-    """Full analyze_outputs end-to-end — currently xfail due to join bug."""
+    """Full analyze_outputs end-to-end with coherent FragPipe/PepQuery fixtures."""
     output_ipc = tmp_path / "subs.ipc"
     result = analyze_outputs(
         first_psm_path=FIXTURES / "first_psm.tsv",
@@ -81,6 +73,9 @@ def test_step07_analyze_end_to_end(tmp_path):
         pdv_path=FIXTURES / "pdv_export.txt",
         output_ipc=output_ipc,
     )
-    # Would verify subs.ipc structure here
     assert output_ipc.is_file()
-    assert len(result) >= 0
+    assert len(result) == 1
+    assert result["dependent"][0] == "VARIANT"
+    assert result["base"][0] == "PEPTIDE"
+    assert result["origin"][0] == "A"
+    assert result["destination"][0] == "R"

@@ -167,6 +167,19 @@ def run_pipeline(outdir: Path, fasta: Path, raw_files: list[Path]) -> None:
         _s8.touch()
         _log("S08", "Done")
 
+    # Guardrail: Step 8 should create at least one base-rescoring input chunk
+    # for any non-empty Step 7 result. If it creates none, stop loudly rather
+    # than stamping Steps 9-11 as complete with missing/empty outputs — that can
+    # hide upstream lineage/filtering bugs.
+    base_input_dir = outdir / "08_base_input" / "pepquery_input_base"
+    if not any(base_input_dir.iterdir()):
+        raise RuntimeError(
+            f"Step 8 produced no base-rescoring input files in {base_input_dir}. "
+            "Downstream Steps 9-11 were not run. Inspect Step 7 candidate "
+            "counts and spectrum-title/peptide lineage before marking the "
+            "pipeline complete."
+        )
+
     # ── Step 9: PepQuery base rescoring ──────────────────────────────
     _s9 = outdir / "09_pepquery_base" / ".done"
     if not _skip_if_done(_s9, "S09"):

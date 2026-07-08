@@ -61,30 +61,30 @@ def _normalize_il(seq: str) -> str:
 def _normalize_spectrum_title(raw: str) -> str:
     """Convert Spectrum field to canonical spectrum_title format.
 
-    'file_sub.00234.00234.3' -> 'file:234:3'
+    Preserve the ``_sub`` suffix because PepQuery/PDV Step 6 spectrum titles
+    include it (e.g. ``file_sub:234:3``). Stripping it makes Step 7 fail to
+    join second-pass FragPipe PSMs to PepQuery/PDV results.
     """
     parts = raw.split(".")
-    file_name = parts[0].split("_sub")[0]
+    file_name = parts[0]
     scan_num = str(int(parts[1]))
     return f"{file_name}:{scan_num}:{parts[-1]}"
 
 
 def load_ptm_details(ptmall_path: Path) -> pl.DataFrame:
     """Load PepQuery ptmall.txt and extract origin/dest/position."""
-    cols = [
-        "peptide", "modification", "n", "spectrum_title", "charge",
-        "exp_mass", "tol_ppm", "tol_da", "isotope_error", "pep_mass",
-        "mz", "score", "n_db", "total_db", "n_random", "total_random",
-        "pvalue", "rank", "ptm_spectrum_title", "ptm_peptide",
-        "ptm_charge", "ptm_exp_mass", "ptm_pep_mass", "ptm_tol_ppm",
-        "ptm_tol_da", "ptm_isotope_error", "ptm_modification",
-        "ptm_score",
-    ]
+    # ptmall.txt is very large (9+ GB on the trial dataset), but Step 7 only
+    # needs five columns for the single-SAV filter. Reading only those columns
+    # avoids materializing the full PepQuery PTM table in memory.
     ptm = pl.read_csv(
         ptmall_path,
         separator="\t",
         has_header=False,
-        new_columns=cols,
+        columns=[0, 3, 19, 26, 27],
+        new_columns=[
+            "peptide", "spectrum_title", "ptm_peptide",
+            "ptm_modification", "ptm_score",
+        ],
         truncate_ragged_lines=True,
         ignore_errors=True,
     )
@@ -185,9 +185,14 @@ def _compute_expected_ions(dependent: str, position: int) -> list[str]:
 
 
 def _spectrum_to_title(spec: str) -> str:
-    """Convert Spectrum column value to canonical spectrum_title."""
+    """Convert FragPipe Spectrum value to PepQuery/PDV spectrum_title.
+
+    FragPipe writes ``file_sub.scan.scan.charge`` while PepQuery/PDV use
+    ``file_sub:scan:charge``. Keep ``_sub`` intact; it is part of the Step 6
+    title namespace.
+    """
     parts = spec.split(".")
-    file_name = parts[0].split("_sub")[0]
+    file_name = parts[0]
     scan_num = str(int(parts[1]))
     return f"{file_name}:{scan_num}:{parts[-1]}"
 
@@ -216,15 +221,22 @@ def analyze_outputs(
     saved_set: set[str] = set(saved_singles["spectrum_title"].to_list())
 
     # 2. Confident PepQuery hits
-    first = pl.read_csv(psmrankall_path, separator="\t")
-    if "confident" in first.columns:
-        first = first.filter(pl.col("confident") == "Yes")
+    first = pl.read_csv(
+        psmrankall_path,
+        separator="\t",
+        columns=["spectrum_title", "confident"],
+    )
+    first = first.filter(pl.col("confident") == "Yes")
     first_set: set[str] = set(first["spectrum_title"].to_list())
 
     # 3. PDV ion export: build {peptide: {spectrum_title: [ions]}}
     pdv_export: dict[str, dict[str, list[str]]] = {}
     try:
-        pdv_df = pl.read_csv(pdv_path, separator="\t")
+        pdv_df = pl.read_csv(
+            pdv_path,
+            separator="\t",
+            columns=["Spectrum_Title", "peptide", "ions"],
+        )
         for row in pdv_df.iter_rows(named=True):
             pep_key = str(row.get("peptide", ""))
             spec_key = str(row.get("Spectrum_Title", ""))
@@ -250,6 +262,9 @@ def analyze_outputs(
     second_all = pl.read_csv(second_psm_path, separator="\t")
     second_all = second_all.rename({"Peptide": "dependent", "Intensity": "second_intensity"})
     second_all = second_all.filter(pl.col("second_intensity") > 0)
+    second_all = second_all.with_columns(
+        pl.col("Protein").map_elements(_extract_base_name, return_dtype=pl.String).alias("base"),
+    )
 
     # Convert Spectrum to canonical title
     titles = second_all["Spectrum"].map_elements(

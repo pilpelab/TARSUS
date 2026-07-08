@@ -75,7 +75,9 @@ def convert(inputs: tuple[str, ...], output_dir: str, queue: str,
               help="Output directory (will be created)")
 @click.option("--queue", default="gsla-cpu", show_default=True,
               help="LSF queue for all jobs")
-def run(fasta: str, inputs: tuple[str, ...], output_dir: str, queue: str) -> None:
+@click.option("--memory", default=32000, type=int, show_default=True,
+              help="Memory for the master orchestration job in MB")
+def run(fasta: str, inputs: tuple[str, ...], output_dir: str, queue: str, memory: int) -> None:
     """Run the full TARSUS pipeline on LSF.
 
     Submits a single master job that orchestrates all 11 steps on
@@ -106,7 +108,7 @@ def run(fasta: str, inputs: tuple[str, ...], output_dir: str, queue: str) -> Non
              *[str(f) for f in raw_files]],
         job_name="tarsus_master",
         queue=queue,
-        memory_mb=4000,
+        memory_mb=memory,
         cpus=1,
         log_path=log_path,
         tool_env=tool_env,

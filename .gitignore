@@ -31,6 +31,12 @@ tools/**
 !tools/README.md
 !tools/PDV-2.1.2/
 !tools/PDV-2.1.2/PDV-2.1.2.jar
+!tools/xvfb/
+!tools/xvfb/bin/
+!tools/xvfb/bin/Xvfb
+!tools/xvfb/lib/
+!tools/xvfb/lib/*.so*
+!tools/xvfb/CHECKSUMS.sha256
 
 # Pipeline outputs (user-generated, not committed)
 output/**
