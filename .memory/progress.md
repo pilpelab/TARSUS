@@ -1,5 +1,56 @@
 # Progress Log
 
+## Session 2026-07-09 (cont'd) — D-047 CONFIRMED LIVE. Step 7 yields 2,888 rows. Three more bugs fixed (D-048, D-049).
+
+### 🎉 The migration works
+Step 7 produced **2,888 SAAV rows** (69 columns, schema identical to reference). It has never
+produced a non-zero row before. Reference, on a different sample of the same instrument type:
+3,922 rows. Steps 8 through 11 executed for the first time ever.
+
+Live confirmation of D-047 through the pipeline:
+- Step 2 index titles: `TITLE=...AlaGGC-HS-1:183881:2` — no `_sub`. Step 4 emits 2 columns.
+- Step 5: **zero NullPointerExceptions** across all chunk logs (D-045's blocker was the
+  `-varMod 2,33` added to compensate for the wrong index, not PepQuery).
+  16,264 matched spectra, 15,866 peptides with matched spectra, only 0.8% of chunks empty.
+  `psmrankall.txt` = 19,914 rows. Hit rate 43.3% vs the reference's 40.4% — close agreement.
+- Step 6 now completes in **77 seconds** (previously ran six days and was OOM-killed).
+- Step 5 wall time ~76 min; Step 2 ~52 min.
+
+### Three more bugs, all found only by running it (full detail in D-049)
+1. **PDV shard heap > LSF reservation** (`-Xmx4096m` inside `mem=4000`) → `TERM_MEMLIMIT`.
+   Dormant until targeted mode removed psmrankall's ~4x row duplication per spectrum.
+   Fixed + `_check_shard_memory()` guard; `chunk_size` 20000→2500 (old value gave exactly 1 shard).
+2. **Xvfb display race**: a second PDV worker on the same node adopted the first worker's display
+   and died mid-render when the owner exited. Of 4 shards on `cn810`, 1 survived. Fixed with
+   Xvfb's `-displayfd`. Re-ran: 3 shards on `cn810` again, **all passed**.
+3. **Step 8 keyed on `Spectrum` instead of `spectrum_title`** → 0/1,113 titles matched,
+   0-byte `mgfall_fakes.mgf`. Fixed; verified 1,113/1,113, 157 MB. Guardrail added.
+
+### Also fixed earlier this session (D-048)
+Step 11 could never have returned a row: it read `mistranslatedPos` (camelCase) via
+`.get(..., 0)`, forcing `expected_pos = 1`, which Step 7's `mistranslated_pos > 0` filter makes
+unreachable. Plus a left-join that admitted variants never compared to base, empty PyAscore
+aux-mod arrays, and a title-suffix strip that mangles 6.4% of reference base titles.
+
+### ⚠️ BLOCKED — needs the user
+Master job **382062** is still RUNNING and is submitting ~4,287 PepQuery jobs against the 0-byte
+`mgfall_fakes.mgf` (2,036 logs already written). It must be killed before relaunching, or two
+masters will fight over `output/trial/`. I attempted `bkill` and the permission layer correctly
+refused — cancelling cluster workloads is the user's call.
+
+    bkill 382062
+    bjobs | grep variants | awk '{print $1}' | xargs -r bkill
+
+Then invalidate `08_base_input` and `09_pepquery_base` (both contain garbage from the empty MGF)
+and relaunch. Steps 01–07 are correct and must be preserved.
+
+### Still unexplained
+`01_mzml/*.mzML` were regenerated today at 15:27/15:35 by conversion jobs this session did not
+launch (2.8/2.9 GB → 6.4/8.8 GB), while `01_mzml/.done` still reads 2026-06-29 so orchestration
+skipped Step 1. Data verified sound before indexing, but something else writes to `output/trial/`.
+
+---
+
 ## Session 2026-07-09 (cont'd) — D-047 implemented; pipeline relaunched (job 370123)
 
 ### Implemented (commit `80bbbe1`)
