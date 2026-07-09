@@ -1,13 +1,117 @@
 """Unit tests for Step 11 — PyAscore localization."""
 
 import numpy as np
+import polars as pl
 import pytest
 from src.tarsus.steps.step11_localize import (
     mz_diff,
     ascore_to_probability,
     SUBSTITUTION_SHIFTS,
     get_var_mod_positions,
+    _parse_aux_mods,
+    _nonbase_hits,
+    _expected_position,
+    _strip_mod_suffix,
 )
+
+
+class TestStripModSuffix:
+    """Step 8 writes `_M<pos>[_<pos>]C<pos>[_<pos>]` onto fake spectrum titles."""
+
+    def test_simple_suffix(self) -> None:
+        assert _strip_mod_suffix("f:1:2_M0C0") == "f:1:2"
+
+    def test_single_positions(self) -> None:
+        assert _strip_mod_suffix("HouYM:270212:3_M0C1") == "HouYM:270212:3"
+
+    def test_multi_position_met(self) -> None:
+        # The reference regex `_[^_]*$` mangles this to `..._M6` (D-048).
+        assert _strip_mod_suffix("HouYM:327129:3_M6_14C0") == "HouYM:327129:3"
+
+    def test_multi_position_both(self) -> None:
+        assert _strip_mod_suffix("f:1:2_M3_7C1_5") == "f:1:2"
+
+    def test_leaves_unsuffixed_title_alone(self) -> None:
+        assert _strip_mod_suffix("f:1:2") == "f:1:2"
+
+    def test_does_not_eat_underscores_in_filename(self) -> None:
+        assert _strip_mod_suffix("my_file_sub:1:2_M0C0") == "my_file_sub:1:2"
+
+
+class TestParseAuxMods:
+    """Reference localize.py parses aux mods out of psmrankall's `modification`."""
+
+    def test_single_mod(self) -> None:
+        pos, mass = _parse_aux_mods("Oxidation of M@3[15.9949]")
+        assert list(pos) == [3]
+        assert mass == pytest.approx([15.9949])
+
+    def test_multiple_mods(self) -> None:
+        pos, mass = _parse_aux_mods("Oxidation of M@3[15.9949];Acetyl@1[42.0106]")
+        assert list(pos) == [3, 1]
+        assert mass == pytest.approx([15.9949, 42.0106])
+
+    def test_no_modification(self) -> None:
+        pos, mass = _parse_aux_mods("-")
+        assert list(pos) == []
+        assert list(mass) == []
+
+    def test_non_string(self) -> None:
+        pos, mass = _parse_aux_mods(None)
+        assert list(pos) == []
+        assert list(mass) == []
+
+    def test_dtypes_are_pyascore_compatible(self) -> None:
+        pos, mass = _parse_aux_mods("X@2[1.5]")
+        assert pos.dtype == np.uint32
+        assert mass.dtype == np.float32
+
+
+class TestExpectedPosition:
+    """subs.ipc stores a 0-based `mistranslated_pos`; PyAscore reports 1-based."""
+
+    def test_zero_based_to_one_based(self) -> None:
+        assert _expected_position({"mistranslated_pos": 20}) == 21
+
+    def test_missing_column_raises_loudly(self) -> None:
+        # Regression: a silent .get(..., 0) default made expected_pos always 1,
+        # which Step 7's `mistranslated_pos > 0` filter can never satisfy —
+        # Step 11 then returned zero rows on every run.
+        with pytest.raises(KeyError):
+            _expected_position({"mistranslatedPos": 20})
+
+
+class TestNonBaseHits:
+    def _deps(self) -> pl.DataFrame:
+        return pl.DataFrame({
+            "peptide": ["VAR1", "VAR2", "VAR3"],
+            "spectrum_title": ["f:1:2", "f:2:2", "f:3:2"],
+            "score": [10.0, 10.0, 10.0],
+        })
+
+    def _base(self) -> pl.DataFrame:
+        # Step 8 appends a Met/Cys mod-state suffix to fake titles; it is stripped.
+        # `_M6_14C0` is a multi-position suffix the reference regex would mangle.
+        return pl.DataFrame({
+            "peptide": ["BASE1", "BASE2"],
+            "spectrum_title": ["f:1:2_M6_14C0", "f:2:2_M0C0"],
+            "score": [4.0, 12.0],
+        })
+
+    def test_keeps_variant_beating_base(self) -> None:
+        out = _nonbase_hits(self._deps(), self._base())
+        assert out["spectrum_title"].to_list() == ["f:1:2"]
+        assert out["delta_score"][0] == pytest.approx(6.0)
+
+    def test_drops_variant_losing_to_base(self) -> None:
+        out = _nonbase_hits(self._deps(), self._base())
+        assert "f:2:2" not in out["spectrum_title"].to_list()
+
+    def test_drops_variant_with_no_base_comparison(self) -> None:
+        # Regression: a left join + fill_null(0) admitted variants that were
+        # never rescored against their reference peptide, inflating results.
+        out = _nonbase_hits(self._deps(), self._base())
+        assert "f:3:2" not in out["spectrum_title"].to_list()
 
 
 class TestMzDiff:

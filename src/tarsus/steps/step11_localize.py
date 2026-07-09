@@ -5,7 +5,9 @@ PyAscore to localize each substitution to specific residue positions,
 and produces the final localized SAAV table.
 """
 
+import re
 from pathlib import Path
+from typing import Any
 import numpy as np
 import polars as pl
 from pyteomics import mgf
@@ -108,35 +110,110 @@ def get_var_mod_positions(
     return positions
 
 
+def _parse_aux_mods(modification: Any) -> tuple[np.ndarray, np.ndarray]:
+    """Extract auxiliary modification positions and masses from a PepQuery string.
+
+    ``'Oxidation of M@3[15.9949]'`` -> ``([3], [15.9949])``
+
+    These are the *other* modifications carried by the peptide.  PyAscore needs
+    them so it can subtract their mass contribution before deciding where the
+    substitution sits; omitting them shifts fragment masses and mislocalizes.
+    Non-string or unparseable values yield empty arrays.
+    """
+    if not isinstance(modification, str):
+        return np.array([], dtype=np.uint32), np.array([], dtype=np.float32)
+    positions = [int(p) for p in re.findall(r"@(\d+)", modification)]
+    masses = [float(m) for m in re.findall(r"\[([\d.]+)\]", modification)]
+    n = min(len(positions), len(masses))
+    return (
+        np.array(positions[:n], dtype=np.uint32),
+        np.array(masses[:n], dtype=np.float32),
+    )
+
+
+def _expected_position(row: dict[str, Any]) -> int:
+    """1-based peptide position of the substitution for *row*.
+
+    ``subs.ipc`` stores ``mistranslated_pos`` 0-based (Step 3b names candidates
+    ``<peptide>_<origin><0-based pos><dest>``), while PyAscore reports 1-based
+    positions.  Raises ``KeyError`` if the column is absent rather than
+    defaulting — a silent default of 0 makes ``expected_pos`` always 1, which
+    Step 7's ``mistranslated_pos > 0`` filter can never satisfy, so Step 11
+    would return zero rows on every run.
+    """
+    return int(row["mistranslated_pos"]) + 1
+
+
+# Step 8 patches each fake spectrum's TITLE with a Met/Cys modification-state
+# suffix: `_M<pos>[_<pos>...]C<pos>[_<pos>...]`, e.g. `_M0C0`, `_M0C1`,
+# `_M6_14C0`.  Anchor on that exact grammar.  The reference strips it with
+# `_[^_]*$`, which only removes the final `_<chunk>` and therefore mangles every
+# multi-position suffix (`..._M6_14C0` -> `..._M6`).  Measured on the reference's
+# own psmrankall_base.txt: 1,638 of 25,615 rows (6.4%) are mangled this way and
+# silently lose their base comparison. See D-048.
+_MOD_SUFFIX = re.compile(r"_M(?:\d+(?:_\d+)*)C(?:\d+(?:_\d+)*)$")
+
+
+def _strip_mod_suffix(title: str) -> str:
+    """Remove Step 8's Met/Cys modification-state suffix from a spectrum title."""
+    return _MOD_SUFFIX.sub("", title)
+
+
+def _nonbase_hits(deps: pl.DataFrame, base: pl.DataFrame) -> pl.DataFrame:
+    """Keep variant PSMs that outscore the reference peptide on the same spectrum.
+
+    Base titles carry Step 8's modification-state suffix and are normalized back
+    before joining.  The join is an *inner* join, per the reference: a variant
+    that was never rescored against its base peptide has no evidence of being
+    better and is dropped, not admitted.
+    """
+    base = base.with_columns(
+        pl.col("spectrum_title").map_elements(
+            _strip_mod_suffix, return_dtype=pl.String,
+        ),
+    )
+    base_max = base.group_by(["peptide", "spectrum_title"]).agg(
+        pl.col("score").max().alias("score_base"),
+    )
+    return (
+        deps.join(base_max, on="spectrum_title", how="inner", suffix="_base")
+        .with_columns(
+            (pl.col("score") - pl.col("score_base")).alias("delta_score"),
+        )
+        .filter(pl.col("delta_score") > 0)
+    )
+
+
 def localize_shift(
     candidates: pl.DataFrame,
     spectra_path: Path,
     precursor_tol: float = 0.05,
-) -> pl.DataFrame:
-    """Run PyAscore localization on substitution candidates.
+) -> list[str]:
+    """Run PyAscore localization and return the confidently localized titles.
 
     Args:
-        candidates: DataFrame with columns including 'spectrum_title', 'base',
-            'dependent', 'origin', 'destination', 'mistranslatedPos'.
+        candidates: DataFrame with columns 'spectrum_title', 'base', 'origin',
+            'destination', 'mistranslated_pos', 'modification'.
         spectra_path: Path to MGF file with spectra for localization.
         precursor_tol: Precursor m/z tolerance for PyAscore.
 
     Returns:
-        DataFrame filtered to confidently localized substitutions.
+        Spectrum titles whose substitution localized to the expected position.
     """
     spectra = mgf.IndexedMGF(str(spectra_path))
     sure_spectra: list[str] = []
 
     for row in candidates.iter_rows(named=True):
-        mod_mass = SUBSTITUTION_SHIFTS.get(
-            str(row.get("origin", "")), {},
-        ).get(str(row.get("destination", "")), 0.0)
-
-        if mod_mass == 0.0 and row.get("origin") != row.get("destination"):
+        origin, dest = str(row["origin"]), str(row["destination"])
+        if origin == dest:
+            continue
+        mod_mass = SUBSTITUTION_SHIFTS.get(origin, {}).get(dest)
+        if mod_mass is None:
             continue
 
         spec = spectra.get_spectrum(str(row["spectrum_title"]))
         z = spec["params"].get("charge", [2])[0]
+        aux_mod_pos, aux_mod_mass = _parse_aux_mods(row.get("modification"))
 
         asc = PyAscore(
             bin_size=100.0,
@@ -152,8 +229,8 @@ def localize_shift(
             peptide=str(row["base"]),
             n_of_mod=1,
             max_fragment_charge=z - 1,
-            aux_mod_pos=np.array([], dtype=np.uint32),
-            aux_mod_mass=np.array([], dtype=np.float32),
+            aux_mod_pos=aux_mod_pos,
+            aux_mod_mass=aux_mod_mass,
         )
 
         best = asc.pep_scores[0]
@@ -166,19 +243,15 @@ def localize_shift(
         ]
         best_positions = [modifiable_positions[i] for i in modified_indices]
 
-        expected_pos = int(row.get("mistranslatedPos", 0)) + 1
         if (
             len(best_positions) == 1
-            and best_positions[0] == expected_pos
+            and best_positions[0] == _expected_position(row)
             and asc.pep_scores[0]["weighted_score"]
             > asc.pep_scores[1]["weighted_score"]
         ):
             sure_spectra.append(str(row["spectrum_title"]))
 
-    result = candidates.filter(
-        pl.col("spectrum_title").is_in(sure_spectra),
-    )
-    return result
+    return sure_spectra
 
 
 def localize(
@@ -198,24 +271,22 @@ def localize(
     subs = pl.read_ipc(subs_ipc)
 
     deps = pl.read_csv(psmrankall_path, separator="\t")
-    base = pl.read_csv(psmrankall_base_path, separator="\t").with_columns(
-        pl.col("spectrum_title").str.replace(r"_[^_]*$", ""),
-    )
+    base = pl.read_csv(psmrankall_base_path, separator="\t")
 
-    base_max = base.group_by(["peptide", "spectrum_title"]).agg(
-        pl.col("score").max().alias("score_max"),
-    )
-    nonbase_hits = deps.join(
-        base_max, on=["spectrum_title"], how="left",
-    ).with_columns(
-        (pl.col("score") - pl.col("score_max").fill_null(0)).alias("delta_score"),
-    ).filter(pl.col("delta_score") > 0)
+    nonbase_hits = _nonbase_hits(deps, base)
 
+    # Join on spectrum_title, not on peptide as the reference does: in targeted
+    # mode subs.ipc's spectrum_title *is* the PepQuery title, so this keeps each
+    # candidate bound to the spectrum it was identified on rather than borrowing
+    # another spectrum's evidence for the same peptide (D-047).
     candidates = subs.join(
         nonbase_hits, on="spectrum_title", how="inner", suffix="_query",
     )
 
-    localized = localize_shift(candidates, spectra_mgf, precursor_tol)
+    sure_titles = localize_shift(candidates, spectra_mgf, precursor_tol)
+
+    # Return subs.ipc's own schema, as the reference does — not the widened join.
+    localized = subs.filter(pl.col("spectrum_title").is_in(sure_titles))
 
     output_ipc.parent.mkdir(parents=True, exist_ok=True)
     localized.write_ipc(output_ipc)

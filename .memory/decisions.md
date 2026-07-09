@@ -1,5 +1,24 @@
 # Decisions Log
 
+## D-048: Step 11 Was Guaranteed to Return Zero Rows. Four Defects Fixed; One Is a Deliberate Deviation from the Reference.
+**Date:** 2026-07-09
+**Status:** Fixed and unit-tested. Found by auditing Steps 9-11 while Step 5 ran — these steps had **never executed successfully**, so none of this was covered by any prior run.
+**Context:** After D-047 unblocked Step 7, Steps 8-11 will execute for the first time. Audited them against the reference `query_psm_base.sh`, `aggregate_query_base.sh`, and `localize.py`.
+
+**Clean:** Step 9's PepQuery flags match `query_psm_base.sh` exactly (`-ti 0,1,2,3 -maxLength 50 -tol 20 -fast -itol 0.01 -fixMod 0 -varMod 1,2 -maxVar 4 -hc -m 1 -s 2 -indexType 2 -e 2 -c 2 -plot`). Step 10 differs cosmetically (keeps the first file's header rather than inserting a canonical one) but is functionally equivalent.
+
+**Defect 1 — fatal, silent.** `localize_shift()` read `row.get("mistranslatedPos", 0)`, but Step 7 emits the column as **`mistranslated_pos`** (snake_case; the reference uses camelCase). The `.get()` default made `expected_pos` **always 1**. Step 7 guarantees `mistranslated_pos > 0`, and the position is 0-based (verified: `AAAAPVTGPLADDPIQETITFDDFAK_F20A` — index 20 is `F`), so the true 1-based position is always ≥ 2. **`expected_pos == 1` could never match, so Step 11 returned zero rows on every possible input.** Confirmed against the reference's own `subs.ipc`: `mistranslatedPos` ranges 1-27, so expected positions are 2-28 — never 1. This explains the header-only `subs_localized.csv` in `output/trial/invalid_empty_downstream_20260707132848/`. Fixed via `_expected_position()`, which raises `KeyError` rather than defaulting.
+
+**Defect 2 — silently inflated results.** `nonbase_hits` used `deps.join(base_max, how="left")` + `fill_null(0)`, so a variant PSM with **no base rescoring at all** got `delta_score = score - 0 > 0` and was admitted. The reference uses an inner join: no base comparison means no evidence, so the row is dropped. Fixed.
+
+**Defect 3 — mislocalization.** `localize_shift()` passed empty `aux_mod_pos`/`aux_mod_mass` to PyAscore. The reference parses them from psmrankall's `modification` column (`@(\d+)` / `\[([\d.]+)\]`). Without them PyAscore cannot subtract co-occurring Ox/CAM mass contributions, shifting fragment masses and mislocalizing the substitution. Fixed via `_parse_aux_mods()`.
+
+**Defect 4 — a bug in the reference itself; fixed here, deviating deliberately.** Step 8 patches each fake spectrum's TITLE with a Met/Cys modification-state suffix whose grammar is `_M<pos>[_<pos>...]C<pos>[_<pos>...]` (e.g. `_M0C0`, `_M0C1`, `_M6_14C0`). The reference strips it with `_[^_]*$`, which removes only the final `_<chunk>` and so mangles every multi-position suffix: `..._M6_14C0` -> `..._M6`, a title that joins to nothing. **Measured on the reference's own `psmrankall_base.txt`: 1,638 of 25,615 rows (6.39%) are mangled and silently lose their base comparison.** Combined with the reference's inner join, those variant PSMs are discarded entirely. Replaced with `_strip_mod_suffix()`, anchored on the exact suffix grammar Step 8 writes; validated against the reference file: **0% malformed, down from 6.39%.**
+  - **This is a deliberate divergence from the reference and it changes results.** It can only *add* rows relative to the reference, by restoring the base comparison for those 6.4% (some will then lose to base and be dropped — a false-positive removal; others legitimately beat base and are kept). It is a strictly better-founded comparison, but it means our SAAV counts will not match the reference exactly on the same input. Revert `_strip_mod_suffix()` to `r"_[^_]*$"` for bit-exact reference parity.
+
+**Also:** `localize()` returned the widened `subs ⋈ psmrankall` join; it now returns `subs.ipc`'s own schema, matching the reference (whose `subs_localized.ipc` has the same 69 columns as its `subs.ipc`). The join key remains `spectrum_title` rather than the reference's `dependent` peptide — this is stricter and preserves the exact lineage D-047 restored, instead of borrowing another spectrum's evidence for the same peptide.
+**Dead code retained:** `get_var_mod_positions()` is unused by the pipeline but has unit tests; left in place.
+
 ## D-047: Ground Truth Found — Option C Is Unnecessary. The Root Cause Is Step 2 Indexing `_sub.mzML`; D-044/D-045/D-046 Are All Downstream of It.
 **Date:** 2026-07-09
 **Status:** Closes D-044, D-045, D-046. Supersedes the Option C design/plan (`docs/superpowers/specs|plans/2026-07-08-step7-proximity-lineage*.md`) — **do not implement them.**
