@@ -1,5 +1,60 @@
 # Progress Log
 
+## Session 2026-07-09 — ✅ PIPELINE COMPLETE END-TO-END. `DONE: Pipeline complete.` (job 393198, exit 0)
+
+The migration is finished. All 11 steps ran; Steps 8–11 executed successfully for the first time.
+
+| Artifact | Ours (AlaGGC) | Reference (EVpar) |
+|---|---|---|
+| `psmrankall.txt` | 19,913 rows | 15,232 |
+| `07_analyze/subs.ipc` | **(2888, 69)** | (3922, 69) |
+| `10_aggregated_base/psmrankall_base.txt` | 18,318 rows | 25,615 |
+| `11_localized/subs_localized.ipc` | **(293, 69)** | (697, 69) |
+| `11_localized/subs_localized.csv` | 294 lines (293 data) | — |
+
+All 8 acceptance criteria met: 203 tests green; index titles carry no `_sub`; Step 4 emits 2 columns;
+19,191 matched spectra with **0 NullPointerExceptions**; `subs.ipc` > 0 rows; `mgfall_fakes.mgf`
+150 MB with 4,287 chunks; Steps 9/10/11 all `.done`; `master.log` ends `DONE: Pipeline complete.`
+
+Wall time from a warm Step 5: Step 2 ~52 min, Step 5 ~76 min, Step 6 **77 s**, Step 9 ~20 min,
+Steps 10+11 ~19 s.
+
+### Bugs fixed this session
+- **D-047** — root cause: `e143a46` indexed `_sub.mzML` instead of the original mzML, shifting the
+  spectrum-title namespace. Cascaded into D-032's false scan-number claim, D-044's lineage break,
+  D-045's NPE and D-046's mass disagreement (both self-inflicted by the compensating `-varMod 2,33`).
+- **D-048** — Step 11 could never have returned a row (`mistranslatedPos` vs `mistranslated_pos`
+  read through `.get(..., 0)`), plus a left join admitting variants never compared to base, empty
+  PyAscore aux-mod arrays, and a title-suffix strip mangling 6.4% of reference base titles.
+- **D-049** — PDV heap (4096 MB) exceeded its LSF reservation (4000 MB); Xvfb display race killed
+  shards co-scheduled on one host; Step 8 keyed on `Spectrum` instead of `spectrum_title`
+  (0/1,113 matched → 0-byte MGF).
+- **D-050 (this entry)** — Step 10 never `mkdir`'d its output dir; Step 11 aborted on PepQuery's
+  ragged 26-field rows (4 of 19,913; the reference file has none).
+
+### ⚠️ Open question for the scientists — the biological positive control
+The dataset is named **AlaGGC**. If that designates Ala misincorporation at Gly GGC codons, we would
+expect **G→A** to be enriched. It is not: G→A is **8 / 2,888 (0.3%), rank 60 of 156** substitution
+types in `subs.ipc`, and **1 / 293 (0.3%), rank 49 of 50** after localization. Our top localized
+substitutions are F→M (32), V→P (26), L→N (18), V→K (18), G→D (17).
+**Nobody has confirmed what `AlaGGC` designates or what substitution it should produce.** Ask before
+treating these 293 calls as biologically validated — the pipeline is now mechanically correct, but
+mechanical correctness is not the same as the right answer.
+
+### Housekeeping
+- `output/trial/superseded_d047_20260709155927/` — **56 GB**, stale `_sub`-index-era artifacts.
+- `output/trial/superseded_d049_empty_mgf_20260709190044/` — 394 MB, Step 8/9 output from the
+  empty-MGF run.
+Both are safe to delete once these results are accepted.
+
+### Still unexplained
+`01_mzml/*.mzML` were regenerated 2026-07-09 at 15:27/15:35 by conversion jobs this session did not
+launch (2.8/2.9 GB → 6.4/8.8 GB), while `01_mzml/.done` still reads 2026-06-29 so orchestration
+skipped Step 1 and never noticed. Data verified scan-consistent with `_sub.mzML` before indexing, so
+this run is sound — but something else writes to `output/trial/`.
+
+---
+
 ## Session 2026-07-09 (cont'd) — D-047 CONFIRMED LIVE. Step 7 yields 2,888 rows. Three more bugs fixed (D-048, D-049).
 
 ### 🎉 The migration works
