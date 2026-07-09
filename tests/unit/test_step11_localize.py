@@ -1,5 +1,6 @@
 """Unit tests for Step 11 — PyAscore localization."""
 
+from pathlib import Path
 import numpy as np
 import polars as pl
 import pytest
@@ -12,7 +13,39 @@ from src.tarsus.steps.step11_localize import (
     _nonbase_hits,
     _expected_position,
     _strip_mod_suffix,
+    _read_psmrank,
 )
+
+_PSMRANK_HEADER = (
+    "peptide\tmodification\tn\tspectrum_title\tcharge\texp_mass\ttol_ppm\ttol_da\t"
+    "isotope_error\tpep_mass\tmz\tscore\tn_db\ttotal_db\tn_random\ttotal_random\t"
+    "pvalue\trank\tn_ptm\tconfident\tref_delta_score\tmod_delta_score"
+)
+_GOOD = (
+    "PEPTIDE\t-\t1\tf:1:2\t2\t100.0\t0.1\t0.001\t0.0\t100.0\t51.0\t12.5\t"
+    "0\t201\t0\t10000\t1e-4\t1\t60\tYes\t3.6\t-3.1"
+)
+# PepQuery 2.0.2 occasionally repeats the final four fields verbatim, producing a
+# 26-field line against its own 22-column header (4 of 19,913 rows on the trial
+# dataset). Fields 1-22 remain a complete, valid record.
+_RAGGED = _GOOD + "\t60\tYes\t3.6\t-3.1"
+
+
+class TestReadPsmrank:
+    def test_reads_clean_file(self, tmp_path: Path) -> None:
+        p = tmp_path / "psmrankall.txt"
+        p.write_text(f"{_PSMRANK_HEADER}\n{_GOOD}\n")
+        df = _read_psmrank(p)
+        assert df.height == 1
+        assert df["spectrum_title"][0] == "f:1:2"
+
+    def test_truncates_pepquery_duplicated_tail(self, tmp_path: Path) -> None:
+        p = tmp_path / "psmrankall.txt"
+        p.write_text(f"{_PSMRANK_HEADER}\n{_GOOD}\n{_RAGGED}\n")
+        df = _read_psmrank(p)
+        assert df.height == 2, "ragged 26-field row must not abort the read"
+        assert df["score"].to_list() == [12.5, 12.5]
+        assert df["confident"].to_list() == ["Yes", "Yes"]
 
 
 class TestStripModSuffix:

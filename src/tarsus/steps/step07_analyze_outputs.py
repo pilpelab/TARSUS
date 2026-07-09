@@ -211,10 +211,13 @@ def analyze_outputs(
     saved_set: set[str] = set(saved_singles["spectrum_title"].to_list())
 
     # 2. Confident PepQuery hits
+    # PepQuery 2.0.2 sometimes repeats a row's last four fields, giving a
+    # 26-field line against its 22-column header. Fields 1-22 stay valid.
     first = pl.read_csv(
         psmrankall_path,
         separator="\t",
         columns=["spectrum_title", "confident"],
+        truncate_ragged_lines=True,
     )
     first = first.filter(pl.col("confident") == "Yes")
     first_set: set[str] = set(first["spectrum_title"].to_list())

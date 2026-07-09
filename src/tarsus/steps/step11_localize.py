@@ -159,6 +159,18 @@ def _strip_mod_suffix(title: str) -> str:
     return _MOD_SUFFIX.sub("", title)
 
 
+def _read_psmrank(path: Path) -> pl.DataFrame:
+    """Read a PepQuery psm_rank aggregate, tolerating its ragged rows.
+
+    PepQuery 2.0.2 occasionally repeats a row's final four fields
+    (``n_ptm``, ``confident``, ``ref_delta_score``, ``mod_delta_score``)
+    verbatim, emitting a 26-field line against its own 22-column header — 4 of
+    19,913 rows on the trial dataset.  Fields 1-22 are a complete, valid record,
+    so the duplicated tail is dropped rather than aborting the read.
+    """
+    return pl.read_csv(path, separator="\t", truncate_ragged_lines=True)
+
+
 def _nonbase_hits(deps: pl.DataFrame, base: pl.DataFrame) -> pl.DataFrame:
     """Keep variant PSMs that outscore the reference peptide on the same spectrum.
 
@@ -270,8 +282,8 @@ def localize(
     """
     subs = pl.read_ipc(subs_ipc)
 
-    deps = pl.read_csv(psmrankall_path, separator="\t")
-    base = pl.read_csv(psmrankall_base_path, separator="\t")
+    deps = _read_psmrank(psmrankall_path)
+    base = _read_psmrank(psmrankall_base_path)
 
     nonbase_hits = _nonbase_hits(deps, base)
 
