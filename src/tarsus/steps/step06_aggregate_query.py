@@ -24,15 +24,46 @@ from ..env import ToolEnvironment, XvfbDisplay
 from ..lsf import submit_bsub, wait_for_jobs
 
 
+DEFAULT_JAVA_HEAP_MB = 4096
+# The LSF reservation must hold the JVM heap *plus* JVM non-heap (metaspace,
+# thread stacks, native buffers) and the Python parent process. Shipping
+# heap=4096 inside memory=4000 killed every shard with TERM_MEMLIMIT.
+DEFAULT_MEMORY_MB = 8000
+# Targeted PepQuery yields ~1 psmrankall row per spectrum, where open search
+# yielded ~4. A 20000-row shard therefore now renders ~20000 *distinct* spectra.
+# Shard smaller so PDV actually runs in parallel and each shard stays in memory.
+DEFAULT_CHUNK_SIZE = 2500
+
+# Minimum MB the shard job needs beyond the JVM heap.
+_NON_HEAP_HEADROOM_MB = 1024
+
+
+def _check_shard_memory(java_heap_mb: int, memory_mb: int) -> None:
+    """Fail loudly if the JVM heap cannot fit inside the LSF reservation.
+
+    Raises:
+        ValueError: *memory_mb* leaves less than ``_NON_HEAP_HEADROOM_MB`` above
+            the requested heap.
+    """
+    if memory_mb - java_heap_mb < _NON_HEAP_HEADROOM_MB:
+        raise ValueError(
+            f"PDV shard JVM heap ({java_heap_mb} MB) does not fit inside the LSF "
+            f"memory reservation ({memory_mb} MB). The reservation must exceed the "
+            f"heap by at least {_NON_HEAP_HEADROOM_MB} MB to cover JVM non-heap "
+            f"memory and the Python parent process, or every shard is killed with "
+            f"TERM_MEMLIMIT."
+        )
+
+
 def step06_aggregate_query(
     result_dir: Path,
     output_dir: Path,
     tool_env: ToolEnvironment,
-    java_heap_mb: int = 4096,
+    java_heap_mb: int = DEFAULT_JAVA_HEAP_MB,
     parallel: bool = True,
-    chunk_size: int = 20000,
+    chunk_size: int = DEFAULT_CHUNK_SIZE,
     queue: str = "gsla-cpu",
-    memory_mb: int = 4000,
+    memory_mb: int = DEFAULT_MEMORY_MB,
     cpus: int = 1,
     shard_timeout: int = 28800,
 ) -> Path:
@@ -47,13 +78,16 @@ def step06_aggregate_query(
             (simpler, but much slower on real-scale data).
         chunk_size: PSM rows per shard when parallel=True.
         queue: LSF queue for shard jobs.
-        memory_mb: Memory per shard job.
+        memory_mb: Memory per shard job. Must exceed *java_heap_mb* by at least
+            1024 MB.
         cpus: CPUs per shard job.
         shard_timeout: Per-shard subprocess timeout in seconds.
 
     Returns:
         Path to pdv_spectra/ directory.
     """
+    if parallel:
+        _check_shard_memory(java_heap_mb, memory_mb)
     if not result_dir.is_dir():
         raise FileNotFoundError(f"PepQuery result directory not found: {result_dir}")
 

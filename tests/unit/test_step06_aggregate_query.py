@@ -6,8 +6,56 @@ from src.tarsus.steps.step06_aggregate_query import (
     step06_aggregate_query,
     _group_chunk_rows,
     _run_pdv_sharded,
+    _check_shard_memory,
+    DEFAULT_JAVA_HEAP_MB,
+    DEFAULT_MEMORY_MB,
+    DEFAULT_CHUNK_SIZE,
 )
 from src.tarsus.env import ToolEnvironment
+
+
+class TestShardMemory:
+    """Regression: the JVM heap must fit inside the LSF reservation.
+
+    Step 6 shipped with java_heap_mb=4096 inside memory_mb=4000, so every PDV
+    shard was killed with TERM_MEMLIMIT the moment the heap filled. It went
+    unnoticed because open-search psmrankall.txt had ~4x row duplication per
+    spectrum, so a 20k-row shard rendered far fewer distinct spectra.
+    """
+
+    def test_defaults_leave_headroom(self) -> None:
+        _check_shard_memory(DEFAULT_JAVA_HEAP_MB, DEFAULT_MEMORY_MB)
+
+    def test_heap_exceeding_reservation_raises(self) -> None:
+        with pytest.raises(ValueError, match="JVM heap"):
+            _check_shard_memory(java_heap_mb=4096, memory_mb=4000)
+
+    def test_heap_equal_to_reservation_raises(self) -> None:
+        with pytest.raises(ValueError, match="JVM heap"):
+            _check_shard_memory(java_heap_mb=4000, memory_mb=4000)
+
+    def test_insufficient_headroom_raises(self) -> None:
+        # JVM non-heap (metaspace, thread stacks, native) plus the Python parent
+        # need real room; a token 100 MB margin is not enough.
+        with pytest.raises(ValueError, match="JVM heap"):
+            _check_shard_memory(java_heap_mb=4000, memory_mb=4100)
+
+    def test_ample_headroom_passes(self) -> None:
+        _check_shard_memory(java_heap_mb=4096, memory_mb=8000)
+
+
+class TestShardCountAtRealScale:
+    """Targeted-mode psmrankall has ~1 row per spectrum, unlike open search."""
+
+    HEADER = "peptide\tmodification\tn\tspectrum_title"
+
+    def test_real_row_count_produces_multiple_shards(self) -> None:
+        # 19,914 rows is the actual targeted-mode count for the trial dataset.
+        rows = [f"PEP{i}\t-\t1\tf:{i}:2" for i in range(19_914)]
+        chunks = _group_chunk_rows(self.HEADER, rows, chunk_size=DEFAULT_CHUNK_SIZE)
+        assert len(chunks) > 1, "must shard, or PDV runs single-threaded and OOMs"
+        assert all(len(c) <= DEFAULT_CHUNK_SIZE for c in chunks)
+        assert sum(len(c) for c in chunks) == 19_914
 
 
 def _make_env(tmp_path: Path) -> ToolEnvironment:
