@@ -1,5 +1,23 @@
 # Decisions Log
 
+## D-049: Three Independent Bugs Between Step 6 and Step 9, All Found by Actually Running the Pipeline
+**Date:** 2026-07-09
+**Status:** All three fixed and tested. Step 7 now yields **2,888 SAAV rows** (was 0).
+**Context:** D-047 unblocked Step 7. Running the pipeline end-to-end then exposed three defects that no test and no prior run had ever reached.
+
+**1. PDV shard JVM heap exceeded its LSF reservation.** Step 6 shipped `java_heap_mb=4096` inside `memory_mb=4000` — the heap alone exceeded the whole cgroup. Every shard died with `TERM_MEMLIMIT`, killing the master. It lay dormant because open-search `psmrankall.txt` carried ~4 rows per spectrum (617,573 rows / 158,476 unique pairs), so a 20,000-row shard rendered only a few thousand *distinct* spectra. Targeted mode gives ~1 row per spectrum (19,914 rows), so the same shard now renders ~20,000 distinct spectra. Fixed: `memory_mb` 4000→8000 with `_check_shard_memory()` refusing any config lacking 1024 MB of headroom; `chunk_size` 20000→2500 (at 19,914 rows the old value produced exactly **one** shard — no parallelism at all).
+
+**2. Xvfb display race destroyed PDV shards co-scheduled on one host.** `XvfbDisplay` scanned `:99, :98, …` and accepted a display as soon as `/tmp/.X11-unix/X<n>` appeared. A second worker on the same node saw the socket the *first* had just created, declared itself ready, and adopted a display it did not own — its own Xvfb had died on the lock file. When the owner exited it tore that X server down and the squatter lost its connection mid-render: PDV wrote a partial `PDVExportResult.txt` and exited 1 with **no Java exception**, surfacing only as `java rc=1, export_exists=True`.
+  - **Live evidence:** of four shards co-scheduled on `cn810`, exactly one survived; all four shards that had a host to themselves succeeded.
+  - Fixed by using Xvfb's own `-displayfd`, which claims a free display atomically and writes the number back. Verified: 8 concurrent instances get `:0`–`:7`, all alive. Re-ran with three shards again landing on `cn810` — **all three passed**. The scanning path is kept as a fallback for older Xvfb, but now skips already-claimed displays and only accepts one whose server process is still ours.
+  - Step 6 now completes in **77 seconds** (it previously ran six days and was OOM-killed).
+
+**3. Step 8 keyed on the wrong column — same class of bug as D-047.** `expand_mgf_with_mod_states()` and `write_dep_spectrum_chunks()` read `row["Spectrum"]`, FragPipe's raw `file_sub.101063.101063.2`. The MGF titles are `file:101063:2`. **0 of 1,113 titles matched**, producing a 0-byte `mgfall_fakes.mgf`.
+  - Root cause is the port's renaming: the reference `analyze_outputs.py` *overwrites* its `Spectrum` column with the converted title, so its `ref_validation_prep.py` reading `Spectrum` gets a title. Our Step 7 keeps `Spectrum` raw and adds `spectrum_title` alongside. Fixed via an explicit `title_col=TITLE_COL` parameter. Verified on real data: **1,113/1,113 matched**, `mgfall_fakes.mgf` = 157 MB.
+  - **Guardrail added:** `prepare_base_rescoring()` now raises when zero titles match. Step 8's existing guardrail only counted files in `pepquery_input_base/` — which was non-empty (4,287 chunks) because chunk-writing does not touch the MGF. An empty MGF sailed straight through into Step 9.
+
+**Systemic note.** Every one of these — plus D-047 and D-048 — is the same failure mode: **silent defaults over missing data.** `.get(col, 0)`, `fill_null(0)`, `except: pass`, `.done` stamped over empty output, a guardrail that checks the wrong artifact. The pipeline now fails loudly at Steps 7 and 8. Steps 9 and 10 still do not validate that their inputs are non-empty; that is the remaining gap.
+
 ## D-048: Step 11 Was Guaranteed to Return Zero Rows. Four Defects Fixed; One Is a Deliberate Deviation from the Reference.
 **Date:** 2026-07-09
 **Status:** Fixed and unit-tested. Found by auditing Steps 9-11 while Step 5 ran — these steps had **never executed successfully**, so none of this was covered by any prior run.

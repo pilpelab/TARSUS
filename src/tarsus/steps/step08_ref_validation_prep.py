@@ -96,13 +96,24 @@ def _canon_title(t: str, use_base: bool) -> str:
     return t
 
 
+TITLE_COL = "spectrum_title"
+"""Column holding the canonical ``file:scan:charge`` PepQuery/PDV title.
+
+The reference ``analyze_outputs.py`` overwrites its ``Spectrum`` column with the
+converted title, so its ``ref_validation_prep.py`` reads ``Spectrum``. Our Step 7
+keeps ``Spectrum`` in FragPipe's raw ``file_sub.scan.scan.charge`` form and adds
+``spectrum_title`` alongside it — so Step 8 must key on the latter. See D-049.
+"""
+
+
 def expand_mgf_with_mod_states(
     df: pl.DataFrame,
     mgf_in_path: Path,
     mgf_out_path: Path,
     use_base_title: bool = False,
     debug_unmatched: bool = True,
-) -> None:
+    title_col: str = TITLE_COL,
+) -> int:
     """Stream through an MGF, expanding matched spectra with mod-state variants.
 
     For each spectrum in the MGF whose TITLE matches a row in *df*, the function
@@ -110,18 +121,22 @@ def expand_mgf_with_mod_states(
     patches TITLE with the modification state suffix.
 
     Args:
-        df: Must have columns 'Spectrum' and 'base' (peptide sequence).
+        df: Must have columns *title_col* and 'base' (peptide sequence).
         mgf_in_path: Input MGF file.
         mgf_out_path: Output MGF file with expanded mod-state variants.
         use_base_title: If True, strip trailing ':.*' from titles for matching.
         debug_unmatched: If True, print match statistics.
+        title_col: Column holding the MGF spectrum title.
+
+    Returns:
+        Number of distinct titles matched in the MGF.
     """
-    if not {"Spectrum", "base"}.issubset(df.columns):
-        raise ValueError("DataFrame must have 'Spectrum' and 'base' columns.")
+    if not {title_col, "base"}.issubset(df.columns):
+        raise ValueError(f"DataFrame must have {title_col!r} and 'base' columns.")
 
     title_to_peps: dict[str, list[str]] = {}
     for row in df.iter_rows(named=True):
-        key = str(row["Spectrum"]).strip()
+        key = str(row[title_col]).strip()
         title_to_peps.setdefault(key, []).append(str(row["base"]))
 
     wanted_titles = set(title_to_peps.keys())
@@ -217,25 +232,29 @@ def expand_mgf_with_mod_states(
             for t in list(unmatched)[:10]:
                 print(" ", t)
 
+    return len(matched_titles)
+
 
 def write_dep_spectrum_chunks(
     df: pl.DataFrame,
     lines_per_file: int,
     out_prefix: str = "variants",
     out_dir: Path = Path("."),
+    title_col: str = TITLE_COL,
 ) -> None:
     """Split variant DataFrame into chunked text files for PepQuery input.
 
     Each line: <base_peptide>\t<spectrum_title>_<mod_suffix>
 
     Args:
-        df: Must have columns 'base' and 'Spectrum'.
+        df: Must have columns 'base' and *title_col*.
         lines_per_file: Max lines per chunk file.
         out_prefix: Prefix for output file names.
         out_dir: Output directory (created if needed).
+        title_col: Column holding the MGF spectrum title.
     """
-    if not {"base", "Spectrum"}.issubset(df.columns):
-        raise ValueError("DataFrame must have 'base' and 'Spectrum' columns.")
+    if not {"base", title_col}.issubset(df.columns):
+        raise ValueError(f"DataFrame must have 'base' and {title_col!r} columns.")
     if lines_per_file <= 0:
         raise ValueError("lines_per_file must be positive")
 
@@ -257,7 +276,7 @@ def write_dep_spectrum_chunks(
     opened = False
     for row in df.iter_rows(named=True):
         pep = str(row["base"])
-        spec = str(row["Spectrum"])
+        spec = str(row[title_col])
         suffixes = mod_suffixes_for_seq(pep)
         for suffix in suffixes:
             if not opened or line_count >= lines_per_file:
@@ -284,7 +303,14 @@ def prepare_base_rescoring(
     and write chunked PepQuery input files.
     """
     subs = pl.read_ipc(subs_ipc)
-    expand_mgf_with_mod_states(subs, mgf_in, mgf_out)
+    matched = expand_mgf_with_mod_states(subs, mgf_in, mgf_out)
+    if matched == 0:
+        raise RuntimeError(
+            f"Step 8 matched 0 of {subs[TITLE_COL].n_unique()} spectrum titles "
+            f"against {mgf_in}, so {mgf_out} is empty and Step 9 would search "
+            f"nothing. Check that {TITLE_COL!r} and the MGF TITLE= lines share "
+            f"the same 'file:scan:charge' namespace. See D-049."
+        )
     write_dep_spectrum_chunks(
         subs, lines_per_file=chunk_size,
         out_prefix="variants", out_dir=pepquery_input_dir,

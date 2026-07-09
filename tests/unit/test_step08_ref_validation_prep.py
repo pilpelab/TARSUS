@@ -9,6 +9,7 @@ from src.tarsus.steps.step08_ref_validation_prep import (
     _canon_title,
     expand_mgf_with_mod_states,
     write_dep_spectrum_chunks,
+    prepare_base_rescoring,
 )
 
 
@@ -98,7 +99,7 @@ class TestExpandMgfWithModStates:
     def test_expands_single_spectrum(self, tmp_path: Path) -> None:
         mgf_in = tmp_path / "in.mgf"
         self.make_mgf(mgf_in, ["spec1"])
-        df = pl.DataFrame({"Spectrum": ["spec1"], "base": ["PEPTIDE"]})
+        df = pl.DataFrame({"spectrum_title": ["spec1"], "base": ["PEPTIDE"]})
         mgf_out = tmp_path / "out.mgf"
         expand_mgf_with_mod_states(df, mgf_in, mgf_out, debug_unmatched=False)
         content = mgf_out.read_text()
@@ -109,7 +110,7 @@ class TestExpandMgfWithModStates:
     def test_expands_mod_states(self, tmp_path: Path) -> None:
         mgf_in = tmp_path / "in.mgf"
         self.make_mgf(mgf_in, ["spec1"])
-        df = pl.DataFrame({"Spectrum": ["spec1"], "base": ["PEMC"]})
+        df = pl.DataFrame({"spectrum_title": ["spec1"], "base": ["PEMC"]})
         mgf_out = tmp_path / "out.mgf"
         expand_mgf_with_mod_states(df, mgf_in, mgf_out, debug_unmatched=False)
         content = mgf_out.read_text()
@@ -120,7 +121,7 @@ class TestExpandMgfWithModStates:
     def test_skips_unmatched(self, tmp_path: Path) -> None:
         mgf_in = tmp_path / "in.mgf"
         self.make_mgf(mgf_in, ["spec1"])
-        df = pl.DataFrame({"Spectrum": ["unknown"], "base": ["PEPTIDE"]})
+        df = pl.DataFrame({"spectrum_title": ["unknown"], "base": ["PEPTIDE"]})
         mgf_out = tmp_path / "out.mgf"
         expand_mgf_with_mod_states(df, mgf_in, mgf_out, debug_unmatched=False)
         content = mgf_out.read_text()
@@ -129,7 +130,7 @@ class TestExpandMgfWithModStates:
     def test_use_base_title(self, tmp_path: Path) -> None:
         mgf_in = tmp_path / "in.mgf"
         self.make_mgf(mgf_in, ["file:100:2"])
-        df = pl.DataFrame({"Spectrum": ["file:100"], "base": ["PEPTIDE"]})
+        df = pl.DataFrame({"spectrum_title": ["file:100"], "base": ["PEPTIDE"]})
         mgf_out = tmp_path / "out.mgf"
         expand_mgf_with_mod_states(
             df, mgf_in, mgf_out,
@@ -143,7 +144,7 @@ class TestExpandMgfWithModStates:
         mgf_in.write_text(
             "BEGIN IONS\nTITLE=spec1\nPEPMASS=500.0\n1.0 100.0\nEND IONS\n",
         )
-        df = pl.DataFrame({"Spectrum": ["spec1"], "base": ["PEPTIDE"]})
+        df = pl.DataFrame({"spectrum_title": ["spec1"], "base": ["PEPTIDE"]})
         mgf_out = tmp_path / "out.mgf"
         expand_mgf_with_mod_states(df, mgf_in, mgf_out, debug_unmatched=False)
         assert mgf_out.read_text() == ""
@@ -153,7 +154,7 @@ class TestWriteDepSpectrumChunks:
     def test_writes_chunks(self, tmp_path: Path) -> None:
         df = pl.DataFrame({
             "base": ["PEP1", "PEP2"],
-            "Spectrum": ["spec1", "spec2"],
+            "spectrum_title": ["spec1", "spec2"],
         })
         write_dep_spectrum_chunks(df, lines_per_file=1, out_dir=tmp_path)
         files = sorted(tmp_path.glob("variants_*.txt"))
@@ -162,8 +163,65 @@ class TestWriteDepSpectrumChunks:
     def test_chunk_size(self, tmp_path: Path) -> None:
         df = pl.DataFrame({
             "base": ["PEP1", "PEP2"],
-            "Spectrum": ["spec1", "spec2"],
+            "spectrum_title": ["spec1", "spec2"],
         })
         write_dep_spectrum_chunks(df, lines_per_file=2, out_dir=tmp_path)
         files = sorted(tmp_path.glob("variants_*.txt"))
         assert len(files) == 1
+
+
+class TestPrepareBaseRescoringLineage:
+    """Regression: Step 8 must key on `spectrum_title`, not `Spectrum`.
+
+    The reference `analyze_outputs.py` overwrites its `Spectrum` column with the
+    converted `file:scan:charge` title, so `ref_validation_prep.py` reading
+    `row["Spectrum"]` gets a title. Our Step 7 keeps `Spectrum` in FragPipe's raw
+    `file_sub.scan.scan.charge` form and adds a separate `spectrum_title`.
+    Reading `Spectrum` therefore matched 0 of 1,113 MGF titles and produced a
+    0-byte mgfall_fakes.mgf, which Step 9 would then search for nothing.
+    """
+
+    def _mgf(self, path: Path, title: str) -> None:
+        path.write_text(
+            "BEGIN IONS\n"
+            f"TITLE={title}\n"
+            "PEPMASS=400.0\n"
+            "CHARGE=2+\n"
+            "100.0 10.0\n"
+            "END IONS\n"
+        )
+
+    def _subs(self) -> pl.DataFrame:
+        return pl.DataFrame({
+            # raw FragPipe form — must NOT be used as the MGF key
+            "Spectrum": ["f_sub.101063.101063.2"],
+            "spectrum_title": ["f:101063:2"],
+            "base": ["PEPTIDE"],
+        })
+
+    def test_matches_on_spectrum_title(self, tmp_path: Path) -> None:
+        mgf_in = tmp_path / "in.mgf"
+        self._mgf(mgf_in, "f:101063:2")
+        subs_ipc = tmp_path / "subs.ipc"
+        self._subs().write_ipc(subs_ipc)
+
+        mgf_out = tmp_path / "fakes.mgf"
+        chunks = tmp_path / "chunks"
+        prepare_base_rescoring(subs_ipc, mgf_in, mgf_out, chunks)
+
+        assert mgf_out.stat().st_size > 0, "no spectra matched — wrong title column"
+        assert "TITLE=f:101063:2_M0C0" in mgf_out.read_text()
+        written = sorted(chunks.iterdir())
+        assert written
+        assert written[0].read_text().startswith("PEPTIDE\tf:101063:2_")
+
+    def test_zero_matches_raises_instead_of_empty_mgf(self, tmp_path: Path) -> None:
+        mgf_in = tmp_path / "in.mgf"
+        self._mgf(mgf_in, "some:other:title")
+        subs_ipc = tmp_path / "subs.ipc"
+        self._subs().write_ipc(subs_ipc)
+
+        with pytest.raises(RuntimeError, match="matched 0"):
+            prepare_base_rescoring(
+                subs_ipc, mgf_in, tmp_path / "fakes.mgf", tmp_path / "chunks",
+            )
