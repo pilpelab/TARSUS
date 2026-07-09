@@ -38,7 +38,7 @@ def test_step07_expected_ions():
 
 def test_step07_spectrum_to_title():
     """Convert FragPipe Spectrum column to canonical spectrum_title."""
-    assert _spectrum_to_title("file_sub.100.100.3") == "file_sub:100:3"
+    assert _spectrum_to_title("file_sub.100.100.3") == "file:100:3"
     assert _spectrum_to_title("file.50.50.2") == "file:50:2"
 
 
@@ -49,7 +49,7 @@ def test_step07_load_ptm_details():
     assert ptm["origin"][0] == "A"  # Ala (1-letter)
     assert ptm["dest"][0] == "R"    # Arg (1-letter)
     assert ptm["mistranslated_pos"][0] == 2  # position - 1
-    assert ptm["spectrum_title"][0] == "dev_sub:1:2"
+    assert ptm["spectrum_title"][0] == "dev:1:2"
 
 
 def test_step07_filter_single_sav_psms():
@@ -58,7 +58,7 @@ def test_step07_filter_single_sav_psms():
     singles = filter_single_sav_psms(ptm)
     # With a single valid SAAV (PEPTIDE/Ala->Gly@1), should keep 1 row
     assert len(singles) == 1
-    assert singles["spectrum_title"][0] == "dev_sub:1:2"
+    assert singles["spectrum_title"][0] == "dev:1:2"
     assert singles["ptm_score"][0] == 0.95
 
 

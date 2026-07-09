@@ -1,5 +1,74 @@
 # Decisions Log
 
+## D-047: Ground Truth Found — Option C Is Unnecessary. The Root Cause Is Step 2 Indexing `_sub.mzML`; D-044/D-045/D-046 Are All Downstream of It.
+**Date:** 2026-07-09
+**Status:** Closes D-044, D-045, D-046. Supersedes the Option C design/plan (`docs/superpowers/specs|plans/2026-07-08-step7-proximity-lineage*.md`) — **do not implement them.**
+**Context:** Located the colleagues' real, completed reference run at
+`/home/labs/pilpel/elizabev/tRNA/EVpar/tarsus_analysis/` (the `TARSUS_elizabev/` symlink points only
+at their *scripts* repo, whose `pepquery_inputs/` is empty and whose `pepquery_result/*/` is a
+literal `*` directory from an aborted invocation — which is why no ground truth was found before).
+
+**The reference run succeeds, on the same instrument family (Orbitrap Astral DDA, `HouYM-25-G140-AstralDDA-EVpar-{LS,HS}-3`), using exact targeted PepQuery validation.** Its funnel:
+
+| Artifact | Reference | TARSUS_BC trial |
+|---|---|---|
+| Step 4 `psm_input4pepquery.tsv` | 37,729 rows × **2 cols** (`peptide\tspectrum_title`) | 45,678 rows × **1 col** (peptide only) |
+| Step 6 `psmrankall.txt` | 15,232 rows | 617,573 rows |
+| Step 7 `subs.ipc` | **3,922 rows** × 69 cols | **0 rows** × 69 cols |
+| Step 11 `subs_localized.ipc` | **697 rows** | (never ran) |
+
+**Root cause, proven.** The reference builds its PepQuery index from the **original** mzML files, per
+`make_index.sh` and README step 2 (which runs *before* the FragPipe search that creates `_sub.mzML`).
+Verified directly — reference index `TITLE=` lines carry **no `_sub`**:
+`TITLE=HouYM-25-G140-AstralDDA-EVpar-LS-3:121018:2`, and its `psmrankall.txt` `spectrum_title`s match
+(`...-LS-3:204674:2`). Consistently, `extract_psm.py` and `analyze_outputs.py` both **strip** `_sub`
+from FragPipe's second-pass `Spectrum` column (`..._sub.02863.02863.2` → `...:2863:2`), landing
+exactly in that namespace. `_sub.mzML` preserves the original scan numbering, so the lookup resolves.
+The chain is coherent end-to-end and demonstrably yields 3,922 SAAVs.
+
+TARSUS_BC broke this in commit `e143a46` ("reorder Step 2 after Step 3a — index `*_sub.mzML` not
+original mzML"), a compute optimization that moved the index into a **`_sub`-bearing title
+namespace**. Every subsequent finding is a downstream artifact of that one change:
+- `extract_psm.py`'s `_sub` stripping then produced titles absent from the index → misdiagnosed as
+  "FragPipe 24.0 scan numbers don't match mzML" (**D-032 — false**, later disproved by D-045 Finding 1).
+- That false diagnosis motivated commit `68957c2`, dropping Step 4 to peptide-only input, which is
+  the actual **D-044 lineage break** that zeroes Step 7.
+- D-045 Finding 3's "missing precursor-mass bins" and Finding 4's `NullPointerException` were both
+  **self-inflicted**: the NPE only appears once `-varMod 2,33` is added, and `-varMod` was added to
+  work around the bin mismatch caused by the wrong index. **The reference passes no `-varMod` at all**
+  and hits neither problem. Step 5's flags are otherwise byte-identical to `query_psm.sh`.
+- D-046's "PepQuery index mass disagrees with FragPipe by −162…+943 Da" cannot be a PepQuery
+  pathology: FragPipe's own `Delta Mass` across all 45,678 second-pass candidates spans only
+  −0.078…+3.082 Da (100% within ±60 Da), and both tools read the same file. The measurement almost
+  certainly keyed on scan number without pinning charge (PepQuery indexes a scan under multiple
+  charge titles, whose neutral masses differ by ~1.5×) — which reproduces that exact spread.
+
+**Decision:** Abandon Option C. Restore the reference contract, which is now known to work:
+1. **Step 2** — index `01_mzml/` (original mzML), not `03a_first_pass/*_sub.mzML`. Reverts `e143a46`;
+   Step 2 no longer depends on Step 3a and may run in parallel with it, as in the reference.
+2. **Step 4** — emit two columns (`peptide\tspectrum_title`), stripping `_sub`, per reference
+   `extract_psm.py`. Reverts `68957c2`.
+3. **Step 7** — revert `_spectrum_to_title()`/`_normalize_spectrum_title()` to **strip** `_sub`
+   (undoes the `_sub`-preserving half of `c70f35e`, which was only correct for the `_sub` index).
+4. **Step 5** — no change. Do **not** add `-varMod`, `-indexType`, or `-s`.
+**Rationale:** This is not a scientific-method change — it restores the published method exactly, and
+Option C's proximity acceptance (which validates a SAAV against a *different* spectrum than the one
+it was identified on, weakening the evidence and the `dpbp` intensity ratio) becomes unnecessary.
+**Sentinels to invalidate:** `02_index/`, `04_psm_input/`, `05_pepquery/`, `06_aggregated/`,
+`07_analyze/`, `08_base_input/`. Steps 01/03a/03b/03c are unaffected and must be preserved.
+**Cost:** re-index (~6 GB) + re-run PepQuery (~21 GB) + re-aggregate (~29 GB). Steps 5/6 are the
+expensive ones. Note the reference targeted only 37,729 PSMs and produced a 3.8 MB `psmrankall.txt`,
+versus our peptide-only run's 167 MB — targeted mode should be substantially *cheaper*, not dearer.
+**Acceptance test:** Step 7 `subs.ipc` must have > 0 rows. Order-of-magnitude sanity: the reference
+got 3,922 SAAVs → 697 localized from 2 Astral DDA files; our trial is also 2 Astral DDA files.
+**Ground truth for regression testing:** `/home/labs/pilpel/elizabev/tRNA/EVpar/tarsus_analysis/`
+(`subs.ipc`, `subs_localized.ipc`, `psmrankall.txt`, `second/psm_input4pepquery.tsv`). Column *sets*
+already match ours 69/69, modulo naming (`_right`→`_first`, `first Intensity`→`first_intensity`,
+`mistranslatedPos`→`mistranslated_pos`; reference has `sample`, we have `spectrum_title`).
+**Note:** the reference's original EVpar `.mzML` inputs are no longer on disk (only `_sub.mzML`), so
+we cannot bit-for-bit reproduce their run — but their outputs remain valid as a magnitude/schema oracle.
+**Read-only:** nothing under `/home/labs/pilpel/elizabev/` was modified.
+
 ## D-046: Option A (Targeted PepQuery) Blocked by a Deeper Issue — PepQuery's Own Index Precursor Mass Disagrees with FragPipe's Assigned Mass
 **Date:** 2026-07-07
 **Status:** Open. User chose Option A; this entry records why it is not yet implementable and is a pre-existing characteristic of the reference method, not a TARSUS_BC porting bug.

@@ -187,8 +187,40 @@ Step 3c has MSBooster fully disabled (`run-msbooster=false`, `predict-rt=false`,
 ### I/L Ambiguity
 Mass spectrometry cannot distinguish isoleucine (I) from leucine (L) — they have identical monoisotopic mass (113.08406 Da). The pipeline uses "I" as the canonical representation in peptide sequences. The FASTA header retains "I/L" notation to indicate the positional ambiguity, but the actual sequence never contains "/".
 
-### FragPipe 24.0 Scan Number Mismatch
-FragPipe 24.0 uses internal scan numbering that does not match native mzML scan numbers. This means spectrum titles extracted from FragPipe's `psm.tsv` (`Spectrum` column) cannot be used for targeted PepQuery search. The pipeline works around this by running PepQuery in open-search mode (`-aa` flag) with peptide-only input — no spectrum titles. PepQuery searches all indexed spectra for each peptide sequence, which is correct for the variant-peptide validation use case.
+### OPEN BLOCKER: Step 4/5→7 Lineage Break — Step 7 Produces 0 Rows
+Steps 4/5 run PepQuery in open-search mode (`-aa` flag) with peptide-only input — no spectrum
+titles. PepQuery therefore validates each candidate peptide against *whatever* indexed spectrum
+matches it, not against the spectrum Step 3c actually found it on. Step 7 still requires an exact
+`(spectrum_title, peptide)` match, so it drops every candidate: `subs.ipc` has 0 rows, and the
+Step 8 guardrail halts the run before Steps 9–11.
+
+This open-search workaround was originally justified (commit `68957c2`, D-032) by a claimed
+FragPipe 24.0 / mzML scan-number mismatch. **That claim was tested and is false** — FragPipe 24.0's
+`Spectrum` column scan numbers exactly match native mzML `scan=` numbers (D-045, Finding 1). The
+real title bug was `_sub`-suffix stripping, fixed in `step07_analyze_outputs.py` (commit `c70f35e`).
+Fixing the title format was necessary but not sufficient: the exact pairs Step 7 wants were never
+sent to PepQuery in the first place, so no rerun of Steps 1–6 can produce them.
+
+Restoring exact targeted lineage (Option A) is separately blocked: PepQuery's `index` command
+computes its own precursor masses, which disagree with FragPipe's by up to ~900 Da on this dataset,
+and its targeted code path throws an NPE for peptides absent from `-db` (D-045 Finding 4, D-046).
+
+**Root cause, proven (D-047).** The colleagues' completed reference run at
+`/home/labs/pilpel/elizabev/tRNA/EVpar/tarsus_analysis/` succeeds with *exact targeted* PepQuery
+validation on the same Orbitrap Astral DDA instrument family, producing a 3,922-row `subs.ipc`.
+It indexes the **original** mzML, so its index titles carry **no `_sub`**
+(`TITLE=...-EVpar-LS-3:121018:2`), and `extract_psm.py` / `analyze_outputs.py` both strip `_sub`
+to land in that namespace. TARSUS_BC's commit `e143a46` moved Step 2 to index `_sub.mzML` — a compute
+optimization that silently shifted the title namespace and cascaded into every "bug" since. D-045's
+`NullPointerException` and D-046's mass disagreement were self-inflicted by the `-varMod 2,33` that
+was added to compensate; the reference passes no `-varMod` and hits neither.
+
+**Fix (D-047):** restore the reference contract — Step 2 indexes `01_mzml/`; Step 4 emits
+`peptide\tspectrum_title` with `_sub` stripped; Step 7 strips `_sub`; Step 5 unchanged.
+Option C (proximity acceptance) is **cancelled** — its spec and plan under `docs/superpowers/` are
+retained for history only and must not be implemented.
+
+Until the fix lands, the pipeline is **not** end-to-end validated: it completes Steps 1–6 and halts.
 
 ### PepQuery Index Must Contain Only Searched Spectra
 Step 2 indexes `*_sub.mzML` files (unidentified spectra from FragPipe first pass), not the full mzML files. This is by design: indexing the full mzML would waste compute on already-identified spectra. However, it means the pipeline must run Step 3a before Step 2.

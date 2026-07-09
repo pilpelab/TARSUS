@@ -66,7 +66,9 @@ output/my-run/
 
 All steps run on LSF. A single master job orchestrates heavy tools (ThermoRawFileParser, FragPipe, PepQuery) via child bsub jobs and runs Python analysis (mutagenesis, filtering, localization) inline on the compute node. The login node is only used for the initial submission.
 
-**Note:** Step 2 (PepQuery index) now runs **after** Step 3a (FragPipe first pass) to index only the unidentified spectra (`_sub.mzML` files). Step 4 produces peptide-only output (no spectrum titles) — PepQuery runs in open-search mode to work around FragPipe 24.0 scan number incompatibility.
+**Note:** Step 2 (PepQuery index) runs **after** Step 3a (FragPipe first pass) to index only the unidentified spectra (`_sub.mzML` files).
+
+> **⚠️ Status: not end-to-end validated.** Step 4 emits peptide-only input, so Step 5 runs PepQuery in open-search mode and Step 7's exact spectrum-title join matches nothing — `subs.ipc` comes out with 0 rows and the Step 8 guardrail halts the run before Steps 9–11. A run that reaches Step 8 and stops is the *expected* current behaviour, not a crash. See the "OPEN BLOCKER" section of `.context/architecture.md` and decisions D-044/D-045/D-046.
 
 See `.context/architecture.md` for full details.
 
@@ -83,7 +85,10 @@ make test-tools   # verify everything works
 ## Tests
 
 ```bash
-uv run pytest                                      # 151 tests (142 unit + 9 validation)
+uv run pytest -m "not lsf"                         # 163 tests, ~60s — the normal dev loop
+uv run pytest                                      # 166 tests; the 3 extra are @pytest.mark.lsf
+                                                   # real-tool tests (FragPipe/PepQuery) that take
+                                                   # many minutes and need cluster + `make setup`
 uv run mypy src/tarsus                              # type checking
 make test-tools                                    # tool integrity (8 tools including IonQuant)
 make test-pdv-full                                 # PDV + Xvfb integration
@@ -93,7 +98,7 @@ make test-pdv-full                                 # PDV + Xvfb integration
 
 ```
 src/tarsus/     Python package (steps, CLI, env, LSF helpers)
-tests/          pytest tests (151)
+tests/          pytest tests (166)
 tools/          External tools (downloaded via make setup)
 data/           Test datasets (gitignored)
 .context/       Architecture and reference docs

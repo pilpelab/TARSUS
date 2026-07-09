@@ -48,6 +48,19 @@ def run_pipeline(outdir: Path, fasta: Path, raw_files: list[Path]) -> None:
         _s1.touch()
         _log("S01", "Done")
 
+    # ── Step 2: PepQuery index from the original mzML ────────────────
+    # Must index 01_mzml/, not 03a_first_pass/*_sub.mzML: PepQuery titles
+    # spectra after the file it indexed, and Steps 4/7 both address spectra as
+    # `file:scan:charge` with no `_sub` suffix. Indexing the _sub remainder
+    # shifts the title namespace and silently zeroes Step 7 (D-047).
+    _s2 = outdir / "02_index" / ".done"
+    if not _skip_if_done(_s2, "S02"):
+        _log("S02", "Building PepQuery index from original mzML (LSF)")
+        from tarsus.steps.step02_make_index import step02_make_index
+        step02_make_index(outdir / "01_mzml", outdir / "02_index", tool_env)
+        _s2.touch()
+        _log("S02", "Done")
+
     # ── Step 3a: FragPipe first pass ─────────────────────────────────
     _s3a = outdir / "03a_first_pass" / ".done"
     if not _skip_if_done(_s3a, "S03a"):
@@ -56,15 +69,6 @@ def run_pipeline(outdir: Path, fasta: Path, raw_files: list[Path]) -> None:
         step03a_first_pass(fasta, outdir / "01_mzml", outdir / "03a_first_pass", tool_env)
         _s3a.touch()
         _log("S03a", "Done")
-
-    # ── Step 2: PepQuery index from *_sub.mzML (runs after Step 3a) ──
-    _s2 = outdir / "02_index" / ".done"
-    if not _skip_if_done(_s2, "S02"):
-        _log("S02", "Building PepQuery index from *_sub.mzML (LSF)")
-        from tarsus.steps.step02_make_index import step02_make_index
-        step02_make_index(outdir / "03a_first_pass", outdir / "02_index", tool_env)
-        _s2.touch()
-        _log("S02", "Done")
 
     # ── Step 3b: In-silico mutagenesis ───────────────────────────────
     _s3b = outdir / "03b_candidates" / ".done"
@@ -150,6 +154,23 @@ def run_pipeline(outdir: Path, fasta: Path, raw_files: list[Path]) -> None:
         )
         _s7.touch()
         _log("S07", f"Done → {_07_out / 'subs.ipc'}")
+
+    # Guardrail: Step 7 stamps .done even when it filters everything away, so a
+    # spectrum-title/peptide lineage break would otherwise surface much later as
+    # a confusing Step 8 error. Check the row count directly, outside the .done
+    # branch, so resumed runs are validated too (D-047).
+    _subs_ipc = outdir / "07_analyze" / "subs.ipc"
+    import polars as _pl
+    _subs_rows = _pl.read_ipc(_subs_ipc).height
+    if _subs_rows == 0:
+        raise RuntimeError(
+            f"Step 7 produced 0 candidate rows in {_subs_ipc}. Steps 8-11 were "
+            "not run. This almost always means a spectrum-title lineage break "
+            "between FragPipe (Step 3c), PepQuery (Steps 4/5) and the Step 2 "
+            "index — verify that Step 2 indexed the original mzML and that "
+            "Step 4 emitted two columns. See D-047 in .memory/decisions.md."
+        )
+    _log("S07", f"{_subs_rows} candidate SAAV rows")
 
     # ── Step 8: Reference validation prep ────────────────────────────
     _s8 = outdir / "08_base_input" / ".done"

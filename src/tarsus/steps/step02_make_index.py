@@ -1,4 +1,12 @@
-"""Step 2: Build PepQuery index from mzML files (per-file parallel).
+"""Step 2: Build PepQuery index from the original mzML files (per-file parallel).
+
+Index the *original* mzML files (Step 1 output), not FragPipe's ``*_sub.mzML``
+remainder.  PepQuery titles each indexed spectrum after the file it came from,
+and Steps 4 and 7 both address spectra as ``file:scan:charge`` with no ``_sub``
+suffix.  Indexing the ``_sub`` remainder shifts the title namespace and silently
+zeroes Step 7 — see D-047 in ``.memory/decisions.md``.
+
+This step therefore depends only on Step 1, and may run in parallel with Step 3a.
 
 Submits one PepQuery index job per mzML file.  The Java heap is
 auto-scaled to 2× the mzML file size (clamped to 8-24 GB), so both

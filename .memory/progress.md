@@ -1,5 +1,132 @@
 # Progress Log
 
+## Session 2026-07-09 (cont'd) — Ground truth located; root cause proven; Option C cancelled (D-047)
+
+### What was done
+Searched `TARSUS_elizabev/` for validation evidence. That symlink points only at the colleagues'
+*scripts* repo — its `pepquery_inputs/` is empty and `pepquery_result/*/` is a literal `*` directory
+left by an aborted run, which is why earlier sessions concluded no ground truth existed. The FragPipe
+log `tarsus_analysis.txt` names their real working directory:
+`/home/labs/pilpel/elizabev/tRNA/EVpar/tarsus_analysis/`. It holds a **complete, successful run**.
+
+### The answer
+The reference run **succeeds with exact targeted PepQuery validation** on the same instrument family
+(Orbitrap Astral DDA): 37,729 two-column targeted PSMs → 15,232 `psmrankall.txt` rows → **3,922-row
+`subs.ipc`** → **697-row `subs_localized.ipc`**. Ours: 45,678 one-column peptides → 617,573 rows → **0**.
+
+Its PepQuery index is built from the **original** mzML, so index titles carry **no `_sub`**
+(`TITLE=...-EVpar-LS-3:121018:2`), and both `extract_psm.py` and `analyze_outputs.py` strip `_sub`
+from FragPipe's `Spectrum` column to land in that namespace. TARSUS_BC's commit `e143a46` moved
+Step 2 to index `_sub.mzML` — a compute optimization that silently shifted the title namespace.
+Everything since (D-032's false scan-number claim, D-044's lineage break, D-045's NPE, D-046's mass
+disagreement) is downstream of that single change. The NPE and bin mismatch were self-inflicted by
+`-varMod 2,33`, which the reference never passes.
+
+### Decision: Option C is cancelled — see D-047
+Do **not** implement `docs/superpowers/plans/2026-07-08-step7-proximity-lineage.md`. The fix is to
+restore the reference contract: Step 2 indexes `01_mzml/`; Step 4 emits `peptide\tspectrum_title`
+with `_sub` stripped; Step 7 strips `_sub` again; Step 5 unchanged. Invalidate sentinels
+`02_index` → `08_base_input`; preserve Steps 01/03a/03b/03c.
+
+### Ground truth now available for regression testing
+`/home/labs/pilpel/elizabev/tRNA/EVpar/tarsus_analysis/` — `subs.ipc`, `subs_localized.ipc`,
+`psmrankall.txt`, `second/psm_input4pepquery.tsv`. Column sets already match ours 69/69 modulo
+naming. Their original `.mzML` inputs are gone (only `_sub.mzML` survives), so exact reproduction
+isn't possible; use them as a magnitude/schema oracle.
+
+### No code changed; nothing under elizabev/ touched
+`src/tarsus/` untouched. No step rerun. No sentinel deleted. All reads of
+`/home/labs/pilpel/elizabev/` were read-only.
+
+---
+
+## Session 2026-07-09 — Migration status audit (no pipeline code changed)
+
+### Question asked
+"Is the migration done? Are Steps 3–6 mid-run? Why is Step 8 empty and Step 7 'done'?
+How would I even know I succeeded?"
+
+### Answer: the migration is NOT complete. Steps 1–6 are sound; Step 7 is the sole blocker.
+
+**Steps 1–6: complete and internally consistent — not mid-run.** All sentinels stamped, all
+artifacts substantial and non-truncated. No LSF jobs active. Sentinel times confirm the intended
+DAG (`01 → 03a → {02 ‖ 03b → 03c} → 04 → 05 → 06`); Step 2 finishing *after* Step 3c is expected,
+since both only depend on 03a and run in parallel (commit `e143a46`).
+
+| Step | Sentinel | Key artifact | Size |
+|------|----------|--------------|------|
+| 01 | 06-29 16:49 | 2 × `.mzML` | 5.7 G |
+| 03a | 06-30 13:14 | `psm.tsv` | 116 M |
+| 03b | 06-30 13:14 | `pep_candidates.fa` | 299 M |
+| 03c | 06-30 14:15 | `second/psm.tsv` | 39 M |
+| 02 | 06-30 16:34 | 24,944 index MGFs | 6.4 G |
+| 04 | 06-30 16:49 | `psm_input4pepquery.tsv` (45,678 peptides, **1 column**) | 864 K |
+| 05 | 07-01 17:18 | 4,568 result files | 21 G |
+| 06 | 07-07 09:42 | `psmrankall.txt` / `ptmall.txt` / PDV export | 29 G |
+
+**Step 7 is stamped `.done` but `subs.ipc` is `(0, 69)` — zero rows.** Verified directly with
+polars. Step 8 consumed 0 rows → wrote 0 base-input files → the guardrail in
+`orchestration.py:176` raised, correctly halting before Steps 9–11. `master.log` confirms:
+`Total DF titles: 0`. Steps 9/10/11 therefore do not exist in `output/trial/` at all.
+
+### Root cause is *unchanged* since D-044/D-045 — the July 8 commit did not fix it
+`c70f35e` ("correct Step 7 spectrum-title lineage bug") fixed a **real but insufficient** bug:
+`_spectrum_to_title()` was stripping `_sub`. Correcting the title *format* does not help, because
+the exact `(spectrum_title, peptide)` pairs Step 7 joins on were **never sent to PepQuery**. Step 4
+emits peptide-only input (verified: `psm_input4pepquery.tsv` has exactly 1 column), so Step 5
+open-searches each peptide against any indexed spectrum. Exact overlap with Step 3c pairs = 0
+(D-044). No rerun of Steps 1–6 can fix this.
+
+### The approved repair was never implemented
+- Design spec: `docs/superpowers/specs/2026-07-08-step7-proximity-lineage-design.md` — "Approved by user".
+- Implementation plan: `docs/superpowers/plans/2026-07-08-step7-proximity-lineage.md` — 959 lines,
+  **every task checkbox still `- [ ]`**.
+- Confirmed absent from the codebase: `src/tarsus/steps/_index_rt_cache.py` does not exist;
+  `match_type` appears nowhere in `src/` or `tests/`; `step07_analyze_outputs.py:275` still does the
+  exact-title `is_in(first_set | saved_set)` filter.
+
+### ⚠️ Sentinel trap — read before the next rerun
+`.done` is stamped unconditionally after a step runs, regardless of whether it produced rows.
+`07_analyze/.done` and `08_base_input/.done` both exist over empty output. If Option C is
+implemented and the pipeline rerun *without deleting those two sentinels*, `_skip_if_done()` will
+skip Step 7 entirely and the fix will silently have no effect. Delete `07_analyze/.done` through
+`11_localized/.done` before any Step-7 rerun (Steps 1–6 must be preserved — they cost ~65 GB and
+several days of cluster time).
+
+Related: an earlier run stamped Steps 7–11 `.done` over empty data and reported "Pipeline complete."
+Those artifacts are quarantined in `output/trial/invalid_empty_downstream_20260707132848/`; its
+`11_localized/subs_localized.csv` is **header-only (1 line)**. That vacuous success is exactly what
+the Step 8 guardrail now prevents. There is still **no guardrail on Step 7 itself** — it will stamp
+`.done` over a 0-row `subs.ipc` — so Step 8's check is currently the only thing standing between a
+lineage bug and a false "complete".
+
+### Acceptance criteria — how to know the migration actually succeeded
+The pipeline is migrated when *all* of these hold, in order:
+1. `uv run pytest -m "not lsf"` → all green (currently: 163 passed).
+2. `07_analyze/subs.ipc` has **> 0 rows**, and (post-Option-C) reports its `exact` vs `proximity`
+   `match_type` split.
+3. `08_base_input/pepquery_input_base/` contains ≥ 1 chunk file, and `mgfall_fakes.mgf` is non-empty
+   (it is currently **0 bytes**).
+4. Steps 09/10/11 directories exist; `10_aggregated_base/psmrankall_base.txt` is non-empty
+   (the quarantined copy is 0 bytes).
+5. `11_localized/subs_localized.csv` has **> 1 line** (i.e. a header *and* data rows).
+6. `master.log` ends with `[…] DONE: Pipeline complete.` and the LSF job exits 0.
+Today only criterion 1 passes.
+
+### Documentation corrected this session
+`README.md` and `.context/architecture.md` both still asserted the D-032 rationale — "FragPipe 24.0
+scan numbering does not match native mzML scan numbers" — which **D-045 Finding 1 tested and
+disproved**. `architecture.md` further described the open-search workaround as "correct for the
+variant-peptide validation use case", contradicting D-044's finding that it breaks Step 7's lineage
+contract. Both replaced with the verified state and a pointer to the Option C spec/plan. Also fixed
+the README's test instructions: it advertised `uv run pytest` / "151 tests", but a bare `pytest`
+run **hangs** on 3 `@pytest.mark.lsf` real-tool tests; the counts are now 166 collected / 163 non-LSF.
+
+### No pipeline code or outputs changed
+`src/tarsus/` untouched. No step rerun. No sentinel deleted. No file under `output/trial/` modified.
+
+---
+
 ## Session 2026-07-07 (cont'd) — Step 4/5→7 lineage forensics complete (D-045)
 
 ### What was done

@@ -80,11 +80,12 @@ class TestComputeExpectedIons:
 
 
 class TestSpectrumToTitle:
-    def test_basic_preserves_sub_suffix(self) -> None:
-        assert _spectrum_to_title("file_sub.100.100.2") == "file_sub:100:2"
+    def test_basic_strips_sub_suffix(self) -> None:
+        # PepQuery indexes the original mzML, whose titles carry no `_sub` (D-047).
+        assert _spectrum_to_title("file_sub.100.100.2") == "file:100:2"
 
-    def test_leading_zeros_preserves_sub_suffix(self) -> None:
-        assert _spectrum_to_title("file_sub.00100.00100.2") == "file_sub:100:2"
+    def test_leading_zeros_strips_sub_suffix(self) -> None:
+        assert _spectrum_to_title("file_sub.00100.00100.2") == "file:100:2"
 
     def test_no_sub_suffix(self) -> None:
         assert _spectrum_to_title("file.50.50.3") == "file:50:3"

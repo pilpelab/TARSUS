@@ -58,19 +58,6 @@ def _normalize_il(seq: str) -> str:
     return seq.replace("I", "J").replace("L", "J")
 
 
-def _normalize_spectrum_title(raw: str) -> str:
-    """Convert Spectrum field to canonical spectrum_title format.
-
-    Preserve the ``_sub`` suffix because PepQuery/PDV Step 6 spectrum titles
-    include it (e.g. ``file_sub:234:3``). Stripping it makes Step 7 fail to
-    join second-pass FragPipe PSMs to PepQuery/PDV results.
-    """
-    parts = raw.split(".")
-    file_name = parts[0]
-    scan_num = str(int(parts[1]))
-    return f"{file_name}:{scan_num}:{parts[-1]}"
-
-
 def load_ptm_details(ptmall_path: Path) -> pl.DataFrame:
     """Load PepQuery ptmall.txt and extract origin/dest/position."""
     # ptmall.txt is very large (9+ GB on the trial dataset), but Step 7 only
@@ -187,12 +174,15 @@ def _compute_expected_ions(dependent: str, position: int) -> list[str]:
 def _spectrum_to_title(spec: str) -> str:
     """Convert FragPipe Spectrum value to PepQuery/PDV spectrum_title.
 
-    FragPipe writes ``file_sub.scan.scan.charge`` while PepQuery/PDV use
-    ``file_sub:scan:charge``. Keep ``_sub`` intact; it is part of the Step 6
-    title namespace.
+    FragPipe writes ``file_sub.scan.scan.charge``.  Step 2 indexes the
+    *original* mzML, so PepQuery/PDV titles are ``file:scan:charge`` with no
+    ``_sub`` suffix — strip it here to land in that namespace, matching the
+    reference ``analyze_outputs.py`` and Step 4's ``_spectrum_to_title``.
+
+    See D-047 in ``.memory/decisions.md``.
     """
     parts = spec.split(".")
-    file_name = parts[0]
+    file_name = parts[0].split("_sub")[0]
     scan_num = str(int(parts[1]))
     return f"{file_name}:{scan_num}:{parts[-1]}"
 
