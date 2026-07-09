@@ -43,49 +43,49 @@ is a downstream artifact of that single change.
 
 **Files:** `src/tarsus/steps/step04_extract_psm.py`, `tests/unit/test_step04_extract_psm.py`
 
-- [ ] Update unit tests: expect `peptide\tspectrum_title`; `file_sub.00100.00100.2` → `file:100:2`
+- [x] Update unit tests: expect `peptide\tspectrum_title`; `file_sub.00100.00100.2` → `file:100:2`
       (strip `_sub`, strip leading zeros, charge from the `Charge` column).
-- [ ] Run tests → verify they fail.
-- [ ] Rewrite `extract_psm()` to mirror reference `extract_psm.py`; add `_spectrum_to_title()` helper.
+- [x] Run tests → verify they fail.
+- [x] Rewrite `extract_psm()` to mirror reference `extract_psm.py`; add `_spectrum_to_title()` helper.
       Rewrite the module docstring (it currently repeats the false scan-number claim).
-- [ ] Run tests → pass.
+- [x] Run tests → pass.
 
 ## Task 2 — Step 7 strips `_sub` again
 
 **Files:** `src/tarsus/steps/step07_analyze_outputs.py`, `tests/unit/test_step07_analyze_outputs.py`,
 `tests/validation/test_step07_analyze.py`, `tests/validation/expected/step07_fixtures/*`
 
-- [ ] Update unit tests: `_spectrum_to_title("file_sub.100.100.2") == "file:100:2"`.
-- [ ] Update validation fixtures from the `dev_sub:1:2` namespace to `dev:1:2`
+- [x] Update unit tests: `_spectrum_to_title("file_sub.100.100.2") == "file:100:2"`.
+- [x] Update validation fixtures from the `dev_sub:1:2` namespace to `dev:1:2`
       (`ptmall.txt`, `psmrankall.txt`, `pdv_export.txt` titles; `second_psm.tsv` keeps `dev_sub.1.1.2`
       in its `Spectrum` column, since FragPipe really does emit `_sub` there).
-- [ ] Run tests → verify they fail.
-- [ ] Revert `_spectrum_to_title()` to strip `_sub`. Delete the now-dead `_normalize_spectrum_title()`.
-- [ ] Run tests → pass.
+- [x] Run tests → verify they fail.
+- [x] Revert `_spectrum_to_title()` to strip `_sub`. Delete the now-dead `_normalize_spectrum_title()`.
+- [x] Run tests → pass.
 
 ## Task 3 — Step 2 indexes the original mzML
 
 **Files:** `src/tarsus/orchestration.py`, `src/tarsus/steps/step02_make_index.py`
 
-- [ ] Point Step 2 at `outdir / "01_mzml"`; move it back above Step 3a (it now depends only on Step 1).
-- [ ] Update the Step 2 comment/log line and `step02_make_index` docstring.
-- [ ] `step02_make_index` needs no logic change — it globs `*.mzML`, which now matches the originals.
+- [x] Point Step 2 at `outdir / "01_mzml"`; move it back above Step 3a (it now depends only on Step 1).
+- [x] Update the Step 2 comment/log line and `step02_make_index` docstring.
+- [x] `step02_make_index` needs no logic change — it globs `*.mzML`, which now matches the originals.
 
 ## Task 4 — Guardrail on Step 7
 
 **Files:** `src/tarsus/orchestration.py`, `tests/unit/test_orchestration.py`
 
-- [ ] Step 7 currently stamps `.done` over a 0-row `subs.ipc`. Add a loud failure, mirroring the
+- [x] Step 7 currently stamps `.done` over a 0-row `subs.ipc`. Add a loud failure, mirroring the
       existing Step 8 guardrail, so a future lineage break cannot silently pass.
-- [ ] Test: 0-row `subs.ipc` → `RuntimeError`, no `.done`.
+- [x] Test: 0-row `subs.ipc` → `RuntimeError`, no `.done`.
 
 ## Task 5 — Verify, then rerun
 
-- [ ] `uv run pytest -m "not lsf"` → all green.
-- [ ] `uv run mypy src/tarsus`; `uv run ruff check src/tarsus`.
-- [ ] Invalidate sentinels **02, 04, 05, 06, 07, 08** only. Preserve 01/03a/03b/03c.
+- [x] `uv run pytest -m "not lsf"` → all green.
+- [x] `uv run mypy src/tarsus`; `uv run ruff check src/tarsus`.
+- [x] Invalidate sentinels **02, 04, 05, 06, 07, 08** only. Preserve 01/03a/03b/03c.
       Move stale `02_index/`, `05_pepquery/`, `06_aggregated/` aside rather than deleting outright.
-- [ ] Resubmit the master job; watch `master.log`.
+- [x] Resubmit the master job; watch `master.log`. → job **370123**, submitted 2026-07-09 15:59.
 
 ## Acceptance criteria
 

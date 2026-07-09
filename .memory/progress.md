@@ -1,5 +1,56 @@
 # Progress Log
 
+## Session 2026-07-09 (cont'd) — D-047 implemented; pipeline relaunched (job 370123)
+
+### Implemented (commit `80bbbe1`)
+- **Step 2** indexes `01_mzml/` (original mzML), moved back above Step 3a — depends only on Step 1.
+- **Step 4** emits `peptide<TAB>spectrum_title` with `_sub` stripped, no dedup (matches reference).
+- **Step 7** strips `_sub` again; dead `_normalize_spectrum_title()` deleted.
+- **Step 5** unchanged — flags already matched `query_psm.sh` exactly. No `-varMod` added.
+- **New Step 7 guardrail** in `orchestration.py`: a 0-row `subs.ipc` now raises, outside the `.done`
+  branch so resumed runs are checked too. Previously Step 7 stamped `.done` over 0 rows and the
+  failure surfaced misleadingly as a Step 8 error.
+- 171 tests pass (`-m "not lsf"`), mypy clean. The 3 ruff errors are **pre-existing** at HEAD
+  (unused `typing.Iterator` import et al.) — flagged, not fixed, per scope discipline.
+
+### Pre-flight verification (the load-bearing assumption)
+Confirmed directly on 5 scans (2213, 2702, 3091, 3193, 3482) that **`_sub.mzML` preserves the
+original mzML scan numbers**: precursor m/z, charge state, and msLevel are identical between
+`01_mzml/*.mzML` and `03a_first_pass/*_sub.mzML`, and the charges match FragPipe's own assignment.
+Stripping `_sub` therefore resolves to the correct spectrum in an original-mzML index.
+(Careful: the two files write cvParam attributes in *opposite* order — `value=` before `name=` in the
+ThermoRawFileParser output, `name=` before `value=` in FragPipe's. An order-sensitive regex silently
+reports "no precursor found" and makes it look like `_sub.mzML` renumbers. It does not.)
+
+### Run state
+- Stale `02_index`, `04_psm_input`, `05_pepquery`, `06_aggregated`, `07_analyze`, `08_base_input`
+  **moved** (not deleted) to `output/trial/superseded_d047_20260709155927/`. Reversible; delete once
+  the new run is validated (~56 GB reclaimable).
+- Steps 01/03a/03b/03c preserved with sentinels intact.
+- Master job **370123** submitted 2026-07-09 15:59, queue `gsla-cpu`.
+- ✅ **Acceptance criterion 2 already met:** new index MGF titles are
+  `TITLE=HouYM-25-G140-AstralDDA-AlaGGC-HS-1:4491:2` — **no `_sub`**, matching the namespace Step 4
+  now emits (`...-HS-1:2213:3`). The two namespaces agree; this was the whole bug.
+
+### ⚠️ Unexplained concurrent activity — worth a look
+`01_mzml/*.mzML` were **regenerated today at 15:27/15:35** by ThermoRawFileParser jobs
+(368382/368383, 368477/368478, 368594/368595) that this session did not launch. The files grew from
+~2.8/2.9 GB (2026-06-30) to 6.4/8.8 GB. They are complete and well-formed, and the scan-number check
+above was run against these *new* files and passed — so Step 2 is indexing valid, `_sub`-consistent
+data. But `01_mzml/.done` still reads 2026-06-29, so orchestration skipped Step 1 and never noticed.
+Someone or something else is writing into `output/trial/`. Worth confirming before the next run.
+
+### Remaining acceptance criteria (pipeline still running, multi-day)
+4. Step 5 logs report `Matched spectra: N > 0`.
+5. `07_analyze/subs.ipc` > 0 rows (reference magnitude: 3,922).
+6. `08_base_input/pepquery_input_base/` non-empty; `mgfall_fakes.mgf` > 0 bytes.
+7. Steps 09/10/11 exist; `subs_localized.csv` > 1 line.
+8. `master.log` ends `DONE: Pipeline complete.`
+
+Monitor: `bjobs 370123` and `tail -f output/trial/master.log`.
+
+---
+
 ## Session 2026-07-09 (cont'd) — Ground truth located; root cause proven; Option C cancelled (D-047)
 
 ### What was done
