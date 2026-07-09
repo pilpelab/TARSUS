@@ -78,40 +78,20 @@ class XvfbDisplay:
             ld_lib_path = f"{self._xvfb_lib}:{existing_ld}" if existing_ld else str(self._xvfb_lib)
 
         errors: list[str] = []
-        # Many PDV shard jobs may land on the same compute node. Each needs
-        # its own Xvfb display, so try a broad range rather than only the
-        # traditional :99..:96 set. Xvfb itself arbitrates races via /tmp
-        # .X*-lock files; if one candidate is busy, we move to the next.
-        display_numbers = list(range(99, 49, -1)) + list(range(100, 200))
-        for display_number in display_numbers:
-            disp = f":{display_number}"
-            proc_env = os.environ.copy()
-            proc_env["LD_LIBRARY_PATH"] = ld_lib_path
-            proc = subprocess.Popen(
-                [str(xvfb_bin), disp, "-screen", "0", "1024x768x24"],
-                env=proc_env,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.PIPE,
-            )
-            # Xvfb + its xkbcomp keymap-compile helper can take a couple of
-            # seconds to become ready; poll rather than a single fixed sleep.
-            ready = False
-            for _ in range(20):
-                time.sleep(0.3)
-                if proc.poll() is not None:
-                    break  # died
-                if Path(f"/tmp/.X11-unix/X{disp.lstrip(':')}").exists():
-                    ready = True
-                    break
-            if ready:
-                self._xvfb_proc = proc
-                self._display = disp
-                break
-            if proc.poll() is None:
-                proc.terminate()
-                proc.wait(timeout=5)
-            stderr = proc.stderr.read().decode(errors="replace") if proc.stderr else ""
-            errors.append(f"{disp}: {stderr.strip()}")
+        proc_env = os.environ.copy()
+        proc_env["LD_LIBRARY_PATH"] = ld_lib_path
+
+        # Many PDV shard jobs land on the same compute node, each needing its
+        # own display. Let Xvfb choose: with -displayfd it atomically claims the
+        # first free display and writes the number back to us. Scanning
+        # candidates ourselves is racy — a second worker sees the socket the
+        # first just created, believes it is ready, and adopts a display it does
+        # not own; when the owner exits it tears the X server down and the
+        # squatter dies mid-render (observed: 3 of 4 shards co-scheduled on one
+        # host failed with PDV rc=1 and a partial export).
+        started = self._start_with_displayfd(xvfb_bin, proc_env, errors)
+        if not started:
+            started = self._start_by_scanning(xvfb_bin, proc_env, errors)
 
         if self._xvfb_proc is None:
             details = "\n".join(errors) or "no candidates attempted"
@@ -123,6 +103,104 @@ class XvfbDisplay:
         assert self._display is not None  # guaranteed by __enter__ branches
         env["DISPLAY"] = self._display
         return env
+
+    def _start_with_displayfd(
+        self, xvfb_bin: Path, proc_env: dict[str, str], errors: list[str],
+    ) -> bool:
+        """Start Xvfb letting it claim a free display atomically.
+
+        Xvfb writes the chosen display number to the fd given by ``-displayfd``
+        once it is ready to accept connections.  Returns True on success.
+        """
+        read_fd, write_fd = os.pipe()
+        os.set_inheritable(write_fd, True)
+        try:
+            proc = subprocess.Popen(
+                [
+                    str(xvfb_bin), "-displayfd", str(write_fd),
+                    "-screen", "0", "1024x768x24",
+                ],
+                env=proc_env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                pass_fds=(write_fd,),
+            )
+        except OSError as exc:
+            os.close(read_fd)
+            os.close(write_fd)
+            errors.append(f"-displayfd: {exc}")
+            return False
+
+        os.close(write_fd)
+        buf = b""
+        os.set_blocking(read_fd, False)
+        deadline = time.monotonic() + 30.0
+        while time.monotonic() < deadline and b"\n" not in buf:
+            if proc.poll() is not None:
+                break
+            try:
+                chunk = os.read(read_fd, 64)
+            except BlockingIOError:
+                time.sleep(0.1)
+                continue
+            if not chunk:
+                break
+            buf += chunk
+        os.close(read_fd)
+
+        number = buf.strip().decode(errors="replace")
+        if not number.isdigit() or proc.poll() is not None:
+            if proc.poll() is None:
+                proc.terminate()
+                proc.wait(timeout=5)
+            stderr = proc.stderr.read().decode(errors="replace") if proc.stderr else ""
+            errors.append(f"-displayfd: no display number ({stderr.strip()})")
+            return False
+
+        self._xvfb_proc = proc
+        self._display = f":{number}"
+        return True
+
+    def _start_by_scanning(
+        self, xvfb_bin: Path, proc_env: dict[str, str], errors: list[str],
+    ) -> bool:
+        """Fallback for an Xvfb too old to support ``-displayfd``.
+
+        Skips displays already claimed by someone else, and — crucially — only
+        accepts a display once *our own* server process is still alive, so we
+        never adopt an X server another worker owns.
+        """
+        for display_number in list(range(99, 49, -1)) + list(range(100, 200)):
+            disp = f":{display_number}"
+            if (
+                Path(f"/tmp/.X11-unix/X{display_number}").exists()
+                or Path(f"/tmp/.X{display_number}-lock").exists()
+            ):
+                continue  # already taken — do not race for it
+            proc = subprocess.Popen(
+                [str(xvfb_bin), disp, "-screen", "0", "1024x768x24"],
+                env=proc_env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+            )
+            ready = False
+            for _ in range(20):
+                time.sleep(0.3)
+                if proc.poll() is not None:
+                    break  # our server died — the display was not ours
+                if Path(f"/tmp/.X11-unix/X{display_number}").exists():
+                    ready = True
+                    break
+            if ready and proc.poll() is None:
+                self._xvfb_proc = proc
+                self._display = disp
+                return True
+            if proc.poll() is None:
+                proc.terminate()
+                proc.wait(timeout=5)
+            stderr = proc.stderr.read().decode(errors="replace") if proc.stderr else ""
+            errors.append(f"{disp}: {stderr.strip()}")
+        return False
 
     def __exit__(self, *args: object) -> None:
         if self._xvfb_proc is not None:

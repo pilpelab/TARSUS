@@ -2,6 +2,9 @@
 
 import os
 from pathlib import Path
+
+import pytest
+
 from src.tarsus.env import ToolEnvironment
 
 
@@ -122,3 +125,52 @@ class TestToolEnvironment:
         checks = env.verify()
         assert checks["java"] == (True, str(tmp_path / "jdk-21.0.11" / "bin" / "java"))
         assert not checks["dotnet"][0]
+
+
+class TestXvfbDisplayAllocation:
+    """Regression: concurrent PDV shards on one host must not share a display.
+
+    The old implementation scanned :99, :98, ... and considered a candidate
+    "ready" as soon as /tmp/.X11-unix/X<n> appeared. When two workers landed on
+    the same compute node, the second saw the socket the *first* had created,
+    declared itself ready, and adopted the first worker's display even though
+    its own Xvfb had died on the lock file. When the first worker exited it tore
+    down that Xvfb, and the second lost its X connection mid-render: PDV wrote a
+    partial PDVExportResult.txt and exited 1 with no Java exception.
+
+    Observed live: of four shards co-scheduled on cn810, exactly one survived;
+    every shard that had a host to itself succeeded.
+    """
+
+    def test_four_concurrent_displays_are_distinct_and_owned(self) -> None:
+        """Four concurrent servers — the exact multiplicity seen on cn810."""
+        import os as _os
+        from src.tarsus.env import XvfbDisplay
+
+        tools = Path(__file__).resolve().parents[2] / "tools"
+        if not (tools / "xvfb" / "bin" / "Xvfb").is_file():
+            pytest.skip("bundled Xvfb not present (run `make xvfb`)")
+
+        # XvfbDisplay short-circuits when $DISPLAY is already set.
+        prev = _os.environ.pop("DISPLAY", None)
+        opened: list[XvfbDisplay] = []
+        try:
+            displays: list[str] = []
+            for _ in range(4):
+                d = XvfbDisplay(tools)
+                env = d.__enter__()
+                opened.append(d)
+                displays.append(env["DISPLAY"])
+
+            assert len(set(displays)) == 4, (
+                f"concurrent XvfbDisplay instances shared a display: {displays}"
+            )
+            for d in opened:
+                # Each instance must own a live X server, not squat on another's.
+                assert d._xvfb_proc is not None
+                assert d._xvfb_proc.poll() is None, "adopted a display it does not own"
+        finally:
+            for d in reversed(opened):
+                d.__exit__()
+            if prev is not None:
+                _os.environ["DISPLAY"] = prev
