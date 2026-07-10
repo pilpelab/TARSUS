@@ -1,5 +1,18 @@
 # Step 7 Proximity-Based Lineage Acceptance Implementation Plan
 
+> ## ⛔ CANCELLED — DO NOT IMPLEMENT
+> Superseded by **D-047** in `.memory/decisions.md` and by
+> `docs/superpowers/plans/2026-07-09-d047-restore-targeted-lineage.md`.
+>
+> This plan's premise was wrong. Step 7's 0-row output was caused by Step 2 indexing
+> `_sub.mzML` instead of the original mzML (commit `e143a46`), which shifted the
+> spectrum-title namespace. Restoring the reference contract fixed it exactly, and the
+> pipeline now runs end-to-end. Proximity acceptance would have validated each SAAV against
+> a *different* spectrum than the one it was identified on — weakening both the evidence and
+> the `dpbp` intensity ratio — to solve a problem that never existed.
+>
+> Retained for history only.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Unblock Step 7 (currently produces `subs.ipc` with 0 rows) by accepting PepQuery/PDV evidence that is *proximate* (same file+charge, RT/mass within tolerance) to a Step 3c candidate's own spectrum, in addition to requiring an exact title match — without touching Steps 1–6 or rerunning any LSF jobs.

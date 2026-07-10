@@ -1,7 +1,9 @@
 # Step 7 Proximity-Based Lineage Acceptance (Option C)
 
 **Date:** 2026-07-08
-**Status:** Approved by user, pending implementation plan.
+**Status:** ⛔ **CANCELLED — superseded by D-047.** Never implemented. Its premise (that exact
+targeted lineage was unachievable) was false: Step 2 was simply indexing the wrong mzML.
+Retained for history only.
 **Supersedes:** Nothing — this is the chosen repair for the D-044/D-045/D-046 Step 7 lineage blocker.
 
 ## Context

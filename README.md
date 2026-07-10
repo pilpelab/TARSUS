@@ -66,9 +66,20 @@ output/my-run/
 
 All steps run on LSF. A single master job orchestrates heavy tools (ThermoRawFileParser, FragPipe, PepQuery) via child bsub jobs and runs Python analysis (mutagenesis, filtering, localization) inline on the compute node. The login node is only used for the initial submission.
 
-**Note:** Step 2 (PepQuery index) runs **after** Step 3a (FragPipe first pass) to index only the unidentified spectra (`_sub.mzML` files).
+**Spectrum-title contract.** Step 2 indexes the **original** mzML (Step 1 output), so PepQuery/PDV
+title every spectrum `file:scan:charge` with no `_sub` suffix. Steps 4 and 7 both strip the `_sub`
+that FragPipe writes into its `Spectrum` column. Breaking this contract silently zeroes Step 7 —
+see D-047 in `.memory/decisions.md` before changing what Step 2 indexes.
 
-> **⚠️ Status: not end-to-end validated.** Step 4 emits peptide-only input, so Step 5 runs PepQuery in open-search mode and Step 7's exact spectrum-title join matches nothing — `subs.ipc` comes out with 0 rows and the Step 8 guardrail halts the run before Steps 9–11. A run that reaches Step 8 and stops is the *expected* current behaviour, not a crash. See the "OPEN BLOCKER" section of `.context/architecture.md` and decisions D-044/D-045/D-046.
+> **Status: runs end-to-end.** On the 2-file Orbitrap Astral DDA trial dataset the full 11-step
+> pipeline completes with `DONE: Pipeline complete.`, producing 2,888 candidate SAAVs and 293
+> localized substitutions.
+>
+> **Not yet proven equivalent to the reference implementation.** The reference has only ever been
+> run on a *different* sample (`EVpar`), whose original `.mzML`/`.raw` inputs no longer exist on
+> disk — so no back-to-back comparison on identical input has been made. What matches is the output
+> *schema* (69 columns, identical semantics) and the order of magnitude (ours 2,888 → 293; reference
+> 3,922 → 697). One deliberate deviation changes results: see D-048, defect 4.
 
 See `.context/architecture.md` for full details.
 
@@ -85,8 +96,8 @@ make test-tools   # verify everything works
 ## Tests
 
 ```bash
-uv run pytest -m "not lsf"                         # 163 tests, ~60s — the normal dev loop
-uv run pytest                                      # 166 tests; the 3 extra are @pytest.mark.lsf
+uv run pytest -m "not lsf"                         # 203 tests, ~60s — the normal dev loop
+uv run pytest                                      # 206 tests; the 3 extra are @pytest.mark.lsf
                                                    # real-tool tests (FragPipe/PepQuery) that take
                                                    # many minutes and need cluster + `make setup`
 uv run mypy src/tarsus                              # type checking
@@ -98,7 +109,7 @@ make test-pdv-full                                 # PDV + Xvfb integration
 
 ```
 src/tarsus/     Python package (steps, CLI, env, LSF helpers)
-tests/          pytest tests (166)
+tests/          pytest tests (206; 3 marked `lsf` need the cluster)
 tools/          External tools (downloaded via make setup)
 data/           Test datasets (gitignored)
 .context/       Architecture and reference docs
