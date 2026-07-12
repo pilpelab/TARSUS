@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: tests · types · lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      # The 3 @pytest.mark.lsf tests drive FragPipe/PepQuery on the LSF cluster.
+      # They cannot run here — no cluster, no tools/ binaries (`make setup`
+      # downloads ~GBs). Everything else runs in about a minute.
+      - name: Tests
+        run: uv run pytest -m "not lsf" -q
+
+      - name: Type check
+        run: uv run mypy src/tarsus
+
+      - name: Lint
+        run: uv run ruff check src/tarsus

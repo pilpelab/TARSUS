@@ -93,7 +93,7 @@ def run(fasta: str, inputs: tuple[str, ...], output_dir: str, queue: str, memory
         if f.suffix.lower() != ".raw":
             raise click.BadParameter(
                 f"Expected .raw file, got: {f.name}", param_hint="--input")
-    if not fasta_path.suffix.lower() in (".fasta", ".fa", ".faa"):
+    if fasta_path.suffix.lower() not in (".fasta", ".fa", ".faa"):
         click.echo(f"Warning: FASTA file has unexpected extension: {fasta_path.suffix}",
                    err=True)
 

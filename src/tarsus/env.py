@@ -15,10 +15,8 @@ import os
 import shutil
 import subprocess
 import time
-from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator
 
 
 # ── Xvfb virtual display ─────────────────────────────────────────────

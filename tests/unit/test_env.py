@@ -156,9 +156,18 @@ class TestXvfbDisplayAllocation:
         opened: list[XvfbDisplay] = []
         try:
             displays: list[str] = []
-            for _ in range(4):
+            for i in range(4):
                 d = XvfbDisplay(tools)
-                env = d.__enter__()
+                try:
+                    env = d.__enter__()
+                except RuntimeError as exc:
+                    # The bundled Xvfb is a Linux binary that needs X libraries
+                    # the host may not have (e.g. a CI container). The invariant
+                    # under test is display *uniqueness*; if no X server can run
+                    # at all there is nothing to assert, so skip rather than fail.
+                    if i == 0:
+                        pytest.skip(f"Xvfb cannot start in this environment: {exc}")
+                    raise
                 opened.append(d)
                 displays.append(env["DISPLAY"])
 
