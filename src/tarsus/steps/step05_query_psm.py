@@ -7,7 +7,7 @@ chunk, and waits for all to complete.
 from pathlib import Path
 from ..env import ToolEnvironment
 from ..lsf import submit_bsub, wait_for_jobs
-from ..resources import check_heap_fits, estimate_pepquery_memory
+from ..resources import check_heap_fits, estimate_pepquery_memory, stage_pepquery_db
 
 
 def step05_query_psm(
@@ -64,6 +64,12 @@ def step05_query_psm(
         java_heap_mb = est_heap if java_heap_mb is None else java_heap_mb
     check_heap_fits(java_heap_mb, memory_mb, what="Step 5 PepQuery")
 
+    # PepQuery writes its FM-index sidecar next to -db, so -db must live somewhere
+    # writable. Reference proteomes usually do not. See stage_pepquery_db.
+    db_path = (
+        stage_pepquery_db(fasta_path, output_dir) if fasta_path is not None else None
+    )
+
     result_dir = output_dir / "pepquery_result"
     log_dir = output_dir / "pepquery_logs"
     result_dir.mkdir(parents=True, exist_ok=True)
@@ -99,7 +105,7 @@ def step05_query_psm(
             "-aa",
             "-m", "1",
             "-ms", str(index_dir.resolve()),
-            "-db", str(fasta_path.resolve()) if fasta_path else "-",
+            "-db", str(db_path.resolve()) if db_path else "-",
             "-o", str((result_dir / chunk_file.name).resolve()),
             "-e", "2",
             "-c", "2",

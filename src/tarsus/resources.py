@@ -24,6 +24,9 @@ from pathlib import Path
 
 _MB = 1024 * 1024
 
+#: Directory, inside the step's own output dir, where the `-db` FASTA is staged.
+PEPQUERY_DB_DIRNAME = "pepquery_db"
+
 #: MB the shard needs *beyond* the JVM heap: JVM non-heap (metaspace, thread
 #: stacks, code cache, native buffers) plus the Python parent process.
 NON_HEAP_HEADROOM_MB = 768
@@ -101,3 +104,46 @@ def estimate_pepquery_memory(fasta_path: Path) -> tuple[int, int]:
 
     check_heap_fits(java_heap_mb, memory_mb, what=f"PepQuery ({fasta_path.name})")
     return memory_mb, java_heap_mb
+
+
+def stage_pepquery_db(fasta_path: Path, output_dir: Path) -> Path:
+    """Stage the ``-db`` FASTA somewhere PepQuery is allowed to write.
+
+    PepQuery builds an FM-index sidecar — ``<name>.fmi`` — **next to the file
+    given to ``-db``**. Reference proteomes normally live in shared, read-only
+    directories, so pointing ``-db`` straight at the original kills every chunk
+    with ``FileNotFoundException: .../protein.fmi (Permission denied)``. It works
+    only when the FASTA happens to sit somewhere writable — which is luck, not
+    design, and it is exactly the bug another lab hits first.
+
+    The reference ``query_psm.sh`` never uses the FASTA in place either: it
+    symlinks it into a writable results directory ("prevents PepQuery from
+    occasional crashing") and points ``-db`` at the symlink. We do the same, but
+    stage **once** per step rather than once per chunk — a per-chunk copy of a
+    ~220 MB human FM-index across thousands of chunks would be terabytes.
+
+    An existing ``.fmi`` beside the source FASTA is reused via symlink, so a
+    prebuilt index costs nothing.
+
+    Returns:
+        The path to pass as ``-db``. Its directory is writable.
+    """
+    db_dir = output_dir / PEPQUERY_DB_DIRNAME
+    db_dir.mkdir(parents=True, exist_ok=True)
+
+    staged = db_dir / fasta_path.name
+    if not staged.is_symlink() and not staged.exists():
+        staged.symlink_to(fasta_path.resolve())
+
+    # Reuse a prebuilt FM index if the source directory already has one.
+    src_fmi = fasta_path.with_suffix(".fmi")
+    dst_fmi = staged.with_suffix(".fmi")
+    if src_fmi.is_file() and not dst_fmi.is_symlink() and not dst_fmi.exists():
+        dst_fmi.symlink_to(src_fmi.resolve())
+
+    return staged
+
+
+def pepquery_fmi_path(staged_db: Path) -> Path:
+    """Path of the FM-index sidecar PepQuery builds for *staged_db*."""
+    return staged_db.with_suffix(".fmi")

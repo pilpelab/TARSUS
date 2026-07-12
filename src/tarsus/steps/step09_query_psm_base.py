@@ -7,7 +7,7 @@ one per input chunk file from Step 8.
 from pathlib import Path
 from ..env import ToolEnvironment
 from ..lsf import submit_bsub, wait_for_jobs
-from ..resources import check_heap_fits, estimate_pepquery_memory
+from ..resources import check_heap_fits, estimate_pepquery_memory, stage_pepquery_db
 
 
 def step09_query_psm_base(
@@ -63,6 +63,12 @@ def step09_query_psm_base(
         java_heap_mb = est_heap if java_heap_mb is None else java_heap_mb
     check_heap_fits(java_heap_mb, memory_mb, what="Step 9 PepQuery base rescoring")
 
+    # PepQuery writes its FM-index sidecar next to -db, so -db must live somewhere
+    # writable. Reference proteomes usually do not. See stage_pepquery_db.
+    db_path = (
+        stage_pepquery_db(fasta_path, output_dir) if fasta_path is not None else None
+    )
+
     result_dir = output_dir / "pepquery_result_recheck_base"
     log_dir = output_dir / "pepquery_logs_base"
     result_dir.mkdir(parents=True, exist_ok=True)
@@ -98,7 +104,7 @@ def step09_query_psm_base(
             "-s", "2",
             "-ms", str(mgf_path.resolve()),
             "-indexType", "2",
-            "-db", str(fasta_path.resolve()) if fasta_path else "-",
+            "-db", str(db_path.resolve()) if db_path else "-",
             "-o", str(chunk_result.resolve()),
             "-e", "2",
             "-c", "2",

@@ -11,6 +11,8 @@ from src.tarsus.resources import (
     ResourceConfigError,
     check_heap_fits,
     estimate_pepquery_memory,
+    pepquery_fmi_path,
+    stage_pepquery_db,
 )
 
 _MB = 1024 * 1024
@@ -115,3 +117,67 @@ class TestEnvOverrides:
         monkeypatch.setenv("TARSUS_PEPQUERY_MEM_MB", "2000")
         with pytest.raises(ResourceConfigError, match="does not fit"):
             estimate_pepquery_memory(_fasta(tmp_path, 1.8))
+
+
+class TestStagePepqueryDb:
+    """Regression: PepQuery writes its .fmi sidecar NEXT TO the -db FASTA.
+
+    Reference proteomes live in shared read-only directories, so pointing -db at
+    the original kills every chunk with
+    `FileNotFoundException: .../protein.fmi (Permission denied)`. Observed live:
+    all 4,784 chunks of the LIS1 organoid run (human proteome under another
+    user's home) exited 255. The E. coli run only ever worked because data/
+    happens to be writable — luck, not design.
+
+    The reference query_psm.sh never uses the FASTA in place either; it symlinks
+    it into a writable dir first.
+    """
+
+    def test_staged_db_lives_in_the_output_dir(self, tmp_path: Path) -> None:
+        fasta = tmp_path / "src" / "protein.fasta"
+        fasta.parent.mkdir()
+        fasta.write_text(">p\nPEPTIDE\n")
+        out = tmp_path / "05_pepquery"
+
+        staged = stage_pepquery_db(fasta, out)
+
+        assert out in staged.parents, "-db must not point at the original FASTA"
+        assert staged.read_text() == ">p\nPEPTIDE\n", "must resolve to the same content"
+
+    def test_sidecar_would_land_somewhere_writable(self, tmp_path: Path) -> None:
+        """The whole point: the .fmi PepQuery creates must be writable."""
+        src = tmp_path / "readonly"
+        src.mkdir()
+        fasta = src / "protein.fasta"
+        fasta.write_text(">p\nPEPTIDE\n")
+        src.chmod(0o500)  # r-x — exactly like another user's shared FASTA dir
+        try:
+            staged = stage_pepquery_db(fasta, tmp_path / "05_pepquery")
+            fmi = pepquery_fmi_path(staged)
+            assert not fmi.exists()
+            fmi.write_bytes(b"index")  # PepQuery must be able to do this
+            assert fmi.read_bytes() == b"index"
+        finally:
+            src.chmod(0o700)
+
+    def test_reuses_a_prebuilt_fmi(self, tmp_path: Path) -> None:
+        fasta = tmp_path / "src" / "protein.fasta"
+        fasta.parent.mkdir()
+        fasta.write_text(">p\nPEPTIDE\n")
+        (tmp_path / "src" / "protein.fmi").write_bytes(b"prebuilt")
+
+        staged = stage_pepquery_db(fasta, tmp_path / "05_pepquery")
+
+        assert pepquery_fmi_path(staged).read_bytes() == b"prebuilt"
+
+    def test_is_idempotent(self, tmp_path: Path) -> None:
+        fasta = tmp_path / "src" / "protein.fasta"
+        fasta.parent.mkdir()
+        fasta.write_text(">p\nPEPTIDE\n")
+        out = tmp_path / "05_pepquery"
+
+        first = stage_pepquery_db(fasta, out)
+        second = stage_pepquery_db(fasta, out)  # resumed run must not explode
+
+        assert first == second
+        assert second.read_text() == ">p\nPEPTIDE\n"
