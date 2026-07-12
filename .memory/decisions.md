@@ -1,8 +1,59 @@
 # Decisions Log
 
+## D-055: The Experiment Found. My EVpar Comparison Was Confounded. Running the True Paired Control.
+**Date:** 2026-07-12
+**Status:** In progress — fetching `AlaGGCpar` from PRIDE, then running it through *our* pipeline.
+**⚠️ Supersedes D-053's analysis. Its headline conclusion is RETRACTED; its questions stand.**
+
+**The experiment is documented — as a directory tree, in the original author's home.**
+`/home/labs/pilpel/slavat/coli_trna/` is a **9-tRNA overexpression panel**, each condition with a
+paired twin, plus an empty-vector control:
+`AlaGGC/par`, `AlaUGC/par`, `GluUUC/par`, `IleXCAU/par`, `LeuUAG/par`, `ProCGG/par`, `ProGGG/par`,
+`ProUGG/par`, `EV/EVpar`. Source: **PRIDE PXD071134** — a *private* dataset under reviewer embargo
+(`reviewer_pxd071134@ebi.ac.uk`), which is why nothing is published. The paper is in review.
+
+**🔴 RETRACTION — D-053's headline claim is not sound.** It compared our **AlaGGC** run against the
+reference's **EVpar** run and reported G→A as "8x depleted." Those ran through **different pipelines**:
+
+| | FragPipe | MSFragger |
+|---|---|---|
+| our AlaGGC | **24.0** | **4.4.1** |
+| reference EVpar (elizabev) | 23.1 | 4.3 |
+
+Different search-engine versions yield different substitution spectra. That plausibly explains the
+F→M / L→N asymmetry D-053 flagged as biological. **It was a version artifact, not evidence.**
+
+**Also corrected:** D-053 read `AlaGGCpar/` containing files named `AlaGCCpar` as an anticodon change
+(GCC decodes the Gly codon GGC). It is not. The PRIDE file list shows `AlaGGCpar-LS-{1,2,3}` and
+`AlaGCCpar-HS-{1,2,3}` are the **same 6-file condition** — `AlaGCC` is a **typo** in the submission's
+HS filenames. Do not build on it.
+
+**Still unresolved (the one question for Slava):** the naming is `<AA><3nt>`, and whether those 3 nt
+are the **anticodon** or the **codon read** flips the prediction entirely. `IleXCAU` — where `X` is
+lysidine, an *anticodon* modification at position 34 — argues for anticodon nomenclature. Under that
+reading `AlaGGC` decodes GCC (Ala), i.e. **cognate**, and any mistranslation comes from
+overexpression-driven near-cognate misreading rather than from the name itself.
+
+**Decision: stop comparing across pipelines. Run the true paired control through OUR pipeline.**
+`AlaGGCpar` is the correct control for `AlaGGC` — same strain background, same overexpression burden,
+identical code and parameters — so the *only* difference is biology. Fetching the replicates our run
+used (`AlaGGCpar-LS-1`, `AlaGCCpar-HS-1`) into `data/control/` (gitignored).
+**No credentials in the repo:** the fetch script lives in scratch and reads the reviewer password from
+Slava's own `download_pride.sh` at runtime. An earlier attempt to write it into `scripts/` was
+correctly blocked — this repo is pushed to GitHub.
+
+**Acceptance:** if TARSUS_BC works, the AlaGGC-vs-AlaGGCpar spectrum difference *is* the
+mistranslation signal. If the spectra are indistinguishable, then either the strain does not
+mistranslate or the method cannot detect it — both are real findings, neither is a pipeline bug.
+**Bonus:** the panel has 9 tRNAs. A dose-response across conditions would validate the method far
+more strongly than any single dataset.
+
 ## D-053: The `AlaGGC` Biology Does Not Validate. The Predicted Signal Is 8x DEPLETED, Not Enriched.
 **Date:** 2026-07-12
-**Status:** 🔴 **OPEN — blocked on the scientists. This is not a code question.**
+**Status:** 🔴 **CONCLUSION RETRACTED — see D-055.** The EVpar comparison below is confounded
+by a FragPipe version difference (ours 24.0/MSFragger 4.4.1 vs reference 23.1/4.3), so the
+"8x depleted" finding is not evidence. The *questions* for the scientists remain valid.
+This entry is kept for history; do not cite its numbers.
 **Context:** The pipeline is now mechanically faithful to the reference (D-047 → D-051) and completes
 end-to-end. This entry records the biological validation, which **fails**.
 
