@@ -41,6 +41,11 @@ tools/**
 # Pipeline outputs (user-generated, not committed)
 output/**
 
+# Colleagues' reference implementation — a symlink into another user's home
+# directory (/home/labs/pilpel/elizabev/TARSUS). Read-only, not ours to
+# redistribute, and meaningless outside this cluster. Never commit it.
+TARSUS_elizabev
+
 # Philosopher/FragPipe artifacts
 .meta/
 *-decoys-*.fas
