@@ -1,5 +1,41 @@
 # Decisions Log
 
+## D-052: PepQuery Memory Derived from the FASTA — and a Latent `-Xmx > reservation` Bug
+**Date:** 2026-07-12
+**Status:** Implemented, 237 tests pass, mypy + ruff clean. New module `src/tarsus/resources.py`.
+**Context:** A note in progress.md asked for dynamic PepQuery memory (E. coli works at the hardcoded
+default; a human proteome, ~60x the FASTA, would not). Investigating it exposed something worse.
+
+**The latent bug.** Step 5 shipped `memory_mb=1500` with `java_heap_mb=4096` — a JVM heap ceiling
+**2.7x the entire LSF cgroup**. This is D-049 defect 1 verbatim (PDV ran a 4096 MB heap inside a
+4000 MB reservation; every shard died with `TERM_MEMLIMIT` the moment targeted mode gave it real
+data). It has not bitten Step 5 yet **only because E. coli's 1.8 MB FASTA never grows the heap near
+its ceiling.** `-Xmx` is a *limit*, not a reservation: an oversized heap is invisible on small inputs
+and fatal on large ones. Step 9 was the mirror image — a 5,000 MB reservation for jobs that peak at
+279 MB.
+
+**Model, fitted to two real data points and validated against both:**
+- **Measured:** LSF `Max Memory` across 3,869 Step 9 jobs (E. coli, 1.8 MB FASTA): peak **279 MB**,
+  median 249, p95 262.
+- **Reported:** human proteome (106 MB FASTA) needs ~4 GB.
+- `peak_mb ≈ 220 + 36 * fasta_mb` → predicts 285 MB and 4,036 MB respectively. Both hold.
+- JVM heap = 1.5x predicted peak (floor 1024 MB); reservation = heap + 768 MB non-heap headroom.
+
+| FASTA | reservation | heap | previously |
+|---|---|---|---|
+| E. coli 1.8 MB | 1,792 MB | 1,024 MB | step5 1500/4096 (**heap > reservation**); step9 5000/4096 |
+| Human 106 MB | 6,822 MB | 6,054 MB | 1500 MB → OOM |
+
+**Decision:** `estimate_pepquery_memory(fasta)` + `check_heap_fits(heap, memory)` in a shared
+`resources.py`. Steps 5 and 9 take `memory_mb`/`java_heap_mb` as `None` by default and derive them.
+An explicitly-supplied pair is **validated**, so an impossible config raises at submit time rather
+than dying with `TERM_MEMLIMIT` on the first large run. Overridable per-lab via
+`TARSUS_PEPQUERY_MEM_MB` / `TARSUS_PEPQUERY_HEAP_MB` — no code change (`.agents/project.md` requires
+per-lab overridability).
+**Note:** Step 6 keeps its own `_check_shard_memory` (headroom 1024, raising `ValueError`). Not
+unified, to avoid churning a working, tested config; `ResourceConfigError` subclasses `ValueError`
+so a future unification is safe.
+
 ## D-051: Step 3c Inherits Step 3a's Calibration via FragPipe's Own Second-Pass Workflow
 **Date:** 2026-07-12 (revised same day)
 **Status:** Implemented and unit-tested (223 tests pass, mypy clean). Awaiting live rerun.

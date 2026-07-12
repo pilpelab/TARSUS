@@ -7,6 +7,7 @@ one per input chunk file from Step 8.
 from pathlib import Path
 from ..env import ToolEnvironment
 from ..lsf import submit_bsub, wait_for_jobs
+from ..resources import check_heap_fits, estimate_pepquery_memory
 
 
 def step09_query_psm_base(
@@ -17,9 +18,9 @@ def step09_query_psm_base(
     tool_env: ToolEnvironment,
     fasta_path: Path | None = None,
     queue: str = "gsla-cpu",
-    memory_mb: int = 5000,
+    memory_mb: int | None = None,
     cpus: int = 1,
-    java_heap_mb: int = 4096,
+    java_heap_mb: int | None = None,
 ) -> Path:
     """Run PepQuery base rescoring on chunked input files.
 
@@ -29,6 +30,12 @@ def step09_query_psm_base(
         mgf_path: mgfall_fakes.mgf from Step 8.
         output_dir: Output directory for results.
         fasta_path: Reference proteome FASTA (passed to PepQuery as -db).
+        memory_mb: LSF reservation per chunk. Derived from *fasta_path* when
+            omitted — see :func:`tarsus.resources.estimate_pepquery_memory`.
+            (Measured: these jobs peak at 279 MB on E. coli, against the old
+            hardcoded 5000 MB reservation — 18x over-provisioned.)
+        java_heap_mb: JVM heap per chunk. Derived alongside *memory_mb*, and
+            validated to fit inside it.
 
     Returns:
         Path to pepquery_result_recheck_base/ directory.
@@ -47,6 +54,14 @@ def step09_query_psm_base(
     java_bin = tool_env.java_bin
     if not java_bin.is_file():
         raise FileNotFoundError(f"Java binary not found: {java_bin}")
+
+    if memory_mb is None or java_heap_mb is None:
+        est_memory, est_heap = estimate_pepquery_memory(
+            fasta_path if fasta_path is not None else Path("/nonexistent"),
+        )
+        memory_mb = est_memory if memory_mb is None else memory_mb
+        java_heap_mb = est_heap if java_heap_mb is None else java_heap_mb
+    check_heap_fits(java_heap_mb, memory_mb, what="Step 9 PepQuery base rescoring")
 
     result_dir = output_dir / "pepquery_result_recheck_base"
     log_dir = output_dir / "pepquery_logs_base"

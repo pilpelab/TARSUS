@@ -125,6 +125,29 @@ change. Only `progress.md` retained (documentation).
 - All 8 acceptance criteria met (per D-047)
 - No unfixed bugs remain in the code
 
+### ~~Open tweak for Claude~~ — DONE (D-052). And it was hiding a latent bug.
+Hardcoded PepQuery memory is now derived from the FASTA (`src/tarsus/resources.py`).
+**The note was right, and understated the problem:** step05 shipped a **4096 MB JVM heap
+inside a 1500 MB LSF reservation** — the heap ceiling was 2.7x the entire cgroup. That is
+D-049 defect 1 verbatim (PDV: heap 4096 in mem 4000 → `TERM_MEMLIMIT`). It survives today only
+because E. coli's tiny FASTA never grows the heap near its ceiling. **`-Xmx` is a limit, not a
+reservation** — an oversized heap looks fine on small inputs and detonates on large ones. A human
+proteome would have hit it.
+
+Model fitted to two real data points, and it predicts both:
+- **Measured** (LSF `Max Memory`, 3,869 Step 9 jobs, E. coli 1.8 MB FASTA): **279 MB peak**
+  (median 249, p95 262) — against a 5,000 MB reservation. **18x over-provisioned.**
+- **Reported** (this note): human proteome, 106 MB FASTA → ~4 GB.
+- Fit: `peak ≈ 220 MB + 36 MB per MB of FASTA` → predicts 285 MB and 4,036 MB. Both hold.
+
+| FASTA | reservation | JVM heap | old |
+|---|---|---|---|
+| E. coli 1.8 MB | 1,792 MB | 1,024 MB | step5 1500/4096 ⚠️ heap > reservation |
+| Human 106 MB | 6,822 MB | 6,054 MB | 1500 MB → OOM |
+
+Overridable per-lab via `TARSUS_PEPQUERY_MEM_MB` / `TARSUS_PEPQUERY_HEAP_MB`, and an impossible
+pair now raises immediately rather than on the first big input. 237 tests pass.
+
 ---
 
 ## Session 2026-07-09 — ✅ PIPELINE COMPLETE END-TO-END. `DONE: Pipeline complete.` (job 393198, exit 0)

@@ -7,6 +7,7 @@ chunk, and waits for all to complete.
 from pathlib import Path
 from ..env import ToolEnvironment
 from ..lsf import submit_bsub, wait_for_jobs
+from ..resources import check_heap_fits, estimate_pepquery_memory
 
 
 def step05_query_psm(
@@ -16,10 +17,10 @@ def step05_query_psm(
     tool_env: ToolEnvironment,
     fasta_path: Path | None = None,
     queue: str = "gsla-cpu",
-    memory_mb: int = 1500,
+    memory_mb: int | None = None,
     cpus: int = 1,
     chunk_size: int = 10,
-    java_heap_mb: int = 4096,
+    java_heap_mb: int | None = None,
     pepquery_flags: str | None = None,
 ) -> Path:
     """Validate PSMs with PepQuery via LSF.
@@ -30,6 +31,14 @@ def step05_query_psm(
         output_dir: Directory for results (pepquery_result/ created inside).
         tool_env: Resolved tool environment.
         fasta_path: Reference proteome FASTA (passed to PepQuery as -db).
+        memory_mb: LSF reservation per chunk. Derived from *fasta_path* when
+            omitted — PepQuery loads the reference proteome to compete each
+            candidate against it, so its footprint tracks FASTA size. A default
+            tuned for E. coli silently OOMs on a human proteome ~60x larger.
+        java_heap_mb: JVM heap per chunk. Derived alongside *memory_mb*. An
+            explicit pair is validated: a heap that cannot fit inside the
+            reservation raises now rather than dying with TERM_MEMLIMIT on the
+            first large input. See ``resources.py``.
 
     Returns:
         Path to pepquery_result/ directory.
@@ -46,6 +55,14 @@ def step05_query_psm(
     java_bin = tool_env.java_bin
     if not java_bin.is_file():
         raise FileNotFoundError(f"Java binary not found: {java_bin}")
+
+    if memory_mb is None or java_heap_mb is None:
+        est_memory, est_heap = estimate_pepquery_memory(
+            fasta_path if fasta_path is not None else Path("/nonexistent"),
+        )
+        memory_mb = est_memory if memory_mb is None else memory_mb
+        java_heap_mb = est_heap if java_heap_mb is None else java_heap_mb
+    check_heap_fits(java_heap_mb, memory_mb, what="Step 5 PepQuery")
 
     result_dir = output_dir / "pepquery_result"
     log_dir = output_dir / "pepquery_logs"
