@@ -1,5 +1,57 @@
 # Progress Log
 
+## Session 2026-07-12 — D-051 reworked and relaunched; `.memory/lessons.md` created
+
+### D-051: Step 3c now inherits Step 3a's calibration (reworked from the pi agent's version)
+The pi agent's first fix had Step 3a regex-scrape its own log into `.calibration_params` for Step 3c
+to read back. It validated clean and produced the right values — but it reconstructed a file FragPipe
+already writes, and carried two traps: the artifact was written only at the *end* of Step 3a's body
+(so on any resumed run that skips 3a via `.done`, it is absent and Step 3c silently falls back — the
+fix does nothing, no error), and `remove_precursor_peak=0` (reference-mandated) was made conditional.
+
+**Reworked (commit `f4f3fc6`):** Step 3c bases its search on
+`03a_first_pass/fragpipe-second-pass.workflow` — the calibrated workflow FragPipe itself generates
+during the first pass, and exactly the file the reference's `search_pipeline_script.sh` seds. Falls
+back to bundled `generic.workflow` (self-calibrates) when absent. `remove_precursor_peak=0` is now
+unconditional. Step 3a reverted to HEAD. **No hardcoded calibration values** — `calibrate_mass=0` is
+a mode flag; all numbers are read at runtime from FragPipe's file.
+
+Also replaced `TestWorkflowPatching`, which re-implemented the patch regexes *inside the test* and
+asserted against its own copy — it would have stayed green if the real function were deleted.
+223 tests pass, mypy clean.
+
+### Rerun in flight — job **665584**, submitted 2026-07-12 16:12
+Scope: **`03c` → `11`**. Preserved `01`, `02`, `03a`, `03b` — note 3a/3b are *inputs* to this change
+(3a produced the very workflow D-051 reads). Old outputs moved to `superseded_d051_20260712*/`.
+
+✅ **Confirmed live:** the generated `03c_second_pass/second.workflow` now carries
+`calibrate_mass=0`, `fragment_mass_tolerance=10.0`, `use_topN_peaks=300`, `intensity_transform=1`,
+`minimum_ratio=0.0`, `remove_precursor_peak=0` — identical to the reference's `second.workflow`.
+The redundant ~5-6 min "MASS CALIBRATION AND PARAMETER OPTIMIZATION" is skipped.
+
+**⚠️ SAAV counts will change.** The prior 2,888 / 293 run searched at 5.0 PPM / topN 150
+(self-calibrated from `generic.workflow`); this one searches at the reference's 10.0 PPM / topN 300.
+Those numbers are **stale** until this run lands. Watch whether the new ratio moves toward the
+reference's 3,922 → 697.
+
+### Step 9 fan-out: NOT a bug — do not "fix" it
+Step 9 submits one LSF job per peptide (4,287 jobs; a JVM + a 150 MB MGF parse each). This looks
+broken. **The reference does the same** (`n=1`, 6,664 files). It is wasteful, not wrong. Batching
+would probably be result-identical — and "probably result-identical" is precisely the reasoning
+behind `e143a46`, which cost a week. Left alone deliberately.
+
+### New: `.memory/lessons.md` — the self-improvement loop
+Created a durable lessons file distilling every bug that actually cost time (D-026 → D-051). It names
+the single recurring failure mode — **silent defaults over missing data** (`.get(k, 0)`,
+`fill_null(0)`, `except: pass`, a `re.sub` whose key is absent, `.done` over empty output, a guardrail
+checking the wrong artifact) — and carries a 9-point pre-flight checklist for any pipeline change.
+
+Wired into `.agents/project.md`: it is now the **first** item in the Session Start Protocol, with a
+"Before Changing Any Pipeline Step" section and an instruction to append new lessons after each bug.
+Without that wiring the file would never be read and the loop would not close.
+
+---
+
 ## Session 2026-07-12 — Claude Work Audit: All Bugs Fixed
 
 ### What was done

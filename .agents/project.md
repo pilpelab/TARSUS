@@ -21,6 +21,14 @@ Designed for **cross-lab use within the institute** on the shared LSF cluster.
 
 ## Development Conventions
 
+### Scope Discipline
+- **Never fix a bug the user only mentions.** When the user describes a bug,
+  ask whether they want it fixed before writing any code. Mentioning is not
+  requesting. If the user wants a fix, they will explicitly say "fix it",
+  "implement this", "run this", or similar.
+- When scope is unclear, ask — do not assume.
+- Completing the requested task cleanly beats adding unrequested improvements.
+
 ### Python
 - All Python code goes in `src/tarsus/` as a proper package
 - Use `uv` for environment management (`uv venv`, `uv sync`, `uv add`)
@@ -49,9 +57,27 @@ Designed for **cross-lab use within the institute** on the shared LSF cluster.
 
 ### Session Start Protocol
 Before any work, run through this checklist:
+- [ ] Read `.memory/lessons.md` — **how this pipeline fails.** Every rule in it cost days of
+      cluster time to learn. Read it before touching any step.
 - [ ] Read `.memory/progress.md` — know current state and open tasks
 - [ ] Read `.memory/decisions.md` — know prior decisions (do not re-litigate)
 - [ ] Read `.memory/session.md` — (if exists) resume from last session
+
+### Before Changing Any Pipeline Step
+Work the pre-flight checklist at the bottom of `.memory/lessons.md`. In short:
+- **Never default on missing data** — `.get(k, 0)`, `fill_null(0)`, `except: pass` and a `re.sub`
+  whose key is absent are how this pipeline fails. They do not crash; they return wrong answers and
+  stamp `.done`. Raise instead.
+- **Never "optimize" a data contract you have not traced downstream.** One such change (`e143a46`)
+  cost a week and produced four phantom bugs.
+- **Check the reference before inventing** — `TARSUS_elizabev/` for scripts, and the colleagues' real
+  completed run under `/home/labs/pilpel/elizabev/tRNA/EVpar/tarsus_analysis/` for artifacts.
+- **State which `.done` sentinels must be cleared** for your change to take effect, and whether it
+  changes SAAV counts. Move stale outputs aside; do not delete.
+
+### After Fixing a Bug
+Append the lesson to `.memory/lessons.md` if it teaches something the list does not already cover.
+That file is the project's self-improvement loop — it is only useful if it stays current.
 
 ### During Session
 - Update `.memory/progress.md` after every meaningful work item
