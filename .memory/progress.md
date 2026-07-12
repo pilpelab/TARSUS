@@ -1,5 +1,49 @@
 # Progress Log
 
+## Session 2026-07-12 (cont'd) — Control run launched: AlaGGC vs AlaGGCpar, SAME pipeline
+
+### Why (D-055)
+Every biological comparison so far was **confounded**: our AlaGGC run (FragPipe 24.0 / MSFragger
+4.4.1) vs the reference's EVpar run (23.1 / 4.3). Different search-engine versions give different
+substitution spectra, so D-053's "G→A is 8x depleted" was a **version artifact, not evidence**
+(retracted). The experiment is a 9-tRNA overexpression panel on **PRIDE PXD071134** (private,
+reviewer embargo — hence undocumented anywhere).
+
+### The valid experiment, now running
+`AlaGGCpar` is the **true paired control** for `AlaGGC` — same strain background, same overexpression
+burden, and now the **identical pipeline at the same commit**. Biology is the only variable.
+
+- Fetched the matching replicates from PRIDE into `data/control/` (gitignored):
+  `AlaGGCpar-LS-1` **11.28 GB**, `AlaGCCpar-HS-1` **8.57 GB**
+  (`AlaGCC` is a **typo** in the submission's HS filenames, not a different tRNA — same 6-file condition.)
+- Both validated by **parsing**, not by size: 0 errors, Orbitrap Astral OA10079,
+  349,301 / 337,469 MS2 spectra — comparable depth to the AlaGGC run.
+- **Master job 696884**, output `output/alaggcpar/`, launched at commit `18d14ad` — the same code
+  that produced AlaGGC's 2,556 SAAVs.
+
+### Acceptance
+If TARSUS_BC works, the AlaGGC-vs-AlaGGCpar spectrum difference **is** the mistranslation signal.
+If the spectra are indistinguishable, then either the strain does not mistranslate or the method
+cannot detect it — **both are real findings; neither is a pipeline bug.**
+
+### ⚠️ Two bugs I made myself in the fetch tooling — same class as everything else this week
+1. **`[ -s file ]` as a completeness check.** A timed-out download left a truncated 1.6 GB `.raw`
+   (should be 11.3 GB); "exists and non-empty" declared it complete and skipped the re-fetch.
+2. **`pgrep -f pridepy` self-match.** A wait-loop matched *my own monitoring shell* (whose command
+   line contained the string "pridepy"), so it spun forever, downloaded nothing, and **exited 0 with
+   zero output** — a silent no-op that looked like success.
+
+Both are the project's signature failure: *a check too weak to detect the thing it checks for,
+failing quietly.* Recorded in `.memory/lessons.md`. **Non-empty is not complete** — size, checksum,
+or a successful parse is; existence is not.
+
+### Credential hygiene
+The PRIDE reviewer password is **never written into the repo** (which is pushed to GitHub). The fetch
+scripts live in scratch and read it from Slava's own `download_pride.sh` at runtime. An earlier
+attempt to inline it into `scripts/` was correctly blocked by the permission layer.
+
+---
+
 ## Session 2026-07-12 — D-051 reworked and relaunched; `.memory/lessons.md` created
 
 ### D-051: Step 3c now inherits Step 3a's calibration (reworked from the pi agent's version)
