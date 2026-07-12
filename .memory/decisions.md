@@ -1,5 +1,60 @@
 # Decisions Log
 
+## D-053: The `AlaGGC` Biology Does Not Validate. The Predicted Signal Is 8x DEPLETED, Not Enriched.
+**Date:** 2026-07-12
+**Status:** 🔴 **OPEN — blocked on the scientists. This is not a code question.**
+**Context:** The pipeline is now mechanically faithful to the reference (D-047 → D-051) and completes
+end-to-end. This entry records the biological validation, which **fails**.
+
+**`AlaGGC` is documented NOWHERE.** Searched the repo, `TARSUS_elizabev/`, and the reference's own
+`sdrf.tsv` / `experiment_annotation.tsv`. It appears only as a filename. The reference SDRF has every
+biological field as *"not available"*; its `condition` column just repeats the LS/HS solubility
+fractions. **No one wrote down what this experiment is.**
+
+**Expected.** E. coli, tRNA lab. `GGC` is a **glycine codon**; `Ala` is alanine → an engineered tRNA
+charged with Ala but decoding GGC ⇒ **Gly→Ala (G→A)** substitutions. Verified this matches the
+pipeline's convention (Step 3b writes `>{pep}_{origin}{pos}{dest}` where the *reference* peptide
+carries `origin` and the *variant* carries `dest`; so `origin→destination` = reference→observed).
+
+**Observed — the opposite.**
+
+| | AlaGGC (ours) | EVpar (reference) | ratio |
+|---|---|---|---|
+| **G→A** | 8 / 2,556 (**0.31%**) | 101 / 3,922 (**2.58%**) | **0.12x — 8-fold DEPLETED** |
+| A→G (reverse) | 0.31% | 0.38% | 0.82x (flat) |
+
+G→A is not merely absent; it is **8x rarer than in the control dataset.** A failed experiment would
+show background levels — *below* background is stranger.
+
+**What IS enriched looks like mass artifacts, not biology.** The top AlaGGC substitutions cluster at
+±1, ±2 and ±16 Da — the classic isotope-peak / oxidation misassignment signature — and the reference
+dataset (same pipeline, same instrument) has **literally zero** of several:
+
+| Sub | Δmass | AlaGGC | EVpar | Likely cause |
+|---|---|---|---|---|
+| F→M | −16.03 Da | 109 | **0** | oxidation-related (M+O ≈ F) |
+| L→N | +0.96 Da | 84 | **0** | ≈ +1 Da — C13 isotope / deamidation |
+| I→N | +0.96 Da | 70 | **0** | same |
+| L→D | +1.94 Da | 53 | **0** | ≈ +2 Da — double C13 |
+| Q→K | +0.036 Da | 99 | 107 | **near-isobaric** — barely separable at 20 ppm |
+
+**Three possibilities, indistinguishable from code:**
+1. The reading of `AlaGGC` is wrong and a different substitution is expected.
+2. The experiment did not produce the intended mistranslation (strain/induction/sample).
+3. Something upstream is still wrong — the F→M / L→N asymmetry vs EVpar is unexplained.
+
+**Decision: do not tune the pipeline to chase this.** We have no stated target. Tuning parameters
+until G→A appears would be fitting to a number nobody supplied. **Ask the scientists first:**
+1. What substitution should `AlaGGC` produce? Is it Gly→Ala, or is the reading backwards?
+2. What is `EVpar` — the control (empty-vector parental)? If so, why does it show *more* G→A?
+3. Was the mistranslation validated independently (western/reporter/targeted MS)? If the strain was
+   never confirmed to mistranslate, absence of signal is a **biology result, not a pipeline bug**.
+4. Are F→M and L→N expected? They dominate our data and are absent from theirs.
+5. What G→A rate did the paper report? **That is the number to validate against.**
+
+With answers to (1) and (5) the pipeline can be validated or falsified in minutes. Without them we
+are validating against an unstated target.
+
 ## D-052: PepQuery Memory Derived from the FASTA — and a Latent `-Xmx > reservation` Bug
 **Date:** 2026-07-12
 **Status:** Implemented, 237 tests pass, mypy + ruff clean. New module `src/tarsus/resources.py`.

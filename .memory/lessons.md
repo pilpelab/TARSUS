@@ -132,11 +132,32 @@ tidy-up. Known deliberate deviations: D-048 defect 4 (title-suffix strip), msboo
 
 ---
 
+## Mechanically correct ≠ scientifically right
+
+We spent weeks making the pipeline faithful to the reference. It now is: same spectrum-title
+contract, same PepQuery flags, same second-pass search parameters, completes end-to-end. **And the
+biology still does not validate.** The dataset is named `AlaGGC` — which should mean Ala
+misincorporated at Gly codons, i.e. G→A substitutions — and G→A comes out **8x *depleted*** relative
+to the reference's EVpar dataset (0.31% vs 2.58%), while the substitutions that *are* enriched
+cluster at ±1/±2/±16 Da, the signature of isotope and oxidation misassignment rather than
+mistranslation. See D-053.
+
+**Rules:**
+- **Get the expected result before you start optimizing toward it.** Nobody ever wrote down what
+  `AlaGGC` should produce. We built, debugged and validated a pipeline for weeks against a target
+  that was never stated. Ask for the positive control on day one.
+- **A green pipeline is not a correct one.** Every acceptance criterion passed while the headline
+  scientific claim remained unsupported.
+- **Never tune parameters until the expected signal appears.** That is fitting to a number nobody
+  supplied. If the signal is absent, the honest outputs are "the experiment did not work", "the
+  method cannot detect it", or "we misunderstood the design" — decide which *with the scientists*.
+- **Check the artifact signature.** Substitutions whose Δmass is ≈ ±1 Da (C13), ±2 Da (2×C13),
+  ±16 Da (oxidation), or ≈ 0 Da (near-isobaric, e.g. Q→K at +0.036 Da) are chemistry, not biology.
+  If those dominate the results, treat the result set as suspect regardless of how clean the code is.
+
 ## Still open
 
-- **Biological positive control fails.** Dataset is named `AlaGGC`, yet G→A is 0.3% of calls
-  (rank 60/156). Nobody has confirmed what `AlaGGC` should produce. **The pipeline is mechanically
-  correct; that is not the same as right.** Ask the scientists before trusting the SAAV list.
+- **Biological validation FAILS — see D-053.** Blocked on the scientists, not on code.
 - **No CI.** Nothing runs the 223 tests, mypy, or ruff automatically. 3 ruff errors sit unfixed.
 - **Config not externalized.** 9 steps hardcode `queue="gsla-cpu"`; `--queue` reaches only the master
   job. `.agents/project.md` promises per-lab overridability — the repo does not deliver it yet.
