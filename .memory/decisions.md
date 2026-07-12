@@ -1,5 +1,49 @@
 # Decisions Log
 
+## D-051: Step 3c Inherits Step 3a's Calibration via FragPipe's Own Second-Pass Workflow
+**Date:** 2026-07-12 (revised same day)
+**Status:** Implemented and unit-tested (223 tests pass, mypy clean). Awaiting live rerun.
+**Context:** Slava reported that both Step 3a and Step 3c run "MASS CALIBRATION AND PARAMETER
+OPTIMIZATION" (~5-6 min each). Calibration describes the instrument's mass drift on the raw files,
+not the database, so re-running it in Step 3c is redundant.
+
+**First implementation (pi agent) — replaced.** The pi agent had Step 3a regex-parse its own log for
+`New <param> = <value>` lines, write them to `03a_first_pass/.calibration_params`, and Step 3c read
+that file back and patch 5 values into `generic.workflow`. It validated clean and reproduced the
+reference values exactly — but it hand-reconstructs a file FragPipe already writes, and it had two
+traps: (a) `.calibration_params` was only written at the *end* of Step 3a's body, so on any rerun
+that skips Step 3a via its `.done` sentinel, the file is absent and Step 3c silently falls back to
+`calibrate_mass=2` — the fix does nothing, no error; (b) `remove_precursor_peak=0` (reference-mandated
+for the second pass) was made conditional on the calibration log containing that key.
+
+**Final implementation.** Step 3c now bases its search on
+`03a_first_pass/fragpipe-second-pass.workflow` — the workflow **FragPipe itself generates during the
+first pass**, with calibration already baked in (`calibrate_mass=0` + optimized tolerance/topN/
+transform/ratio). This is exactly what the reference `search_pipeline_script.sh` seds. If that file
+is absent, Step 3c falls back to the bundled `generic.workflow` (`calibrate_mass=2`, self-calibrates).
+`remove_precursor_peak=0` is now patched **unconditionally**, matching the reference.
+- `src/tarsus/steps/step03c_second_pass.py`: new `_second_pass_template()` and `_patch_workflow()`;
+  removed `_read_calibration_params` / `_CALIB_WORKFLOW_MAP`.
+- `src/tarsus/steps/step03a_first_pass.py`: reverted to HEAD — no log parsing, no `.calibration_params`.
+- Tests: `TestSecondPassTemplate`, `TestPatchWorkflow`, `TestBundledTemplateHasEveryPatchedKey`.
+  (The old `TestWorkflowPatching` re-implemented the patch logic inline and tested nothing; removed.)
+
+**No hardcoded calibration values.** `calibrate_mass=0` is a *mode flag* ("values already present"),
+not a value. Every numeric calibration parameter (10.0 PPM, topN 300, …) is read at runtime from
+FragPipe's generated workflow, which was computed from the actual raw files. Verified end-to-end
+against the reference's `second.workflow`: all 7 calibration params identical.
+
+**⚠️ This CHANGES search results.** The prior 2,888-SAAV / 293-localized run used `generic.workflow`
+(`calibrate_mass=2` → self-calibrated to 5.0 PPM, topN 150, transform 0). This moves Step 3c onto the
+reference's parameters (10.0 PPM, topN 300, transform 1), so the SAAV counts will differ on the next
+run. This is a correction toward the reference, not a regression — but the numbers in progress.md are
+now stale until a rerun.
+
+**Sentinel invalidation IS needed to see the effect.** To rerun with the new workflow, delete
+`03c_second_pass/.done` **and everything downstream** (`04`–`11`). `03a`/`03b` are preserved, so
+`fragpipe-second-pass.workflow` is already on disk and Step 3c picks it up. Rerunning only from a
+later step has no effect — the change is in Step 3c's search itself.
+
 ## D-049: Three Independent Bugs Between Step 6 and Step 9, All Found by Actually Running the Pipeline
 **Date:** 2026-07-09
 **Status:** All three fixed and tested. Step 7 now yields **2,888 SAAV rows** (was 0).

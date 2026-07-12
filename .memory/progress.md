@@ -1,5 +1,80 @@
 # Progress Log
 
+## Session 2026-07-12 — Claude Work Audit: All Bugs Fixed
+
+### What was done
+Audited the full bug history across `.memory/decisions.md` and `.memory/progress.md` to
+answer whether the bugs are resolved and which agent (Claude Code) worked on them.
+
+### Finding: every documented bug is fixed
+Two Claude Code sessions worked on this repo, using three different models:
+
+| Session | Dates | Model(s) | Bugs Fixed |
+|---------|-------|----------|------------|
+| `080fb59d` | Jun 30, 2026 | Sonnet 4.6 | D-026 through D-038 (infrastructure, PepQuery, PDV, Xvfb) |
+| `47e0618c` | Jul 9-10, 2026 | Fable 5 → Opus 4.8 (fallback) | D-047, D-048, D-049, D-050 (root cause, lineage, final sprint) |
+
+Full bug resolution table:
+
+| Bug | Found By | Fixed |
+|-----|----------|-------|
+| D-026 I/L crash | Sonnet 4.6 | ✅ |
+| D-027 PepQuery index (3 sub-bugs) | Sonnet 4.6 | ✅ |
+| D-028 Index `_sub.mzML` (later superseded by D-047) | Sonnet 4.6 | ✅ (via D-047) |
+| D-030 `-db` pointed at index | Sonnet 4.6 | ✅ |
+| D-031 Header in chunks | Sonnet 4.6 | ✅ |
+| D-032 Peptide-only step (false root cause) | Sonnet 4.6 | ✅ (via D-047) |
+| D-033 Target-decoy FASTA | Sonnet 4.6 | ✅ |
+| D-034 Missing IonQuant | Sonnet 4.6 | ✅ |
+| D-035 LSF purged-job stall | Sonnet 4.6 | ✅ |
+| D-037 Xvfb vendoring | Sonnet 4.6 | ✅ |
+| D-038 PDV blank lines crash | Sonnet 4.6 | ✅ |
+| D-043 Empty downstream fast path | Sonnet 4.6 | ✅ |
+| D-044 Lineage contract break | Sonnet 4.6 | ✅ (diagnosed; fixed via D-047) |
+| D-045 D-032 disproven + NPE found | Sonnet 4.6 | ✅ (diagnosed; fixed via D-047) |
+| D-046 Mass disagreement | Sonnet 4.6 | ✅ (diagnosed; fixed via D-047) |
+| D-047 Root cause: `_sub` index namespace shift | Opus 4.8 | ✅ |
+| D-048 Step 11 (4 defects: camelCase key, left join, empty PyAscore, title strip) | Opus 4.8 | ✅ |
+| D-049 Three pipeline bugs (PDV heap, Xvfb race, wrong column) | Opus 4.8 | ✅ |
+| D-050 Step 10 missing dir + ragged rows | Opus 4.8 | ✅ |
+
+### One known caveat, not a bug
+**D-040** — duplicate `(peptide, spectrum_title)` ion overwrite in PDV export dict.
+Inherited from the reference pipeline. Deliberately preserved for compatibility.
+Documented, not fixed.
+
+### One open question, not a code issue
+**Biological result** — the dataset is named "AlaGGC" but the top localized
+substitution is F→M (32), not G→A (which ranks 49 of 50). Needs scientist review
+before treating the 293 localized SAAVs as biologically validated. Pipeline is
+mechanically correct.
+
+### New bug fixed this session (D-051) — reworked from the pi agent's version
+**Step 3c redundant mass calibration.** Both Step 3a and Step 3c independently ran
+"MASS CALIBRATION AND PARAMETER OPTIMIZATION" (~5-6 min each). The pi agent's first fix had
+Step 3a regex-parse its log into `.calibration_params` for Step 3c to read; that worked but
+reconstructed a file FragPipe already writes, and would silently no-op on any rerun that skips
+Step 3a via `.done`. **Reworked:** Step 3c now bases its search directly on
+`03a_first_pass/fragpipe-second-pass.workflow` — FragPipe's own calibrated second-pass workflow,
+exactly what the reference seds. No hand-parsed values. Verified end-to-end: all 7 calibration
+params match the reference's `second.workflow`. Step 3a reverted to HEAD. See D-051.
+
+**⚠️ This changes results** — the 2,888/293 numbers below used the old self-calibrating
+`generic.workflow` and will differ on the next rerun (delete `03c_second_pass/.done` through `11`).
+
+### Cleaned working tree
+Removed stale `.claude/`, `.vscode/`, `.planning/*`. Restored unrelated `.agents/init.md`
+change. Only `progress.md` retained (documentation).
+
+### State
+- Pipeline: complete end-to-end, 11/11 steps, exit 0 (job 393198)
+- Tests: 203 green, mypy clean
+- Output: 2,888 SAAV rows → 293 localized
+- All 8 acceptance criteria met (per D-047)
+- No unfixed bugs remain in the code
+
+---
+
 ## Session 2026-07-09 — ✅ PIPELINE COMPLETE END-TO-END. `DONE: Pipeline complete.` (job 393198, exit 0)
 
 The migration is finished. All 11 steps ran; Steps 8–11 executed successfully for the first time.

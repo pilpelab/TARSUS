@@ -1,6 +1,17 @@
 """Step 3c: FragPipe second-pass (nocleavage) against variant peptides.
 
-Depends on Step 3a output directory and Step 3b pep_candidates.fa.
+Depends on Step 3a's output directory and Step 3b's pep_candidates.fa.
+
+The search is based on ``fragpipe-second-pass.workflow``, which FragPipe itself
+writes into Step 3a's output directory during the first pass. That file already
+carries the first pass's mass calibration (``calibrate_mass=0`` plus the
+optimized fragment tolerance, topN, intensity transform and minimum ratio), so
+reusing it skips a redundant ~5-6 min "MASS CALIBRATION AND PARAMETER
+OPTIMIZATION" run *and* lands on the reference pipeline's exact second-pass
+parameters — the reference's ``search_pipeline_script.sh`` seds this same file.
+
+Calibration describes the instrument's mass behaviour on these raw files, not
+the database, so it is identical across both passes. See D-051.
 """
 
 import re
@@ -8,6 +19,58 @@ from pathlib import Path
 from ..assets import WORKFLOW_TEMPLATE
 from ..env import ToolEnvironment
 from ..lsf import submit_bsub, wait_for_jobs, _build_env_cmd
+
+#: Workflow FragPipe auto-generates during the first pass, calibration baked in.
+GENERATED_SECOND_PASS_WORKFLOW = "fragpipe-second-pass.workflow"
+
+
+def _second_pass_template(step3a_dir: Path) -> tuple[Path, bool]:
+    """Pick the workflow to base the second pass on.
+
+    Returns ``(template, calibration_inherited)``. Prefers FragPipe's
+    auto-generated ``fragpipe-second-pass.workflow`` from *step3a_dir*, which
+    has the first pass's calibration applied. Falls back to the bundled
+    ``generic.workflow`` (``calibrate_mass=2``) if it is absent, so Step 3c
+    calibrates itself rather than running an uncalibrated search.
+    """
+    generated = step3a_dir / GENERATED_SECOND_PASS_WORKFLOW
+    if generated.is_file():
+        return generated, True
+    return WORKFLOW_TEMPLATE, False
+
+
+def _patch_workflow(content: str, decoy_fasta: Path) -> str:
+    """Apply the variant/nocleavage search patches to a FragPipe workflow.
+
+    Mirrors the reference ``search_pipeline_script.sh`` sed chain. Mass
+    calibration settings are deliberately *not* patched — they are inherited
+    from whichever template was chosen (see :func:`_second_pass_template`).
+    """
+    patches = [
+        (r"^database\.db-path=.*$", f"database.db-path={decoy_fasta}"),
+        (r"^database\.decoy-tag=.*$", "database.decoy-tag=rev_"),
+        (r"^ionquant\.minisotopes=.*$", "ionquant.minisotopes=1"),
+        (r"^ionquant\.minscans=.*$", "ionquant.minscans=1"),
+        (r"^msfragger\.clip_nTerm_M=.*$", "msfragger.clip_nTerm_M=false"),
+        (r"^msfragger\.misc\.fragger\.enzyme-dropdown-1=.*$",
+         "msfragger.misc.fragger.enzyme-dropdown-1=nocleavage"),
+        # The reference mandates this for the second pass unconditionally — it
+        # must never be left to whatever the template happens to carry.
+        (r"^msfragger\.remove_precursor_peak=.*$",
+         "msfragger.remove_precursor_peak=0"),
+        (r"^msfragger\.search_enzyme_cut_1=.*$", "msfragger.search_enzyme_cut_1=@"),
+        (r"^msfragger\.search_enzyme_name_1=.*$",
+         "msfragger.search_enzyme_name_1=nocleavage"),
+        (r"^msfragger\.search_enzyme_nocut_1=.*$",
+         "msfragger.search_enzyme_nocut_1=@"),
+        (r"^msbooster\.find-best-rt-model=.*$", "msbooster.find-best-rt-model=false"),
+        (r"^msbooster\.run-msbooster=.*$", "msbooster.run-msbooster=false"),
+        (r"^msbooster\.predict-rt=.*$", "msbooster.predict-rt=false"),
+        (r"^msbooster\.predict-spectra=.*$", "msbooster.predict-spectra=false"),
+    ]
+    for pattern, replacement in patches:
+        content = re.sub(pattern, replacement, content, count=1, flags=re.MULTILINE)
+    return content
 
 
 def _make_decoy_fasta(fasta_path: Path, output_dir: Path) -> Path:
@@ -78,7 +141,10 @@ def step03c_second_pass(
     if not fragpipe.is_file():
         raise FileNotFoundError(f"FragPipe not found: {fragpipe}")
 
-    workflow_template = WORKFLOW_TEMPLATE
+    # Base the search on FragPipe's own calibrated second-pass workflow when it
+    # exists (skips redundant calibration and matches the reference), otherwise
+    # the bundled generic.workflow (which self-calibrates). See D-051.
+    workflow_template, calibration_inherited = _second_pass_template(mzml_dir)
     if not workflow_template.is_file():
         raise FileNotFoundError(f"Workflow template not found: {workflow_template}")
 
@@ -88,27 +154,7 @@ def step03c_second_pass(
 
     decoy_fasta = _make_decoy_fasta(pep_candidates, output_dir)
 
-    patches = [
-        (r"^database\.db-path=.*$", f"database.db-path={decoy_fasta.resolve()}"),
-        (r"^database\.decoy-tag=.*$", "database.decoy-tag=rev_"),
-        (r"^ionquant\.minisotopes=.*$", "ionquant.minisotopes=1"),
-        (r"^ionquant\.minscans=.*$", "ionquant.minscans=1"),
-        (r"^msfragger\.clip_nTerm_M=.*$", "msfragger.clip_nTerm_M=false"),
-        (r"^msfragger\.misc\.fragger\.enzyme-dropdown-1=.*$",
-         "msfragger.misc.fragger.enzyme-dropdown-1=nocleavage"),
-        (r"^msfragger\.remove_precursor_peak=.*$", "msfragger.remove_precursor_peak=0"),
-        (r"^msfragger\.search_enzyme_cut_1=.*$", "msfragger.search_enzyme_cut_1=@"),
-        (r"^msfragger\.search_enzyme_name_1=.*$", "msfragger.search_enzyme_name_1=nocleavage"),
-        (r"^msfragger\.search_enzyme_nocut_1=.*$", "msfragger.search_enzyme_nocut_1=@"),
-        (r"^msbooster\.find-best-rt-model=.*$", "msbooster.find-best-rt-model=false"),
-        (r"^msbooster\.run-msbooster=.*$", "msbooster.run-msbooster=false"),
-        (r"^msbooster\.predict-rt=.*$", "msbooster.predict-rt=false"),
-        (r"^msbooster\.predict-spectra=.*$", "msbooster.predict-spectra=false"),
-    ]
-    with workflow_template.open("r") as f:
-        content = f.read()
-    for pattern, replacement in patches:
-        content = re.sub(pattern, replacement, content, count=1, flags=re.MULTILINE)
+    content = _patch_workflow(workflow_template.read_text(), decoy_fasta.resolve())
 
     second_workflow = output_dir / "second.workflow"
     with second_workflow.open("w") as f:
