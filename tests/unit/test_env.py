@@ -127,6 +127,25 @@ class TestToolEnvironment:
         assert not checks["dotnet"][0]
 
 
+class TestBundledBinariesAreExecutable:
+    """Regression: `tools/xvfb/bin/Xvfb` was committed as mode 100644.
+
+    It worked on the machine that built it (the on-disk file was executable) but
+    every fresh clone got a non-executable binary, so Step 6's PDV rendering
+    would die with PermissionError. Caught by CI on its very first run — this is
+    precisely the "runs on someone else's machine" bug the repo exists to avoid.
+    """
+
+    def test_xvfb_is_executable(self) -> None:
+        xvfb = Path(__file__).resolve().parents[2] / "tools" / "xvfb" / "bin" / "Xvfb"
+        if not xvfb.is_file():
+            pytest.skip("bundled Xvfb not present (run `make xvfb`)")
+        assert os.access(xvfb, os.X_OK), (
+            f"{xvfb} is not executable. If it was just checked out, its git mode "
+            f"is wrong: `git update-index --chmod=+x tools/xvfb/bin/Xvfb`."
+        )
+
+
 class TestXvfbDisplayAllocation:
     """Regression: concurrent PDV shards on one host must not share a display.
 

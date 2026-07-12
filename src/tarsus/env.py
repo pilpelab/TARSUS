@@ -175,12 +175,18 @@ class XvfbDisplay:
                 or Path(f"/tmp/.X{display_number}-lock").exists()
             ):
                 continue  # already taken — do not race for it
-            proc = subprocess.Popen(
-                [str(xvfb_bin), disp, "-screen", "0", "1024x768x24"],
-                env=proc_env,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.PIPE,
-            )
+            try:
+                proc = subprocess.Popen(
+                    [str(xvfb_bin), disp, "-screen", "0", "1024x768x24"],
+                    env=proc_env,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.PIPE,
+                )
+            except OSError as exc:
+                # Binary missing, not executable, or wrong architecture. This is
+                # not a per-display problem — retrying 149 more ports cannot help.
+                errors.append(f"cannot execute {xvfb_bin}: {exc}")
+                return False
             ready = False
             for _ in range(20):
                 time.sleep(0.3)
