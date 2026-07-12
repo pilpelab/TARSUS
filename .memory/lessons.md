@@ -20,6 +20,10 @@ was code that *quietly did the wrong thing* when data was absent, and reported s
 | Guardrail checking the wrong artifact | Step 8's guard counted input chunks (4,287 — non-empty!) while its MGF was 0 bytes | D-049 |
 | `re.sub` on an absent key | A patch whose key is missing from the workflow is a **no-op**. No error, wrong science. | D-051 |
 | Artifact written only at end-of-step | `.calibration_params` written at the end of Step 3a — which is *skipped* on resume via `.done`. Fix silently no-ops on every rerun. | D-051 |
+| `[ -s file ]` as a completeness check | A download killed by a timeout left a **truncated 1.6 GB** `.raw` (should be 10.9 GB). "Exists and non-empty" declared it complete and skipped the re-fetch. **I wrote this one myself, in the same session I wrote this table.** | D-055 |
+
+**"Non-empty" is not "complete."** Size, checksum, or a parse is a completeness check. Existence is
+not. This applies to downloads, to `.done` sentinels, and to every output file this pipeline writes.
 
 **Rule: when data is missing, raise. Never default.** If a column, file, or key is absent, that is a
 contract violation — say so loudly. Steps 7, 8 and 10 now have explicit guardrails. Steps 9 and 11
