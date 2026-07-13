@@ -10,29 +10,47 @@ import polars as pl
 from ..assets import SUBS_EXCLUDE_CSV
 
 
-def _load_substitution_matrix(path: Path) -> dict[str, dict[str, bool]]:
-    """Load the substitution exclusion matrix.
+def _norm_aa(aa: str) -> str:
+    """Normalize an amino-acid label; the CSV's 'I/L' means 'I'."""
+    aa = aa.strip()
+    return "I" if aa == "I/L" else aa
 
-    Returns {origin_aa: {dest_aa: excluded_bool}}.
-    The CSV column 'I/L' is normalized to 'I'.
+
+def _load_substitution_matrix(path: Path) -> dict[str, dict[str, bool]]:
+    """Load the substitution exclusion matrix as ``{origin: {dest: excluded}}``.
+
+    **The CSV is COLUMN=origin, ROW=destination.** The reference README says so
+    outright — *"Columns are origin amino acids, rows are destination amino acids.
+    True value excludes origin->destination mutation"* — and its ``make_peptides.py``
+    relies on it: ``pd.read_csv(...).to_dict()`` yields ``{COLUMN: {ROW: value}}``,
+    which it then indexes as ``subs_allowed[origin][dest]``.
+
+    We previously built ``matrix[ROW][COLUMN]`` — i.e. ``matrix[dest][origin]`` —
+    and used it as ``matrix[origin][dest]``, **transposing every one of the 20
+    asymmetric pairs**. On real data that meant:
+
+    - **F→M**: excluded by the reference (an oxidised-Met artifact — Phe is only
+      0.033 Da from Met+oxidation). We generated **15,004 candidates**, and it
+      became our single largest "finding" (38 of 248 localized = 15%).
+    - **T→S**: allowed by the reference and its *dominant* substitution
+      (**422 of 697 localized = 61%**). We generated **zero**. We were
+      structurally incapable of finding it.
+
+    See D-061.
     """
     raw = pl.read_csv(path, has_header=True)
-    cols = raw.columns
-    header = [c.strip() for c in cols]
+    header = [c.strip() for c in raw.columns]
+    label_col = header[0]
+
     matrix: dict[str, dict[str, bool]] = {}
     for row in raw.iter_rows(named=True):
-        origin = str(row[header[0]]).strip()
-        if origin in ("I/L",):
-            origin = "I"
-        dest_map: dict[str, bool] = {}
+        dest = _norm_aa(str(row[label_col]))            # ROW label = DESTINATION
         for col, val in row.items():
-            col_name = col.strip()
-            if col_name == header[0] or col_name in ("",):
+            if col.strip() == label_col or not col.strip():
                 continue
-            if col_name in ("I/L",):
-                col_name = "I"
-            dest_map[col_name] = str(val).strip().upper() == "TRUE"
-        matrix[origin] = dest_map
+            origin = _norm_aa(col)                      # COLUMN name = ORIGIN
+            excluded = str(val).strip().upper() == "TRUE"
+            matrix.setdefault(origin, {})[dest] = excluded
     return matrix
 
 

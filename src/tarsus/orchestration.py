@@ -248,6 +248,19 @@ def run_pipeline(outdir: Path, fasta: Path, raw_files: list[Path]) -> None:
         _s11.touch()
         _log("S11", f"Done → {_11_out / 'subs_localized.csv'}")
 
+    _s12 = outdir / "12_visualize" / ".done"
+    if not _skip_if_done(_s12, "S12"):
+        _log("S12", "Generating SAAV visualizations")
+        from tarsus.steps.step12_visualize import step12_visualize
+        _12_out = outdir / "12_visualize"
+        _12_out.mkdir(parents=True, exist_ok=True)
+        step12_visualize(
+            localized_ipc=outdir / "11_localized" / "subs_localized.ipc",
+            output_dir=outdir,
+        )
+        _s12.touch()
+        _log("S12", f"Done → {_12_out}/")
+
     _log("DONE", "Pipeline complete.")
 
 

@@ -1,5 +1,51 @@
 # Decisions Log
 
+## D-061: 🔴🔴 THE SUBSTITUTION MATRIX WAS TRANSPOSED. Every SAAV result to date is void.
+**Date:** 2026-07-13
+**Status:** Fixed (260 tests pass, mypy + ruff clean). **A full rerun from Step 3b is required.**
+**Found by:** Slava, from the plots — *"F>M is false and it's removed by further steps of the
+pipeline."* Chasing why our pipeline was **not** removing it exposed the real bug.
+
+**The reference README states it plainly:**
+> *"Columns are **origin** amino acids, rows are **destination** amino acids. True value excludes
+> origin->destination mutation."*
+
+and `make_peptides.py` depends on it: `pd.read_csv(...).to_dict()` yields `{COLUMN: {ROW: value}}`,
+which it indexes as `subs_allowed[origin][dest]`. **origin = column, destination = row.**
+
+**We built `matrix[ROW][COLUMN]` — i.e. `matrix[dest][origin]` — and used it as `matrix[origin][dest]`.
+The matrix was transposed. All 20 asymmetric pairs were inverted.**
+
+**Consequences on real data — catastrophic in both directions:**
+
+| | reference | ours (transposed) |
+|---|---|---|
+| **F→M** (excluded by ref: Phe is only **0.033 Da** from Met+oxidation — an oxidised-Met artifact) | **0** | **15,004 candidates** → **38 of 248 localized (15%)** — our single largest "finding" was an artifact |
+| **T→S** (allowed by ref; its **dominant** substitution) | **422 of 697 localized (61%)** | **0 candidates, 0 results** — we were *structurally incapable* of finding it |
+
+Ten substitutions we generated that the reference excludes (A→I, D→E, **F→M**, F→Y, N→Q, P→E, S→D,
+S→E, S→T, T→E) and ten we excluded that it allows (the reverses, including **T→S**).
+
+**🔴 EVERY SAAV RESULT IN THIS PROJECT IS VOID**, including:
+- AlaGGC 2,792 / 248 and AlaGGCpar 3,175 / 332.
+- **D-060's validation** (X→A enrichment) — computed on a library missing 10 substitution classes and
+  polluted with 10 others. Re-run before drawing any conclusion.
+- The Orly/LIS1 human run (same code path).
+
+**Why it survived.** The unit tests **encoded the transposed reading** — `test_loads_basic_csv`
+asserted `matrix["E"]["A"]` for a CSV whose row is E and column is A, i.e. it *locked the bug in*.
+A test that pins the wrong convention is worse than no test: it makes the bug look deliberate.
+(See lessons: *a test that does not call the code is not a test* — and a test that asserts the wrong
+contract is a trap.)
+
+**Fix.** `_load_substitution_matrix` now builds `matrix[COLUMN][ROW]`. Verified against the reference's
+own convention: `F→M` excluded = True, `T→S` excluded = False, all 20 asymmetric pairs correct. Tests
+rewritten to pin *the reference's* orientation, with an end-to-end check that T→S **is** generated and
+F→M **is not**.
+
+**Required:** rerun from **Step 3b** (invalidate `03b`→`11`; preserve `01`/`02`/`03a`). Both conditions.
+And re-run Orly's from 3b too.
+
 ## D-060: 🔬 VALIDATION RESULT — No detectable mistranslation signal in AlaGGC. Clean, controlled, NULL.
 **Date:** 2026-07-13
 **Status:** The first scientifically sound comparison this project has produced. **Underpowered — do
