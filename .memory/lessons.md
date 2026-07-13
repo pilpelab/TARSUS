@@ -1,6 +1,6 @@
 # Lessons — read before changing pipeline code
 
-Distilled from every bug that actually cost us time (D-026 → D-051). This is not a style guide;
+Distilled from every bug that actually cost us time (D-026 → D-058). This is not a style guide;
 each rule below is here because breaking it burned days of cluster time. Update it when a new bug
 teaches something the list does not already cover.
 
@@ -118,6 +118,73 @@ batching would probably be result-identical.
 **"Probably result-identical" is exactly the reasoning behind `e143a46`.** Deviations from the
 reference are allowed, but each one is a deliberate, tested, documented decision — never a passing
 tidy-up. Known deliberate deviations: D-048 defect 4 (title-suffix strip), msbooster disabled.
+
+---
+
+## `.done` records THAT a step ran — not WHICH CODE ran it
+
+The single most expensive bug in this project (D-057). `output/trial/03b_candidates` was built
+**2026-06-30 13:14**. The fix `4c2d9d6 "I/L normalization in variant peptide generation"` landed
+**14:30 — 76 minutes later.** That library therefore held **0 of 7,369,406 `→Ile` variants**, and was
+preserved as "unaffected" by *every* subsequent invalidation (D-047's index fix, D-051's calibration
+fix, all of them). Each of those judgments was individually correct **about its own change**. None
+asked whether Step 3b's artifact predated a fix to *Step 3b*.
+
+Result: **two weeks of AlaGGC results were computed against a search space that could not contain the
+answer**, and it was only caught because the substitution spectrum showed an impossible pattern
+(D→I = 0 vs 249; N→I = 0 vs 76 — all-or-nothing is technical, never biological).
+
+**Rule: justify every preserved sentinel by artifact provenance, not by reasoning about scope.**
+
+```bash
+find output/<run>/<step> -name '<artifact>' -printf '%TY-%Tm-%Td %TH:%TM\n'
+git log -1 --format='%ad' --date=format:'%Y-%m-%d %H:%M' -- src/tarsus/steps/<that_step>.py
+```
+
+If the artifact is older than the code, it is stale — no matter how confident you are that your
+change "doesn't touch that step."
+
+**Corollary — an impossible data pattern is a bug, not a discovery.** Zero-vs-hundreds, perfectly
+absent categories, or effects far larger than the biology permits: suspect the pipeline first.
+
+---
+
+## Do not edit source that a running job is importing
+
+Both `TARSUS_BC` and `~/LIS1_mutant_organoids__Orly_Reiner` execute **one shared, editable source
+tree**. `orchestration.py` imports each step module **lazily**, when the master reaches it — so a
+master running for hours picks up whatever is on disk at that moment. A live edit is executed by a
+live pipeline; a briefly-broken file kills a run hours in; and a changed signature meets an `lsf`
+module cached in `sys.modules` since Step 1, raising `TypeError` mid-run.
+
+```bash
+bjobs | grep us_master     # any master running -> src/tarsus/ is FROZEN
+```
+
+Docs, tests, `.memory/` are always safe. Only `src/` is live. **Nothing records which commit produced
+a given result** — which is the same disease as D-057 in a different organ.
+
+---
+
+## Test the whole hypothesis, not the piece you happened to name
+
+For weeks I tested **G→A** as *the* signature of `AlaGGC`, on the assumption that the three letters
+were the codon read. They are the **anticodon** (D-058). Anticodon `GGC` decodes codon `GCC` = Ala, so
+the tRNA is *cognate*; the real prediction is near-cognate misreading giving **X→Ala** from **six**
+origins {D,G,P,S,T,V}.
+
+G→A happened to be in that set — **by coincidence**, because the anticodon `GGC` and the Gly codon
+`GGC` are the same three letters. So every "G→A is depleted!" test was (a) a sixth of the hypothesis
+and (b) underpowered (n=8 vs 5, p=0.171).
+
+**Rules:**
+- **Derive the prediction from the mechanism before testing it.** Ask the domain expert for the
+  expected result on day one; do not infer it from a filename.
+- **A right answer for the wrong reason is not a validated method** — it will not generalise to the
+  next condition.
+- Beware effects the design makes invisible: all three wobble changes from GCC (GCA/GCG/GCU) are *also
+  Alanine*, i.e. **silent** — and wobble is where misreading is most common. A small or null result may
+  be the true biology, not a broken pipeline.
 
 ---
 

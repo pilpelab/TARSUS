@@ -63,6 +63,43 @@ Before any work, run through this checklist:
 - [ ] Read `.memory/decisions.md` — know prior decisions (do not re-litigate)
 - [ ] Read `.memory/session.md` — (if exists) resume from last session
 
+### ⛔ STOP — check this before editing `src/tarsus/`
+
+**`~/LIS1_mutant_organoids__Orly_Reiner` has no `src/` of its own.** It is an editable install that
+imports `/home/labs/pilpel/barc/TARSUS_BC/src/tarsus/`. Both projects execute **this** source tree.
+
+`orchestration.py` imports each step module **lazily** — only when the master job reaches that step.
+So a master running for hours picks up whatever is on disk **at the moment it gets there**:
+
+- Edit a file while a run is live → that run executes your half-finished code.
+- Leave it briefly broken → the run dies after hours of compute.
+- Change a signature → `lsf` was cached in `sys.modules` back at Step 1, so a *new* `step05` calling
+  a *changed* `wait_for_jobs()` against the *old cached* `lsf` raises `TypeError` mid-run.
+
+```bash
+bjobs | grep us_master     # if ANY master is running, do not edit src/tarsus/
+```
+
+Docs, tests and `.memory/` are always safe to edit. Only `src/` is live.
+
+### Sentinel preservation must be justified by PROVENANCE, not by reasoning
+
+`.done` records **that** a step ran — **not which version of the code ran it.**
+
+Before preserving any `.done` on a rerun, check the artifact is newer than the last commit touching
+the code that produced it:
+
+```bash
+find output/<run>/03b_candidates -name pep_candidates.fa -printf '%TY-%Tm-%Td %TH:%TM\n'
+git log -1 --format='%ad' --date=format:'%Y-%m-%d %H:%M' -- src/tarsus/steps/step03b_make_peptides.py
+```
+
+**This is not hypothetical (D-057).** A Step 3b candidate library was built 76 minutes *before* its own
+I/L fix landed, was preserved as "unaffected" by every subsequent invalidation, and silently corrupted
+**two weeks** of AlaGGC results — its library held **0 of 7.37M `→Ile` variants**. Every invalidation
+was individually correct about its own change; none asked whether the artifact predated a fix to
+*itself*.
+
 ### Before Changing Any Pipeline Step
 Work the pre-flight checklist at the bottom of `.memory/lessons.md`. In short:
 - **Never default on missing data** — `.get(k, 0)`, `fill_null(0)`, `except: pass` and a `re.sub`

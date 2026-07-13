@@ -1,5 +1,132 @@
 # Progress Log
 
+> ## 📍 STATE OF THE PROJECT — read this first (2026-07-13)
+>
+> Everything below this box is a reverse-chronological log. This box is the current truth.
+> Detail lives in `.memory/decisions.md` (D-001…D-058) and `.memory/lessons.md` (how it fails).
+
+---
+
+## 1. What this project is
+
+Port of the **TARSUS** pipeline (Tretyachenko et al. 2025, bioRxiv) — detects validated **single amino
+acid substitutions (SAAVs)** from mass spectrometry — into a configurable, shareable, LSF-orchestrated
+implementation. 11 steps: raw → mzML → PepQuery index → FragPipe 2-pass → in-silico mutagenesis →
+targeted PepQuery validation → PDV ion evidence → SAAV filtering → reference rescoring → PyAscore
+localization.
+
+- **Repo:** https://github.com/brchn6/TARSUS (**private**). CI runs 254 tests + mypy + ruff on push.
+- **Reference impl (read-only):** `TARSUS_elizabev/` → colleagues' scripts.
+  **Their completed run** (the ground truth that unblocked everything):
+  `/home/labs/pilpel/elizabev/tRNA/EVpar/tarsus_analysis/`
+- **Original author:** Slava — `/home/labs/pilpel/slavat/coli_trna/` (the experiment), and
+  `/home/labs/pilpel/slavat/tarsus-main/` (his TARSUS copy).
+
+## 2. Pipeline status: WORKS end-to-end
+
+`DONE: Pipeline complete.` on both conditions. All 11 steps. 254 tests, mypy + ruff clean, CI green.
+
+## 3. The science — what we are actually trying to prove
+
+**The experiment (PRIDE PXD071134, private, under reviewer embargo — hence undocumented anywhere):**
+a **9-tRNA overexpression panel** in E. coli, each condition with a paired twin, plus empty vector:
+`AlaGGC/par, AlaUGC/par, GluUUC/par, IleXCAU/par, LeuUAG/par, ProCGG/par, ProGGG/par, ProUGG/par,
+EV/EVpar`.
+
+**Naming = amino-acid + ANTICODON** (confirmed by Slava, D-058). So:
+- anticodon `5'-GGC-3'` → codon `5'-GCC-3'` = **Ala** → the tRNA is **cognate**.
+- The name therefore predicts **no** mistranslation directly. The signal must come from
+  **overexpression-driven near-cognate misreading**: an overabundant tRNA-Ala wins at codons one base
+  from GCC and inserts **Ala** there.
+
+**⇒ THE PREDICTION:** enrichment of **`destination == Ala`** in `AlaGGC` vs its paired control
+`AlaGGCpar`, from origins **{D, G, P, S, T, V}** (codons GAC, GGC, CCC, UCC, ACC, GUC).
+
+**⚠️ Expect a possibly SMALL effect.** All three wobble-position changes from GCC (GCA/GCG/GCU) are
+*also Alanine* → **silent**. Wobble is where misreading is most common, and here it is invisible.
+Every detectable event needs a rarer position-1/2 mismatch. **A modest or null result may be the true
+biology — do NOT tune parameters until a signal appears** (that is fitting to a number nobody supplied).
+
+## 4. 🔴 What is VOID — do not cite
+
+| Claim | Why void |
+|---|---|
+| AlaGGC = **2,556 SAAVs / 239 localized** | Stale Step 3b library (D-057) |
+| "G→A is 8x depleted vs EVpar" (D-053) | Cross-pipeline confound: ours FragPipe 24.0/MSFragger 4.4.1 vs reference 23.1/4.3 (D-055) |
+| "X→A 1.02x, p=0.504" / "G→A 1.99x, p=0.171" | Computed on the stale-library AlaGGC arm (D-057) |
+| Anything testing **G→A alone** | G→A is only **1 of 6** predicted substitutions; the G-A/anticodon letter match was a coincidence (D-058) |
+
+**Valid:** `AlaGGCpar` control = **3,175 SAAVs / 332 localized** (`output/alaggcpar/`, clean run).
+
+## 5. Running right now
+
+| job | what | state |
+|---|---|---|
+| **868461** | AlaGGC rerun from Step 3b (fixes D-057) | Step 3c |
+| **850571** | Orly / LIS1 human-proteome run | Step 5 |
+
+**⛔ DO NOT EDIT `src/tarsus/` WHILE THESE RUN.** `~/LIS1_mutant_organoids__Orly_Reiner` has **no
+`src/` of its own** — it is an editable install importing `/home/labs/pilpel/barc/TARSUS_BC/src/tarsus/`.
+`orchestration.py` imports each step module **lazily**, when the master reaches it, so a live edit is
+executed by a running pipeline. Worse: `lsf` gets cached in `sys.modules` at Step 1, so a new `step05`
+calling a changed `wait_for_jobs()` signature against the **old cached** `lsf` raises `TypeError`
+hours in. Both current runs happen to have started *after* the last edit — luck, not design.
+
+**When 868461 lands:** Fisher's exact on `destination == A`, AlaGGC vs AlaGGCpar, plus the
+{D,G,P,S,T,V}→A breakdown. That is the whole validation.
+
+## 6. The root cause that cost a month (D-047)
+
+Commit `e143a46` changed Step 2 to index `*_sub.mzML` instead of the original mzML — a "free" compute
+saving that **silently moved every spectrum title into a new namespace**. Step 7 then joined nothing
+and emitted 0 rows for weeks. It spawned four *phantom* bugs: D-032's false scan-number claim →
+D-044's peptide-only lineage break → D-045's PepQuery NPE and D-046's 900 Da "mass disagreement"
+(**both self-inflicted** by the `-varMod 2,33` added to compensate). A 959-line workaround plan
+(Option C) was written against this false premise and **cancelled unimplemented**.
+
+**The spectrum-title contract (never break it):** Step 2 indexes the **original** mzML → titles are
+`file:scan:charge`, no `_sub`. FragPipe writes `file_sub.scan.scan.charge`. Steps 4, 7 and 8 **strip
+`_sub`**. `_sub.mzML` preserves original scan numbers (verified), so the mapping is exact.
+
+## 7. THE recurring failure mode — read `.memory/lessons.md`
+
+**Not one serious bug in this project was a crash.** Every single one was code that quietly did the
+wrong thing when data was missing, and reported success:
+`.get(k, 0)` on a renamed column · `fill_null(0)` after a left join · reading `Spectrum` instead of
+`spectrum_title` (0/1,113 matched → 0-byte MGF) · `.done` stamped over empty output · a guardrail
+counting the wrong artifact · a `re.sub` whose key is absent · `[ -s file ]` as a completeness check ·
+a `pgrep` self-match that looped forever and **exited 0** · `bjobs` failure read as job success.
+
+**Rules:** never default on missing data — raise. "Non-empty" ≠ "complete" (size/checksum/parse is).
+LSF status ≠ ground truth (the job's own log epilogue is). Guardrails now fail loudly at Steps 7, 8, 10.
+
+**And (D-057) `.done` records THAT a step ran — not WHICH CODE ran it.** Justify every preserved
+sentinel by *artifact provenance*: is the artifact newer than the last commit touching the code that
+produced it? Nobody checked this, and a Step 3b library built **76 minutes before** its own I/L fix
+silently corrupted every AlaGGC result for two weeks.
+
+## 8. Open — engineering
+
+1. **No provenance recording.** `tarsus run` should stamp `git rev-parse HEAD` + dirty-flag into the
+   output dir and **refuse to run on a dirty tree**. This is the direct fix for both D-057 and the
+   shared-source hazard in §5. **Highest value remaining.**
+2. **LIS1 shares TARSUS_BC's mutable source.** Pin it, or snapshot source per run.
+3. **Config not externalized.** 9 steps hardcode `queue="gsla-cpu"`; `--queue` reaches only the master
+   job. `.agents/project.md` promises per-lab overridability; the repo does not deliver it. This is the
+   real blocker for the stated cross-lab goal. (`TARSUS_PEPQUERY_MEM_MB` / `_HEAP_MB` exist; nothing else.)
+4. **Step 9 fans out one LSF job per peptide** (4,287 jobs, a JVM + 150 MB MGF parse each).
+   **This is NOT a bug — the reference does the same (`n=1`).** Wasteful, faithful. Do not "fix" it
+   casually; that is exactly the reasoning behind `e143a46`.
+
+## 9. Open — science (for the experimentalists)
+
+`docs/QUESTIONS-FOR-SCIENTISTS.md`. The naming question is **answered** (D-058). Still worth asking:
+what is `EVpar` vs `EV`? What does the `par` suffix mean? Was the mistranslation validated
+independently (western / reporter / targeted MS)? What rate does the paper report?
+
+---
+
+
 ## Session 2026-07-13 — `wait_for_jobs()` rebuilt (D-056). LSF status is not ground truth.
 
 The user pushed back — correctly — on the "LSF transiently marks jobs EXIT" diagnosis, refusing it as
