@@ -85,6 +85,8 @@ def step05_query_psm(
     inputs_dir.mkdir(exist_ok=True)
 
     job_ids: list[int] = []
+    job_labels: dict[int, str] = {}
+    job_logs: dict[int, Path] = {}
     for idx, chunk in enumerate(chunks):
         chunk_file = inputs_dir / f"chunk_{idx:04d}.tsv"
         chunk_file.write_text("\n".join(chunk) + "\n")
@@ -125,8 +127,13 @@ def step05_query_psm(
             tool_env=tool_env,
         )
         job_ids.append(jid)
+        # Record which chunk each job is, and where its log lives. Without this a
+        # failure reads "LSF job 689403 exited" and nobody can tell which chunk
+        # that was — nor check the claim against the job's own log.
+        job_labels[jid] = chunk_file.name
+        job_logs[jid] = log_path
 
-    wait_for_jobs(job_ids)
+    wait_for_jobs(job_ids, job_labels=job_labels, job_logs=job_logs)
 
     # Validate: at least one result file produced
     rank_files = sorted(result_dir.rglob("psm_rank.txt"))

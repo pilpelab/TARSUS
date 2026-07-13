@@ -1,5 +1,47 @@
 # Progress Log
 
+## Session 2026-07-13 — `wait_for_jobs()` rebuilt (D-056). LSF status is not ground truth.
+
+The user pushed back — correctly — on the "LSF transiently marks jobs EXIT" diagnosis, refusing it as
+**unproven**: nobody had established that job 689403 *was* the job whose log said `Successfully
+completed.`
+
+**They were right, and the reason is itself the bug.** `wait_for_jobs()` took `list[int]` — bare job
+IDs. The chunk name and log path were **never recorded anywhere**, so the mapping I was asked to
+verify *did not exist*. The crash was undiagnosable by construction. Fix the observability before
+theorising about the cause.
+
+### Four real defects, all silent
+1. **`bjobs`'s return code was never checked.** One `bjobs` subprocess *per job, per 30 s poll* —
+   4,784 of them on a full Step 5 — hammers the LSF daemon. A transient failure returns empty stdout,
+   which the old code read as "gone, therefore fine": **a job that died was recorded as successful.**
+   That polling storm is also the likeliest source of the flaky reads that started all this.
+2. **A purged job was assumed successful.** Purge means *unknown*, not good.
+3. **Fail-fast on the first `EXIT`** threw away thousands of still-running jobs' work.
+4. **No job → chunk → log mapping.**
+
+### The key insight
+LSF **purges completed jobs from `bjobs` after ~1 h**. On a 75-minute Step 5, the earliest jobs vanish
+*precisely because they succeeded* — `bjobs` simply is not a durable completion signal at that
+timescale. But LSF's epilogue in each `-oo` log (`Successfully completed.` / `Exited with exit code N`
+/ `TERM_*`) **outlives the job record**. That log is the only durable per-job ground truth.
+
+### Fix
+One batched `bjobs` call per poll (not one per job); a failed query is retried, never read as success;
+all terminal states collected rather than aborting on the first `EXIT`; and **`job_log_verdict()`**
+settles each job from its own log. A job LSF calls `EXIT` whose log says `Successfully completed.` is
+**not** a failure — and a purged job whose log shows failure is not laundered into success.
+Steps 5 and 9 now pass `job_labels` + `job_logs`, so a failure reads
+`job 689403 (chunk_0000) — log: .../chunk_0000.tsv.log` instead of a bare ID.
+
+254 tests pass, mypy + ruff clean.
+
+**Note:** in LSF, `EXIT` is *terminal* — jobs do not go `EXIT → DONE` — so "transient EXIT" is still
+unproven and probably a misreading. The fix deliberately does not rest on which mechanism was true.
+
+---
+
+
 ## Session 2026-07-12 (cont'd) — Control run launched: AlaGGC vs AlaGGCpar, SAME pipeline
 
 ### Why (D-055)

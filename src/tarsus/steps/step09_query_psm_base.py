@@ -79,6 +79,8 @@ def step09_query_psm_base(
         raise ValueError(f"No input files found in {input_dir}")
 
     job_ids: list[int] = []
+    job_labels: dict[int, str] = {}
+    job_logs: dict[int, Path] = {}
     for f in input_files:
         chunk_result = result_dir / f.name
         chunk_result.mkdir(exist_ok=True)
@@ -123,9 +125,13 @@ def step09_query_psm_base(
             tool_env=tool_env,
         )
         job_ids.append(jid)
+        # Record chunk + log per job so a failure is diagnosable, and so its
+        # verdict can be read from the job's own LSF log rather than `bjobs`.
+        job_labels[jid] = f.name
+        job_logs[jid] = log_path
 
     if job_ids:
-        wait_for_jobs(job_ids)
+        wait_for_jobs(job_ids, job_labels=job_labels, job_logs=job_logs)
 
     rank_files = sorted(result_dir.rglob("psm_rank.txt"))
     if not rank_files:

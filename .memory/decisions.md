@@ -1,5 +1,69 @@
 # Decisions Log
 
+## D-056-draft (pi agent, superseded by D-056 below) — "transient LSF EXIT"
+**Date:** 2026-07-12 · **Status:** ⛔ Superseded. Its central claim is **unproven**, and acting on it
+would have fixed the wrong thing.
+
+It asserted that "chunk_0000 (job 689403) showed EXIT ... but the chunk log confirms Successfully
+completed", and proposed de-bouncing EXIT across two polls.
+
+**Why that is not established:** nothing in the codebase ever recorded which chunk job 689403 was.
+`wait_for_jobs()` took `list[int]` — bare job IDs, with no chunk name and no log path — so the
+`689403 → chunk_0000 → chunk_0000.tsv.log` mapping was an *assumption*, not an observation. In LSF,
+`EXIT` is moreover a **terminal** state; jobs do not go `EXIT → DONE`, so "transient EXIT" is
+doubtful on its own terms.
+
+De-bouncing would also have been actively harmful: it re-polls a status that is *already* unreliable,
+and does nothing about the real bug — that a failed `bjobs` query was being read as job success.
+
+See **D-056** below for the four defects actually found and fixed.
+
+## D-056: `wait_for_jobs()` — Four Defects. LSF Status Is Not Authoritative; the Job's Own Log Is.
+**Date:** 2026-07-13
+**Status:** Fixed. 254 tests pass, mypy + ruff clean.
+**Context:** The LIS1 run crashed with `RuntimeError: LSF job 689403 exited with failure`, yet a log
+believed to be that job's ended `Successfully completed.` The user correctly refused the proposed
+"LSF transiently marks jobs EXIT" explanation as **unproven**: nothing established that job 689403
+*was* the job whose log was read.
+
+**They were right — and the reason is itself a defect.** `wait_for_jobs(job_ids: list[int])` received
+**bare integers**. The chunk name and log path were never associated with the job ID in any persisted
+artifact, so **the mapping I was asked to verify did not exist anywhere.** The crash was, by
+construction, undiagnosable. Lesson: when a claim cannot be checked, fix the observability before
+theorising about the cause.
+
+**Four real defects, all silent:**
+1. **`bjobs`'s return code was never checked.** We spawned *one `bjobs` subprocess per job, per 30 s
+   poll* — 4,784 of them on a full Step 5 — which hammers the LSF daemon. A transient failure returns
+   empty stdout, and the old code read empty as "gone, therefore fine": **a job that died was recorded
+   as successful.** This polling storm is also the most likely source of the flaky status reads that
+   started the investigation.
+2. **A purged job was assumed successful** (`"not found" → continue`). Purge means the outcome is
+   *unknown*, not good.
+3. **Fail-fast on the first `EXIT`** discarded the work of thousands of still-running jobs.
+4. **No job → chunk → log mapping** (above).
+
+**The insight that makes this tractable:** LSF **purges completed jobs from `bjobs` after ~1 h**. On a
+75-minute Step 5 the earliest jobs vanish *precisely because they succeeded* — so `bjobs` is not a
+durable completion signal at this timescale. But LSF writes an epilogue into every `-oo` log
+(`Successfully completed.` / `Exited with exit code N` / `TERM_*`), and **that log outlives the job
+record.** It is the only durable per-job ground truth we have.
+
+**Fix:**
+- One batched `bjobs` call per poll for *all* jobs, not one per job — removes the polling storm.
+- A failed `bjobs` query is **retried**, never read as completion.
+- Collect every terminal state; do not abort on the first `EXIT`.
+- **`job_log_verdict()`** reads LSF's own epilogue from the job's log. A job LSF reports `EXIT` but
+  whose log says `Successfully completed.` is **not** a failure — and conversely, a purged job whose
+  log shows a failure is not laundered into success.
+- Steps 5 and 9 pass `job_labels` + `job_logs`, so a failure now reads
+  `job 689403 (chunk_0000) — log: .../chunk_0000.tsv.log`, not a bare ID.
+
+**On the reported symptom:** in LSF, `EXIT` is a *terminal* state — jobs do not go `EXIT → DONE` — so
+"transient EXIT" remains unproven and is probably a misreading. The fix deliberately does not depend
+on which mechanism was true: it stops trusting the unreliable signal, starts trusting the durable one,
+and makes any future failure name its own chunk and log.
+
 ## D-055: The Experiment Found. My EVpar Comparison Was Confounded. Running the True Paired Control.
 **Date:** 2026-07-12
 **Status:** In progress — fetching `AlaGGCpar` from PRIDE, then running it through *our* pipeline.

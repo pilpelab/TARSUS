@@ -62,7 +62,7 @@ class TestChunking:
         def fake_submit(cmd: list[str], **kw: object) -> int:
             submitted.append(cmd)
             return 1
-        def fake_wait(job_ids: list[int]) -> None:
+        def fake_wait(job_ids: list[int], **kwargs: object) -> None:
             pass
         monkeypatch.setattr("src.tarsus.steps.step05_query_psm.submit_bsub", fake_submit)
         monkeypatch.setattr("src.tarsus.steps.step05_query_psm.wait_for_jobs", fake_wait)
@@ -92,7 +92,7 @@ class TestChunking:
         def fake_submit(cmd: list[str], **kw: object) -> int:
             submitted.append(cmd)
             return len(submitted)
-        def fake_wait(job_ids: list[int]) -> None:
+        def fake_wait(job_ids: list[int], **kwargs: object) -> None:
             pass
         monkeypatch.setattr("src.tarsus.steps.step05_query_psm.submit_bsub", fake_submit)
         monkeypatch.setattr("src.tarsus.steps.step05_query_psm.wait_for_jobs", fake_wait)
@@ -114,7 +114,7 @@ class TestChunking:
 
         def fake_submit(cmd: list[str], **kw: object) -> int:
             return 1
-        def fake_wait(job_ids: list[int]) -> None:
+        def fake_wait(job_ids: list[int], **kwargs: object) -> None:
             pass
         monkeypatch.setattr("src.tarsus.steps.step05_query_psm.submit_bsub", fake_submit)
         monkeypatch.setattr("src.tarsus.steps.step05_query_psm.wait_for_jobs", fake_wait)

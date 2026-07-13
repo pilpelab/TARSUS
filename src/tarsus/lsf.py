@@ -62,24 +62,154 @@ def _parse_job_id(output: str) -> int:
     raise ValueError(f"Cannot parse job ID from: {output}")
 
 
-def wait_for_jobs(job_ids: list[int], poll_seconds: int = 30) -> None:
-    """Block until all bsub jobs complete."""
-    while True:
-        active = []
-        for jid in job_ids:
-            result = subprocess.run(
-                ["bjobs", "-noheader", "-o", "stat", str(jid)],
-                capture_output=True, text=True,
-            )
-            status = result.stdout.strip()
-            stderr = result.stderr.strip()
-            # Purged from LSF records: "not found" on stderr, empty stdout
-            if "not found" in stderr or not status:
+_ACTIVE_STATES = ("RUN", "PEND", "WAIT", "PROV", "PSUSP", "USUSP", "SSUSP")
+_SUCCESS_STATES = ("DONE",)
+
+#: LSF appends an epilogue to every ``-oo`` log when the job ends.
+_LOG_SUCCESS = "Successfully completed."
+_LOG_FAILURE_MARKERS = ("Exited with exit code", "TERM_", "Exited with signal")
+
+
+def job_log_verdict(log_path: Path) -> str | None:
+    """Read LSF's own verdict out of a job's ``-oo`` log.
+
+    LSF writes an epilogue when the job ends — ``Successfully completed.`` or
+    ``Exited with exit code N`` / ``TERM_MEMLIMIT`` — and **that log outlives the
+    job record**, which ``bjobs`` does not: completed jobs are purged after ~1h.
+    So for anything long-running the log is the only durable, per-job ground
+    truth we have.
+
+    Returns ``"success"``, ``"failure"``, or ``None`` when the log has no
+    epilogue yet (job still running, or the log was never written).
+    """
+    try:
+        text = log_path.read_text(errors="replace")
+    except OSError:
+        return None
+    if _LOG_SUCCESS in text:
+        return "success"
+    if any(m in text for m in _LOG_FAILURE_MARKERS):
+        return "failure"
+    return None
+
+
+def _poll_statuses(job_ids: list[int]) -> dict[int, str] | None:
+    """Ask LSF for the status of every job in ONE call.
+
+    Returns ``{job_id: status}``, or ``None`` if the ``bjobs`` call itself
+    failed — which is *not* the same as "the jobs are gone".  Jobs LSF has
+    purged are simply absent from the mapping.
+
+    One call, not one per job: the old code spawned a ``bjobs`` subprocess per
+    job per poll — 4,784 of them every 30s on a full Step 5 — which hammers the
+    LSF daemon and is the most likely source of the transient failures that
+    corrupted its own status reads.
+    """
+    result = subprocess.run(
+        ["bjobs", "-noheader", "-o", "jobid stat"] + [str(j) for j in job_ids],
+        capture_output=True, text=True,
+    )
+    # `bjobs` exits non-zero when *any* id is unknown, so a non-zero code alone
+    # is not an error — but a non-zero code with no usable output is.
+    statuses: dict[int, str] = {}
+    for line in result.stdout.splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[0].isdigit():
+            statuses[int(parts[0])] = parts[1].strip()
+    if not statuses and result.returncode != 0 and "not found" not in result.stderr:
+        return None  # the query failed; we learned nothing
+    return statuses
+
+
+def wait_for_jobs(
+    job_ids: list[int],
+    poll_seconds: int = 30,
+    *,
+    job_labels: dict[int, str] | None = None,
+    job_logs: dict[int, Path] | None = None,
+    raise_on_failure: bool = True,
+) -> list[int]:
+    """Block until every job reaches a terminal state. Return the failed ones.
+
+    **LSF status is not a reliable completion signal — the produced artifact is.**
+    This function reports what LSF claims; callers must verify their own outputs.
+
+    Three defects this replaces, all of which failed *silently*:
+
+    1. ``bjobs``'s return code was never checked. A transient failure yields
+       empty stdout, and the old code read "empty" as "gone, therefore fine" —
+       so a job that died was recorded as **successful**.
+    2. A purged job (``not found``) was likewise assumed successful. Purge means
+       the outcome is **unknown**, not good.
+    3. It raised on the *first* ``EXIT``, throwing away thousands of still-running
+       jobs' work.
+
+    Args:
+        job_labels: ``{job_id: name}`` used in the failure message. Without it a
+            failure reads "LSF job 689403 exited" and nobody can tell which chunk
+            that was — the exact reason a real crash proved undiagnosable.
+        raise_on_failure: if False, return the failures instead of raising, so the
+            caller can check whether the work actually landed anyway.
+
+    Returns:
+        Job IDs whose success LSF did **not** confirm — either a definite
+        ``EXIT``, or purged from its records before we saw a terminal state.
+        Purge is *not* failure: LSF drops completed jobs after ~1h, so on a
+        75-minute Step 5 the early jobs disappear precisely *because* they
+        finished. Only a definite ``EXIT`` raises; a purged job is returned for
+        the caller to settle against its output.
+    """
+    pending = set(job_ids)
+    failed: set[int] = set()      # definite: LSF said EXIT
+    unconfirmed: set[int] = set()  # unknown: purged before we saw it finish
+
+    while pending:
+        statuses = _poll_statuses(sorted(pending))
+        if statuses is None:
+            time.sleep(poll_seconds)  # the query failed — retry; assume nothing
+            continue
+
+        for jid in sorted(pending):
+            status = statuses.get(jid)
+            if status is None:
+                pending.discard(jid)
+                unconfirmed.add(jid)  # purged — verify via the artifact
+            elif status in _ACTIVE_STATES:
                 continue
-            if status in ("RUN", "PEND", "WAIT"):
-                active.append(jid)
-            elif status == "EXIT":
-                raise RuntimeError(f"LSF job {jid} exited with failure")
-        if not active:
-            break
-        time.sleep(poll_seconds)
+            elif status in _SUCCESS_STATES:
+                pending.discard(jid)
+            else:  # EXIT, ZOMBI, UNKWN, ...
+                pending.discard(jid)
+                failed.add(jid)
+
+        if pending:
+            time.sleep(poll_seconds)
+
+    # LSF's live status is not authoritative. Where we know the job's log, LSF's
+    # own epilogue in that log is — and it survives the purge that erases the job
+    # record. A job whose log says "Successfully completed." did complete, no
+    # matter what `bjobs` said a moment earlier.
+    logs = job_logs or {}
+    for jid in sorted(failed | unconfirmed):
+        verdict = job_log_verdict(logs[jid]) if jid in logs else None
+        if verdict == "success":
+            failed.discard(jid)
+            unconfirmed.discard(jid)
+        elif verdict == "failure":
+            unconfirmed.discard(jid)
+            failed.add(jid)
+
+    if failed and raise_on_failure:
+        labels, lg = job_labels or {}, logs
+        listed = "\n".join(
+            f"  job {jid}"
+            + (f" ({labels[jid]})" if jid in labels else "")
+            + (f" — log: {lg[jid]}" if jid in lg else "")
+            for jid in sorted(failed)
+        )
+        raise RuntimeError(
+            f"{len(failed)} LSF job(s) failed:\n{listed}\n"
+            f"(Verdict taken from each job's own LSF log epilogue where available, "
+            f"not from `bjobs` — completed jobs are purged from `bjobs` after ~1h.)"
+        )
+    return sorted(failed | unconfirmed)
