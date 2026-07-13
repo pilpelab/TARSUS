@@ -71,61 +71,50 @@ EV/EVpar`.
 Every detectable event needs a rarer position-1/2 mismatch. **A modest or null result may be the true
 biology — do NOT tune parameters until a signal appears** (that is fitting to a number nobody supplied).
 
-## 4. 🔬 THE VALIDATION RESULT — clean, controlled, and NULL (D-060)
+## 4. 🔴🔴 EVERY SAAV NUMBER TO DATE IS VOID (D-061) — reruns in flight
 
-`AlaGGC` vs paired control `AlaGGCpar`. Same code, same params, **both libraries built by the same
-commit** — biology is the only variable. The first sound comparison this project has produced.
+**Found by Slava**, from the plots: *"F>M is false and it's removed by further steps of the pipeline."*
+Ours was **not** removing it. Chasing why exposed the real bug.
 
-**Prediction (D-058):** anticodon `GGC` → codon `GCC` = Ala → the tRNA is *cognate*, so the signal must
-come from overexpression-driven near-cognate misreading ⇒ **`destination == Ala` enriched**, origins
-{D,G,P,S,T,V}.
+**The substitution matrix was read TRANSPOSED.** The CSV is **COLUMN=origin, ROW=destination** (the
+reference README says so, and `make_peptides.py` depends on it). We built `matrix[ROW][COLUMN]` and used
+it as `matrix[origin][dest]`. **All 20 asymmetric pairs inverted.**
 
-| | AlaGGC | AlaGGCpar | enrich | p |
-|---|---|---|---|---|
-| **X→A** | 33 / 2,792 (1.18%) | 40 / 3,175 (1.26%) | **0.94x** | **0.65** |
+| | reference | ours (void) |
+|---|---|---|
+| **F→M** — reference EXCLUDES it (Phe is **0.033 Da** from Met+oxidation → oxidised-Met artifact) | 0 | **15,004 candidates → 38 of 248 localized (15%).** Our largest "finding" was an artifact. |
+| **T→S** — reference ALLOWS it; its **DOMINANT** substitution | **422 of 697 (61%)** | **0 candidates, 0 results.** Structurally incapable of finding it. |
 
-Per origin: D→A 0/0 · **G→A 8/5 (p=0.215)** · P→A 0/0 · S→A 0/0 · T→A 0/0 · V→A 14/24 (p=0.92).
-The zeros are **real** — all six are in the library (21k–32k candidates each), none excluded.
+**This also explains the "different ballpark" vs Liz's run — and it decomposes exactly:**
+- reference 697 = 422 T→S + **275 non-T→S**
+- ours 248 = 38 bogus F→M + **210 non-T→S** → our non-T→S yield is **0.76x** the reference's,
+  i.e. **the same ballpark**. The entire 2.8x gap *is* the missing T→S.
+- **FALSIFIABLE PREDICTION: with the fix, AlaGGC should land ~530 localized (reference range ~500-700),
+  not ~250.** If it does not, the gap is something else and we keep digging.
 
-**Say exactly this:** the pipeline is **mechanically validated** (runs end-to-end, thousands of SAAVs,
-reference magnitude) but **does not detect the predicted mistranslation here**. A small/absent effect
-**may be the true biology** — every wobble change from GCC (GCA/GCG/GCU) is *also Ala*, i.e. **silent**,
-and wobble is where misreading is most common.
+**VOID — do not quote:** AlaGGC 2,792/248 · AlaGGCpar 3,175/332 · **D-060's whole validation** (the X→A
+test — computed on a library missing 10 substitution classes and polluted with 10 others) · the Orly/LIS1
+run and the comparison table sent to Slava (its "Top localized: F→M (38)" *is* the artifact).
 
-**⚠️ UNDERPOWERED — one replicate pair (LS-1 + HS-1).** 8 vs 5 cannot resolve a modest effect.
-**Do NOT conclude "the strain does not mistranslate."** **Do NOT tune parameters until a signal
-appears** — that is fitting to a number nobody supplied.
+**Rerun in flight** (commit `05f1645`, corrected matrix): **job 67463** = AlaGGC (`output/trial`),
+**job 67573** = AlaGGCpar (`output/alaggcpar`). Both from Step 3b; `01`/`02`/`03a` preserved.
+Rebuilt library verified: **T→S 22,923** (was 0) · **F→M 0** (was 15,004) · **M→F 10,086** (was 0).
+**Orly/LIS1 must also be rerun from 3b.**
 
-**→ NEXT, and this is where the power is:** the panel has **3 replicates × 9 tRNAs** (PRIDE PXD071134).
-Use all replicates, and test the whole panel — a **dose-response across nine tRNAs**, each with its own
-paired control and its own predicted near-cognate set, is far stronger than any single pair.
+**Why it survived weeks of scrutiny:** the unit tests **encoded the transposed reading** —
+`test_loads_basic_csv` asserted `matrix["E"]["A"]` for a CSV whose *row* is E and *column* is A. **A test
+that pins the wrong contract is worse than no test: it defends the bug against fixes.**
 
-## 5. 🔴 What is VOID — do not cite
+## 5. Step 3b is the highest-risk step in this pipeline
 
-| Claim | Why void |
-|---|---|
-| AlaGGC = 2,556 SAAVs / 239 localized | Stale Step 3b library (D-057). **Correct: 2,792 / 248.** |
-| "G→A 8x depleted vs EVpar" (D-053) | Cross-pipeline confound: ours FragPipe 24.0/MSFragger 4.4.1 vs reference 23.1/4.3 (D-055) |
-| Any test of **G→A alone** | Only **1 of 6** predicted substitutions; the G-A/anticodon letter match was a coincidence (D-058) |
-| "PepQuery has an FMIndex bug on large FASTAs" | False. **Our** concurrent-write race corrupted the index file (D-059) |
+**Twice now** a Step 3b library has invalidated every result:
+- **D-057:** library built 76 min *before* its own I/L fix → 0 of 7.37M `→Ile` variants.
+- **D-061:** exclusion matrix transposed → the dominant substitution absent, an artifact dominant.
 
-**Valid:** AlaGGC **2,792 / 248** · AlaGGCpar **3,175 / 332** — both clean, `output/trial` and
-`output/alaggcpar`.
-
-## 5b. Orly / LIS1 — recoverable, results NOT lost
-
-Step 5 lost 2,792 of 4,784 chunks to a **corrupt `.fmi`** (D-059) — our race, not a PepQuery bug. The
-raced index was **238 MB vs the correct 191 MB**: concurrent writers inflated it into permanent
-garbage, so *everything* crashes against it, even now, single-process.
-
-**✅ The 1,992 successful chunks are trustworthy — verified, not assumed.** Re-ran a sample against a
-cleanly-rebuilt index: **3 of 3 byte-identical**, spanning the whole race window (10:25 earliest →
-13:36 latest). **PepQuery fails loudly on a bad index rather than returning wrong matches** — there is
-no silent-wrong-answer path.
-
-**To recover:** the corrupt `.fmi` is deleted and a clean 191 MB index rebuilt at `data/protein.fmi`.
-Just **re-run Step 5** — resume logic skips the 1,992 valid chunks and retries the 2,792 failures.
-`ensure_pepquery_index()` now prevents this on any fresh run.
+Both times the artifact was preserved as "unaffected" by downstream invalidations. **Step 3b decides the
+entire search space — if a substitution is not in the library, no downstream step can ever find it, and
+nothing anywhere reports its absence.** It needs the strongest tests in the repo and its outputs must be
+sanity-checked against the reference's substitution spectrum on every run.
 
 ## 6. The root cause that cost a month (D-047)
 
