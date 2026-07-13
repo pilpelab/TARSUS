@@ -1,5 +1,52 @@
 # Decisions Log
 
+## D-057: 🔴 The AlaGGC Results Were Computed Against a STALE Candidate Library. Comparison Invalid.
+**Date:** 2026-07-13
+**Status:** Rerunning `output/trial` from Step 3b (job 868461). **All AlaGGC numbers since 2026-06-30
+are void**, including the 2,556 / 239 headline.
+
+**What happened.** The control run (`AlaGGCpar`) finished and I compared it to `AlaGGC`, claiming
+"same pipeline, same commit, biology is the only variable." **That claim was false.**
+
+The comparison showed 20 of 85 substitution types differing at FDR<0.05 — but the pattern was
+impossible for biology:
+
+| sub | AlaGGC | AlaGGCpar |
+|---|---|---|
+| D→I | **0** | 249 |
+| N→I | **0** | 76 |
+| T→I | **0** | 37 |
+| S→I | **0** | 18 |
+| V→I | **0** | 16 |
+
+Hundreds of `→Ile` substitutions in the control, **exactly zero** in AlaGGC. All-or-nothing is a
+technical signature, not a biological one.
+
+**Root cause.** `output/trial/03b_candidates/pep_candidates.fa` was generated **2026-06-30 13:14**.
+The fix `4c2d9d6 "I/L normalization in variant peptide generation"` landed **2026-06-30 14:30** —
+76 minutes later. Its library therefore contains **0 of 7,369,406** `→I` variants; the freshly-built
+control library contains **363,434 of 6,685,270**. The AlaGGC search was *structurally incapable* of
+finding any X→Ile substitution — they were never in the search space.
+
+**Why it survived every rerun.** Step 3b was preserved as "unaffected" by D-047 (Step 2 index), D-051
+(Step 3c calibration) and every sentinel invalidation since. Each was individually correct about its
+own change; **none checked whether 3b itself predated a fix to 3b.** A stale upstream artifact is
+invisible to a downstream-only invalidation policy.
+
+**Consequences.**
+- The 2,556-SAAV / 239-localized AlaGGC figures are **void**.
+- The AlaGGC-vs-AlaGGCpar comparison (G→A 1.99x, p=0.171; X→A 1.02x, p=0.504) is **void** — the
+  control had a complete library, AlaGGC did not. Any comparison across them is unsound.
+- Reruns from Step 3c onward (D-051) were computed on the stale library too.
+
+**Action.** Invalidated `03b`→`11`, preserved `01`/`02`/`03a` (independent of 3b). Rerunning as job
+**868461**. Both conditions will then have libraries built by the same code.
+
+**Lesson (added to lessons.md).** Sentinel invalidation must be justified by *artifact provenance*,
+not by reasoning about which step a change "touches". Before trusting any preserved `.done`, check
+that the artifact is newer than the last commit affecting the code that produced it. `.done` records
+that a step ran — **not which version of the code ran it.**
+
 ## D-056-draft (pi agent, superseded by D-056 below) — "transient LSF EXIT"
 **Date:** 2026-07-12 · **Status:** ⛔ Superseded. Its central claim is **unproven**, and acting on it
 would have fixed the wrong thing.
