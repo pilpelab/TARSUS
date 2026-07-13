@@ -188,6 +188,49 @@ and (b) underpowered (n=8 vs 5, p=0.171).
 
 ---
 
+## A shared lazily-built artifact is a race. Build it ONCE, up front.
+
+PepQuery builds `<db>.fmi` lazily on first use. All 4,784 Step 5 chunks share one `-db`, so with the
+index absent **they all raced to write the same file** — and did not merely trip over each other, they
+**permanently corrupted it**: the raced index came out **238 MB against a correct 191 MB**, inflated by
+concurrent truncate-and-rewrite at different offsets. *Everything* crashes against it, forever, even
+single-process hours later (D-059).
+
+**Rule: any artifact that N parallel jobs build lazily on shared state must be built once, serially,
+before the fan-out.** The same shape appeared in Step 2's index and in `stage_pepquery_db` — check for
+it whenever you add a fan-out.
+
+**Corollary — a fix that addresses *where* but not *how many* is half a fix.** D-054 staged the FASTA
+into a writable directory (fixing the permission error) and left the concurrency untouched. I named the
+race in that very commit message, said "build it once, serially", and shipped only the staging half.
+**Write the guard when you notice the hazard, not later.**
+
+---
+
+## Diagnose from evidence; a plausible mechanism is not a diagnosis
+
+On the FMIndex crash I produced **three** explanations, and the first two were wrong:
+
+1. *"PepQuery bug on large FASTAs"* (the note) — wrong; PepQuery indexes the 101 MB proteome fine.
+2. *"A transient race — readers catch the file mid-write"* (mine) — **wrong, and confidently asserted.**
+   It fit the symptoms (interleaved crashes and successes, index mtime moving for hours) and I wrote it
+   into a decision record. **A transient race predicts the crashes stop once the writing stops.** They
+   did not: 11/11 chunks still crashed, single-process, against the stable file.
+3. The truth, only from running the experiment: **the file is permanently corrupt.** Deleting it and
+   rebuilding cleanly (191 MB) fixed everything.
+
+**Rules:**
+- **State what your hypothesis predicts, then test that prediction** — not just whether it "explains"
+  what you already saw. Mine made a falsifiable claim (crashes stop) and I never checked it.
+- **Then check the blast radius.** I next assumed the 1,992 "successes" must be poisoned too and advised
+  discarding all 4,784. Re-running a sample against a clean index proved **3/3 byte-identical** across
+  the entire race window — the successes were fine. **PepQuery fails loudly on a bad index rather than
+  returning wrong matches.** Over-caution has a cost too: it would have thrown away hours of valid work.
+- The user caught both errors. **When a user pushes back on an unproven claim, they are usually right —
+  the claim was unproven.**
+
+---
+
 ## Pre-flight checklist for any pipeline change
 
 1. **Contract:** what does this step consume/produce? Who downstream reads it? (`architecture.md`)
@@ -228,9 +271,15 @@ mistranslation. See D-053.
 
 ## Still open
 
-- **Biological validation FAILS — see D-053.** Blocked on the scientists, not on code.
-- **No CI.** Nothing runs the 223 tests, mypy, or ruff automatically. 3 ruff errors sit unfixed.
+- **The validation is a clean NULL, and it is UNDERPOWERED (D-060).** AlaGGC vs its paired control:
+  X→A **0.94x, p=0.65**. Same code, same params, same-commit libraries — the comparison is finally
+  sound. But it is **one replicate pair**. The panel has **3 replicates x 9 tRNAs** (PRIDE PXD071134).
+  **Do not conclude "the strain does not mistranslate." Do not tune parameters until a signal appears.**
+  The power is in analysing all replicates and the whole panel as a dose-response.
+- **No provenance recording.** `tarsus run` should stamp `git rev-parse HEAD` + a dirty flag into the
+  output dir and **refuse to run on a dirty tree**. Direct fix for D-057 (stale artifact) *and* the
+  shared-mutable-source hazard. **Highest-value engineering item remaining.**
+- **LIS1 shares TARSUS_BC's mutable source tree.** Pin it, or snapshot source per run.
 - **Config not externalized.** 9 steps hardcode `queue="gsla-cpu"`; `--queue` reaches only the master
-  job. `.agents/project.md` promises per-lab overridability — the repo does not deliver it yet.
-- **Unexplained writes to `output/trial/`.** `01_mzml/*.mzML` were regenerated 2026-07-09 by jobs no
-  session launched, while `.done` stayed stale so orchestration never noticed.
+  job. `.agents/project.md` promises per-lab overridability; the repo does not deliver it. This is the
+  real blocker for the stated cross-lab goal.

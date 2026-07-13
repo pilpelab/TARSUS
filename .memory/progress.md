@@ -71,33 +71,61 @@ EV/EVpar`.
 Every detectable event needs a rarer position-1/2 mismatch. **A modest or null result may be the true
 biology — do NOT tune parameters until a signal appears** (that is fitting to a number nobody supplied).
 
-## 4. 🔴 What is VOID — do not cite
+## 4. 🔬 THE VALIDATION RESULT — clean, controlled, and NULL (D-060)
+
+`AlaGGC` vs paired control `AlaGGCpar`. Same code, same params, **both libraries built by the same
+commit** — biology is the only variable. The first sound comparison this project has produced.
+
+**Prediction (D-058):** anticodon `GGC` → codon `GCC` = Ala → the tRNA is *cognate*, so the signal must
+come from overexpression-driven near-cognate misreading ⇒ **`destination == Ala` enriched**, origins
+{D,G,P,S,T,V}.
+
+| | AlaGGC | AlaGGCpar | enrich | p |
+|---|---|---|---|---|
+| **X→A** | 33 / 2,792 (1.18%) | 40 / 3,175 (1.26%) | **0.94x** | **0.65** |
+
+Per origin: D→A 0/0 · **G→A 8/5 (p=0.215)** · P→A 0/0 · S→A 0/0 · T→A 0/0 · V→A 14/24 (p=0.92).
+The zeros are **real** — all six are in the library (21k–32k candidates each), none excluded.
+
+**Say exactly this:** the pipeline is **mechanically validated** (runs end-to-end, thousands of SAAVs,
+reference magnitude) but **does not detect the predicted mistranslation here**. A small/absent effect
+**may be the true biology** — every wobble change from GCC (GCA/GCG/GCU) is *also Ala*, i.e. **silent**,
+and wobble is where misreading is most common.
+
+**⚠️ UNDERPOWERED — one replicate pair (LS-1 + HS-1).** 8 vs 5 cannot resolve a modest effect.
+**Do NOT conclude "the strain does not mistranslate."** **Do NOT tune parameters until a signal
+appears** — that is fitting to a number nobody supplied.
+
+**→ NEXT, and this is where the power is:** the panel has **3 replicates × 9 tRNAs** (PRIDE PXD071134).
+Use all replicates, and test the whole panel — a **dose-response across nine tRNAs**, each with its own
+paired control and its own predicted near-cognate set, is far stronger than any single pair.
+
+## 5. 🔴 What is VOID — do not cite
 
 | Claim | Why void |
 |---|---|
-| AlaGGC = **2,556 SAAVs / 239 localized** | Stale Step 3b library (D-057) |
-| "G→A is 8x depleted vs EVpar" (D-053) | Cross-pipeline confound: ours FragPipe 24.0/MSFragger 4.4.1 vs reference 23.1/4.3 (D-055) |
-| "X→A 1.02x, p=0.504" / "G→A 1.99x, p=0.171" | Computed on the stale-library AlaGGC arm (D-057) |
-| Anything testing **G→A alone** | G→A is only **1 of 6** predicted substitutions; the G-A/anticodon letter match was a coincidence (D-058) |
+| AlaGGC = 2,556 SAAVs / 239 localized | Stale Step 3b library (D-057). **Correct: 2,792 / 248.** |
+| "G→A 8x depleted vs EVpar" (D-053) | Cross-pipeline confound: ours FragPipe 24.0/MSFragger 4.4.1 vs reference 23.1/4.3 (D-055) |
+| Any test of **G→A alone** | Only **1 of 6** predicted substitutions; the G-A/anticodon letter match was a coincidence (D-058) |
+| "PepQuery has an FMIndex bug on large FASTAs" | False. **Our** concurrent-write race corrupted the index file (D-059) |
 
-**Valid:** `AlaGGCpar` control = **3,175 SAAVs / 332 localized** (`output/alaggcpar/`, clean run).
+**Valid:** AlaGGC **2,792 / 248** · AlaGGCpar **3,175 / 332** — both clean, `output/trial` and
+`output/alaggcpar`.
 
-## 5. Running right now
+## 5b. Orly / LIS1 — recoverable, results NOT lost
 
-| job | what | state |
-|---|---|---|
-| **868461** | AlaGGC rerun from Step 3b (fixes D-057) | Step 3c |
-| **850571** | Orly / LIS1 human-proteome run | Step 5 |
+Step 5 lost 2,792 of 4,784 chunks to a **corrupt `.fmi`** (D-059) — our race, not a PepQuery bug. The
+raced index was **238 MB vs the correct 191 MB**: concurrent writers inflated it into permanent
+garbage, so *everything* crashes against it, even now, single-process.
 
-**⛔ DO NOT EDIT `src/tarsus/` WHILE THESE RUN.** `~/LIS1_mutant_organoids__Orly_Reiner` has **no
-`src/` of its own** — it is an editable install importing `/home/labs/pilpel/barc/TARSUS_BC/src/tarsus/`.
-`orchestration.py` imports each step module **lazily**, when the master reaches it, so a live edit is
-executed by a running pipeline. Worse: `lsf` gets cached in `sys.modules` at Step 1, so a new `step05`
-calling a changed `wait_for_jobs()` signature against the **old cached** `lsf` raises `TypeError`
-hours in. Both current runs happen to have started *after* the last edit — luck, not design.
+**✅ The 1,992 successful chunks are trustworthy — verified, not assumed.** Re-ran a sample against a
+cleanly-rebuilt index: **3 of 3 byte-identical**, spanning the whole race window (10:25 earliest →
+13:36 latest). **PepQuery fails loudly on a bad index rather than returning wrong matches** — there is
+no silent-wrong-answer path.
 
-**When 868461 lands:** Fisher's exact on `destination == A`, AlaGGC vs AlaGGCpar, plus the
-{D,G,P,S,T,V}→A breakdown. That is the whole validation.
+**To recover:** the corrupt `.fmi` is deleted and a clean 191 MB index rebuilt at `data/protein.fmi`.
+Just **re-run Step 5** — resume logic skips the 1,992 valid chunks and retries the 2,792 failures.
+`ensure_pepquery_index()` now prevents this on any fresh run.
 
 ## 6. The root cause that cost a month (D-047)
 
