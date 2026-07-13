@@ -1,5 +1,57 @@
 # Decisions Log
 
+## D-059: PepQuery 2.0.2 FMIndex Crashes on Human Proteome (106 MB FASTA)
+**Date:** 2026-07-13
+**Status:** Open. Found during Orly LIS1 step 5 run.
+**Context:** 2,309 of 4,784 PepQuery chunks crashed with `IndexOutOfBoundsException`
+in `FMIndex.getAllocatedBytes()` during FASTA indexing. Same JAR works on E. coli
+(5 MB). The human proteome is ~20× larger. 1,992 chunks succeeded, confirming
+the issue is intermittent, not a hard incompatibility.
+**Possible workarounds:** pre-build `.fmi`, retry with different heap, try newer
+PepQuery version. Not a TARSUS_BC code bug.
+
+## D-059: The PepQuery "FMIndex crash on human proteome" Is OUR Race, Not a PepQuery Bug.
+**Date:** 2026-07-13
+**Status:** Fixed (`ensure_pepquery_index`). 258 tests pass, mypy + ruff clean.
+**Context:** The Orly/LIS1 run (job 850571) lost **2,792 of 4,784** Step 5 chunks to
+`IndexOutOfBoundsException` in `FMIndex.getAllocatedBytes`. A note in progress.md attributed it to
+**"PepQuery internal, not TARSUS_BC code"** — an intermittent bug in PepQuery's FM-index for large
+FASTAs. **That is wrong.**
+
+**Evidence it is a concurrency race, not a large-FASTA bug:**
+- `data/protein.fmi` = **228 MB**, mtime **13:18:58** — still being rewritten **three hours** into a
+  run that started at 10:21.
+- Crashes span **10:22 → 13:19**; successes span **10:25 → 13:36**. They **interleave throughout**.
+  A deterministic "PepQuery cannot index a 101 MB FASTA" bug would fail *every* chunk, not 58% of them
+  in a shuffled order.
+- E. coli never hit it **only because its `.fmi` happened to be prebuilt** from an earlier run
+  (`data/protein.fmi`, created Jun 30; Step 5 ran Jul 1). Luck, not design.
+
+**Root cause.** PepQuery builds `<db>.fmi` lazily, on first use. All 4,784 chunks share one `-db`, so
+when the index is absent **they all race to write the same file**. A chunk that reads it mid-rewrite
+gets `IndexOutOfBoundsException`. This is **my incomplete fix**: D-054 staged the FASTA into a writable
+directory (fixing *where* the index is written) but never addressed *how many processes write it*. I
+identified this exact race while writing D-054, said "build it once, serially", and then shipped only
+the staging half.
+
+The reference sidesteps it by giving every chunk its own `sym.fasta` → a private `.fmi` — race-free,
+but ~1 TB across 4,784 human-proteome chunks. Not viable.
+
+**Fix.** `ensure_pepquery_index()` builds the FM index **once, serially, on the master node** before any
+chunk is submitted (PepQuery has no "index the -db" subcommand, so it runs one throwaway search with a
+single dummy peptide). No-ops when a valid index already exists; a **0-byte `.fmi` is treated as
+absent** ("exists" is not "complete"); raises rather than fanning out on a missing index. Wired into
+Steps 5 and 9.
+
+**Immediate remedy for the Orly run (no code change needed):** the `.fmi` is now complete (228 MB) and
+stable — nothing is rewriting it. Step 5's resume logic skips the 1,992 chunks that already have
+`psm_rank.txt`, so simply re-running Step 5 retries the 2,792 failures against the finished index.
+
+**Note — D-056 worked exactly as designed.** The master died with
+`RuntimeError: 2792 LSF job(s) failed:` followed by **every chunk name and its log path**
+(`job 850603 (chunk_0000.tsv) — log: .../chunk_0000.tsv.log`). Two days ago this same class of failure
+produced only `LSF job 689403 exited with failure`, with no way to learn which chunk that was.
+
 ## D-058: ✅ `AlaGGC` DECODED — the 3 nt are the ANTICODON (confirmed by Slava). The prediction is X→Ala.
 **Date:** 2026-07-13
 **Status:** Biology settled. The test is now precise and falsifiable. Awaiting the clean AlaGGC rerun

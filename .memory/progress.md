@@ -1,5 +1,29 @@
 # Progress Log
 
+## ⚠️ Open bug for Claude — PepQuery 2.0.2 FMIndex crashes on human proteome (106 MB FASTA)
+
+**Found by:** Orly LIS1 pipeline run (job 850571, 2026-07-13)
+**Where:** PepQuery internal, not TARSUS_BC code
+
+2,309 of 4,784 step 5 chunks failed with:
+```
+java.lang.IndexOutOfBoundsException: Index 1 out of bounds for length 1
+    at ...fm_index.FMIndex.getAllocatedBytes(FMIndex.java:557)
+    at main.java.pg.PepMapping.init(PepMapping.java:88)
+```
+
+Crash happens during PepQuery's FM-index construction of the human proteome
+FASTA (106 MB). 1,992 chunks succeeded with valid matches, so it is
+intermittent — likely a memory allocation race or alignment bug in PepQuery's
+FMIndex for large FASTA files. Same JAR works fine on E. coli (5 MB).
+
+**Possible workarounds:**
+- Pre-build the `.fmi` file once and reuse across chunks
+- Retry failed chunks with different JVM heap settings
+- Try a newer PepQuery version
+
+---
+
 > ## 📍 STATE OF THE PROJECT — read this first (2026-07-13)
 >
 > Everything below this box is a reverse-chronological log. This box is the current truth.

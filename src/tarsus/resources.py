@@ -20,7 +20,12 @@ Both are overridable per-lab via environment variables — no code change needed
 
 import math
 import os
+import subprocess
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .env import ToolEnvironment
 
 _MB = 1024 * 1024
 
@@ -147,3 +152,75 @@ def stage_pepquery_db(fasta_path: Path, output_dir: Path) -> Path:
 def pepquery_fmi_path(staged_db: Path) -> Path:
     """Path of the FM-index sidecar PepQuery builds for *staged_db*."""
     return staged_db.with_suffix(".fmi")
+
+
+def ensure_pepquery_index(
+    staged_db: Path,
+    index_dir: Path,
+    tool_env: "ToolEnvironment",
+    java_heap_mb: int,
+    log_path: Path,
+    timeout: int = 7200,
+) -> Path:
+    """Build PepQuery's FM index **once, serially**, before any chunk fans out.
+
+    PepQuery builds ``<db>.fmi`` lazily, on first use. Every chunk job shares one
+    ``-db``, so when that index does not yet exist **all of them race to write the
+    same file** — and a chunk that reads it mid-rewrite dies with::
+
+        java.lang.IndexOutOfBoundsException: Index 1 out of bounds for length 1
+            at ...fm_index.FMIndex.getAllocatedBytes(FMIndex.java:557)
+            at main.java.pg.PepMapping.init(PepMapping.java:88)
+
+    Measured on the human proteome (101 MB FASTA → 228 MB index): **2,792 of 4,784
+    chunks failed**, with crashes and successes *interleaved across the whole run*
+    — the signature of a race, not of a bad FASTA. The index file was still being
+    rewritten three hours in. E. coli never hit it only because its ``.fmi``
+    happened to be prebuilt from an earlier run; that was luck, not design.
+
+    This is **our** bug, not PepQuery's: the reference sidesteps it by giving every
+    chunk its own ``sym.fasta`` (hence a private ``.fmi``), which is race-free but
+    would cost ~1 TB across 4,784 human-proteome chunks. Building the shared index
+    once, up front, gets the same safety for one index.
+
+    No-ops when the index already exists. Returns the ``.fmi`` path.
+
+    Raises:
+        RuntimeError: the index could not be built.
+    """
+    fmi = pepquery_fmi_path(staged_db)
+    if fmi.exists() and fmi.stat().st_size > 0:
+        return fmi
+
+    # PepQuery has no "build the -db index" subcommand: the index is a side effect
+    # of a search. So run one throwaway search with a single dummy peptide.
+    probe_dir = staged_db.parent / "_index_build"
+    probe_dir.mkdir(parents=True, exist_ok=True)
+    probe_input = probe_dir / "probe.txt"
+    probe_input.write_text("PEPTIDEK\n")
+
+    cmd = [
+        str(tool_env.java_bin), f"-Xmx{java_heap_mb}m",
+        "-jar", str(tool_env.pepquery_jar),
+        "-i", str(probe_input.resolve()),
+        "-db", str(staged_db.resolve()),
+        "-ms", str(index_dir.resolve()),
+        "-o", str(probe_dir.resolve()),
+        "-tol", "20", "-itol", "0.05",
+    ]
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    result = subprocess.run(
+        cmd, env=tool_env.env(), capture_output=True, text=True, timeout=timeout,
+    )
+    log_path.write_text(
+        f"$ {' '.join(cmd)}\n\n--- stdout ---\n{result.stdout}\n"
+        f"--- stderr ---\n{result.stderr}\n",
+    )
+
+    if not fmi.is_file() or fmi.stat().st_size == 0:
+        raise RuntimeError(
+            f"Failed to pre-build the PepQuery FM index for {staged_db}.\n"
+            f"Without it, every chunk job races to write {fmi} concurrently and "
+            f"most die with IndexOutOfBoundsException in FMIndex. See {log_path}."
+        )
+    return fmi

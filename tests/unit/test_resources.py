@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from src.tarsus.resources import (
+    ensure_pepquery_index,
     NON_HEAP_HEADROOM_MB,
     PEPQUERY_MIN_HEAP_MB,
     ResourceConfigError,
@@ -181,3 +182,89 @@ class TestStagePepqueryDb:
 
         assert first == second
         assert second.read_text() == ">p\nPEPTIDE\n"
+
+
+class TestEnsurePepqueryIndex:
+    """Regression (D-059): every chunk shares one -db; if the .fmi is absent they
+    ALL race to write it, and a chunk reading it mid-rewrite dies with
+    IndexOutOfBoundsException in FMIndex.getAllocatedBytes.
+
+    Measured on the human proteome (101 MB FASTA -> 228 MB index): 2,792 of 4,784
+    chunks failed, crashes and successes INTERLEAVED across the whole run — the
+    signature of a race, not a bad FASTA. E. coli escaped only because its .fmi
+    happened to be prebuilt.
+    """
+
+    def _env(self, tmp_path: Path) -> object:
+        from src.tarsus.env import ToolEnvironment
+        (tmp_path / "jdk-21.0.11" / "bin").mkdir(parents=True)
+        (tmp_path / "jdk-21.0.11" / "bin" / "java").touch()
+        (tmp_path / "pepquery-2.0.2").mkdir()
+        (tmp_path / "pepquery-2.0.2" / "pepquery-2.0.2.jar").touch()
+        return ToolEnvironment(tools_dir=tmp_path)
+
+    def test_noop_when_index_already_exists(self, tmp_path: Path) -> None:
+        """A prebuilt index must cost nothing — and must not be rebuilt."""
+        from unittest.mock import patch
+        db = tmp_path / "pepquery_db" / "protein.fasta"
+        db.parent.mkdir(parents=True)
+        db.write_text(">p\nPEPTIDE\n")
+        pepquery_fmi_path(db).write_bytes(b"prebuilt-index")
+
+        with patch("src.tarsus.resources.subprocess.run") as run:
+            fmi = ensure_pepquery_index(
+                db, tmp_path, self._env(tmp_path), 1024, tmp_path / "b.log",
+            )
+        run.assert_not_called()
+        assert fmi.read_bytes() == b"prebuilt-index"
+
+    def test_builds_the_index_when_absent(self, tmp_path: Path) -> None:
+        """It must actually invoke PepQuery, serially, before any chunk fans out."""
+        from unittest.mock import MagicMock, patch
+        db = tmp_path / "pepquery_db" / "protein.fasta"
+        db.parent.mkdir(parents=True)
+        db.write_text(">p\nPEPTIDE\n")
+        fmi = pepquery_fmi_path(db)
+
+        def fake_run(cmd, **kw):                      # PepQuery writes the .fmi
+            fmi.write_bytes(b"built")
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        with patch("src.tarsus.resources.subprocess.run", side_effect=fake_run) as run:
+            ensure_pepquery_index(
+                db, tmp_path, self._env(tmp_path), 1024, tmp_path / "b.log",
+            )
+        run.assert_called_once()
+        argv = run.call_args[0][0]
+        assert "-db" in argv and str(db.resolve()) in argv
+        assert fmi.read_bytes() == b"built"
+
+    def test_raises_if_the_index_was_not_produced(self, tmp_path: Path) -> None:
+        """Never fan out on a missing index — that is precisely the race."""
+        from unittest.mock import MagicMock, patch
+        db = tmp_path / "pepquery_db" / "protein.fasta"
+        db.parent.mkdir(parents=True)
+        db.write_text(">p\nPEPTIDE\n")
+
+        with patch("src.tarsus.resources.subprocess.run",
+                   return_value=MagicMock(returncode=1, stdout="", stderr="boom")):
+            with pytest.raises(RuntimeError, match="Failed to pre-build"):
+                ensure_pepquery_index(
+                    db, tmp_path, self._env(tmp_path), 1024, tmp_path / "b.log",
+                )
+
+    def test_empty_index_file_is_treated_as_absent(self, tmp_path: Path) -> None:
+        """A 0-byte .fmi is not an index. 'Exists' is not 'complete'."""
+        from unittest.mock import MagicMock, patch
+        db = tmp_path / "pepquery_db" / "protein.fasta"
+        db.parent.mkdir(parents=True)
+        db.write_text(">p\nPEPTIDE\n")
+        pepquery_fmi_path(db).write_bytes(b"")        # truncated / failed build
+
+        with patch("src.tarsus.resources.subprocess.run",
+                   return_value=MagicMock(returncode=0, stdout="", stderr="")) as run:
+            with pytest.raises(RuntimeError, match="Failed to pre-build"):
+                ensure_pepquery_index(
+                    db, tmp_path, self._env(tmp_path), 1024, tmp_path / "b.log",
+                )
+        run.assert_called_once()                      # must attempt a rebuild

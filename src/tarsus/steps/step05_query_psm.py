@@ -7,7 +7,12 @@ chunk, and waits for all to complete.
 from pathlib import Path
 from ..env import ToolEnvironment
 from ..lsf import submit_bsub, wait_for_jobs
-from ..resources import check_heap_fits, estimate_pepquery_memory, stage_pepquery_db
+from ..resources import (
+    check_heap_fits,
+    ensure_pepquery_index,
+    estimate_pepquery_memory,
+    stage_pepquery_db,
+)
 
 
 def step05_query_psm(
@@ -74,6 +79,15 @@ def step05_query_psm(
     log_dir = output_dir / "pepquery_logs"
     result_dir.mkdir(parents=True, exist_ok=True)
     log_dir.mkdir(parents=True, exist_ok=True)
+
+    # Build the FM index ONCE, before fanning out. Every chunk shares this -db;
+    # if the index is absent they all race to write it, and a chunk reading it
+    # mid-rewrite dies with IndexOutOfBoundsException in FMIndex. See D-059.
+    if db_path is not None:
+        ensure_pepquery_index(
+            db_path, index_dir, tool_env, java_heap_mb,
+            log_path=log_dir / "_fmindex_build.log",
+        )
 
     lines = [ln for ln in psm_input.read_text().split("\n") if ln.strip()]
 

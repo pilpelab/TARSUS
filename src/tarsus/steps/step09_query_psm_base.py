@@ -7,7 +7,12 @@ one per input chunk file from Step 8.
 from pathlib import Path
 from ..env import ToolEnvironment
 from ..lsf import submit_bsub, wait_for_jobs
-from ..resources import check_heap_fits, estimate_pepquery_memory, stage_pepquery_db
+from ..resources import (
+    check_heap_fits,
+    ensure_pepquery_index,
+    estimate_pepquery_memory,
+    stage_pepquery_db,
+)
 
 
 def step09_query_psm_base(
@@ -73,6 +78,14 @@ def step09_query_psm_base(
     log_dir = output_dir / "pepquery_logs_base"
     result_dir.mkdir(parents=True, exist_ok=True)
     log_dir.mkdir(parents=True, exist_ok=True)
+
+    # Build the FM index ONCE, before fanning out — otherwise every chunk races to
+    # write the same .fmi and most die in FMIndex. See D-059.
+    if db_path is not None:
+        ensure_pepquery_index(
+            db_path, index_dir, tool_env, java_heap_mb,
+            log_path=log_dir / "_fmindex_build.log",
+        )
 
     input_files = sorted(input_dir.glob("*"))
     if not input_files:
