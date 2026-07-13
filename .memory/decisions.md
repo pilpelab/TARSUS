@@ -1,5 +1,51 @@
 # Decisions Log
 
+## D-058: ✅ `AlaGGC` DECODED — the 3 nt are the ANTICODON (confirmed by Slava). The prediction is X→Ala.
+**Date:** 2026-07-13
+**Status:** Biology settled. The test is now precise and falsifiable. Awaiting the clean AlaGGC rerun
+(job 868461) — the prior AlaGGC arm is void (D-057, stale Step 3b library).
+
+**The answer (from Slava):** in `AlaGGC`, `AlaUGC`, `GluUUC`, `ProCGG` … the three nucleotides are the
+**anticodon**, not the codon read. (`IleXCAU`'s `X` = lysidine, an anticodon-34 modification, was the
+tell.)
+
+**What that predicts.** An anticodon reads its codon by antiparallel pairing, so
+`codon = reverse-complement(anticodon)`:
+- anticodon `5'-GGC-3'` → codon `5'-GCC-3'` = **Alanine** → the tRNA is **COGNATE**.
+
+So the name does **not** encode a mistranslation. These are natural tRNAs, and the signal must come
+from **overexpression-driven near-cognate misreading**: flood the cell with tRNA-Ala(GGC) and it
+out-competes at codons one base from GCC, inserting **Ala** there.
+
+Near-cognate codons of GCC (Hamming-1) encoding a different residue:
+
+| codon | normally | substitution |
+|---|---|---|
+| ACC | Thr | **T→A** |
+| CCC | Pro | **P→A** |
+| UCC | Ser | **S→A** |
+| GAC | Asp | **D→A** |
+| GGC | Gly | **G→A** |
+| GUC | Val | **V→A** |
+
+**⇒ PREDICTION: enrichment of `destination == A` (X→Ala), origins {D, G, P, S, T, V}, in AlaGGC vs
+its paired control AlaGGCpar.**
+
+**Two corrections to my earlier reasoning:**
+1. **The G→A instinct was right by accident.** I read "AlaGGC" as "Ala at GGC codons"; GGC *is* the Gly
+   codon, so G→A came out right — but only because the anticodon GGC and the Gly codon GGC are
+   coincidentally the same three letters. G→A is merely **1 of 6** predicted substitutions; every
+   earlier test of "G→A only" examined a sixth of the hypothesis.
+2. **The effect may legitimately be small.** All three wobble (position-3) changes from GCC — GCA,
+   GCG, GCU — are *also Alanine*, i.e. **silent**. The wobble position is exactly where misreading is
+   most frequent, and here it produces no protein change. Every *detectable* event needs a rarer
+   position-1 or position-2 mismatch. **A modest or null result must not be over-read as "the pipeline
+   failed"** — it may be the true biology.
+
+**Void:** the earlier X→A figure (1.02x, p=0.504) came from the stale-library AlaGGC arm (D-057).
+**Next:** when job 868461 lands, test `destination == A` by Fisher's exact, AlaGGC vs AlaGGCpar, and
+report the {D,G,P,S,T,V}→A breakdown.
+
 ## D-057: 🔴 The AlaGGC Results Were Computed Against a STALE Candidate Library. Comparison Invalid.
 **Date:** 2026-07-13
 **Status:** Rerunning `output/trial` from Step 3b (job 868461). **All AlaGGC numbers since 2026-06-30
