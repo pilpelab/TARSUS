@@ -1,5 +1,36 @@
 # Progress Log
 
+## STATE — 2026-07-14: D-064 (I/L) landed; both E. coli conditions rerunning
+
+**Commits:** `3803c96` feat(D-064) · `36221a5` chore(deps). Tree clean, 278 tests pass, mypy+ruff clean.
+
+**Running:** `185961` → `output/trial` (AlaGGC) · `186147` → `output/alaggcpar` (control). Both at S03c.
+Steps 03b→12 archived to `superseded_d064_il_*` in each run dir; 01/02/03a preserved (they do not
+touch the substitution matrix).
+
+**What D-064 changed.** Ile/Leu collapse onto one letter `I` in Step 3b; Step 11 relabels `I` → `I/L`
+as the last statement before the write. See the decision record — the headline is that the
+**reference's `rename(index={'I/L':'I'})` is a silent no-op** (it renames rows; `I/L` is a column), so
+it generates *no* substitution from any I or L position. We implement its intent, not its typo.
+
+**New library verified (7,315,846 candidates):** `L` 0 · `A->I` 0 (trimethylation) · `F->M` 0 (D-062) ·
+`T->S` 22,923 (D-061) · `I->V` 68,921. **I-origin 478,996 → 1,240,782** — the Leu half that was never
+being searched. `X->I` merged to 314,242 (no duplicate `X->L`).
+
+**Expect our totals to EXCEED the reference's** for the I/L-origin class: its library contains none.
+That is correct, not a discrepancy.
+
+**Verified, do not re-litigate:** the D-063 guard warns that `03a/.done` (2026-06-30 13:14) predates
+D-062's edit to `step03a_first_pass.py` (2026-07-14 09:09). **Checked empirically, benign:** that edit
+only removed a `philosopher database --custom` call whose double-decoyed output nothing consumed.
+Both conditions' `fragger.params` point at `protein_decoy.fasta` (single-decoyed) and both `psm.tsv` /
+`peptide.tsv` contain **zero `rev_rev_`** entries. 03a stands.
+
+**Still open:** Orly/LIS1 needs its own 3b→11 rerun (void since D-061, and now D-064 too). P2 from the
+approved plan — externalise LSF config (9 steps hardcode `queue="gsla-cpu"`) — not started.
+
+---
+
 ## ⚠️ Open bug for Claude — PepQuery 2.0.2 FMIndex crashes on human proteome (106 MB FASTA)
 
 **Found by:** Orly LIS1 pipeline run (job 850571, 2026-07-13)
