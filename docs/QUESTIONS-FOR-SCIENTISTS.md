@@ -69,3 +69,35 @@ cannot detect it at this level*, or *we misunderstood the design*. Which of thos
 scientific call, not an engineering one.
 
 **With answers to (1) and (5), the pipeline can be validated or falsified within minutes.**
+
+---
+
+## (6) The control run pools two *different* constructs — is that intended?
+
+**Added 2026-07-14.** `data/control/` contains exactly two files, and they do not name the same codon:
+
+```
+HouYM-25-G140-AstralDDA-AlaGGCpar-LS-1.raw     <- GGC
+HouYM-25-G140-AstralDDA-AlaGCCpar-HS-1.raw     <- GCC
+```
+
+The experimental run (`output/trial`) pools the HS and LS fractions of **one** construct
+(`AlaGGC-HS-1` + `AlaGGC-LS-1`) — consistent. The control run (`output/alaggcpar`) pools
+**`GGCpar`-LS with `GCCpar`-HS**, and we ran them together as a single condition because they are the
+only two files present.
+
+`GGC` and `GCC` are different codons (and reverse complements of one another, which is exactly the kind
+of thing that gets transposed by accident — see D-061 and D-064 for two cases where precisely that
+happened in code).
+
+**So one of these is true, and we cannot tell which from the data:**
+
+1. One filename is a **typo**, and both are fractions of the same parental control. Then the run is
+   fine, but the file should be renamed so nobody trips on it later.
+2. They are **genuinely two different parental controls**. Then pooling them into one FragPipe/PepQuery
+   run is wrong: substitutions from that run cannot be attributed to either construct, and the control
+   is not a control.
+
+**We have not guessed.** The run proceeds as-is and is labelled `alaggcpar`, but **every number from
+the control condition is provisional until this is answered.** It takes one sentence from whoever
+prepared the samples.
