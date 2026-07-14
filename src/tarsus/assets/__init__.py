@@ -14,15 +14,9 @@ WORKFLOW_TEMPLATE = _ASSETS_DIR / "generic.workflow"
 SUBS_EXCLUDE_CSV = _ASSETS_DIR / "subs_exclude.csv"
 """Amino acid substitution exclusion matrix used by Step 3b."""
 
-SIXTY_TWENTY_MASK_CSV = _ASSETS_DIR / "SixtyTwentyMask.csv"
-"""Cells to grey out on the 61x19 heatmap — chiefly each codon's cognate (self) cell.
-
-Indexed by **RNA** codon (``UUU``). From the lab's ``SubsToSixtyTwentyWithMask.py``.
-"""
-
-NECE_MASK_CSV = _ASSETS_DIR / "NeCEMask.csv"
-"""Near-Cognate Error cells — substitutions reachable by a single nucleotide change.
-
-Drawn as small squares on the heatmap. Indexed by **DNA** codon (``ATA``), unlike
-:data:`SIXTY_TWENTY_MASK_CSV`. From the lab's ``SubsToSixtyTwentyWithMask.py``.
-"""
+# The 61x19 heatmap masks (SixtyTwentyMask.csv, NeCEMask.csv) live in this directory
+# but are exported from `tarsus.codons`, NOT from here. Deliberate: `orchestration`
+# imports step modules lazily, so a long-running master already holds THIS module in
+# `sys.modules` from Step 3b. A constant added here mid-run is invisible to it, and a
+# freshly-read Step 12 importing that name dies with ImportError on an otherwise
+# finished pipeline. See `tarsus.codons` and D-063.

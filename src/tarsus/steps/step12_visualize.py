@@ -25,11 +25,12 @@ import seaborn as sns
 from matplotlib import pyplot as plt
 from matplotlib.patches import Rectangle
 
-from ..assets import NECE_MASK_CSV, SIXTY_TWENTY_MASK_CSV
 from ..codons import (
     ALL_AA,
     ALL_CODONS,
     GENCODE,
+    NECE_MASK_CSV,
+    SIXTY_TWENTY_MASK_CSV,
     codon_counts,
     load_cds,
     rna_to_dna,

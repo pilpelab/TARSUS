@@ -121,7 +121,7 @@ class TestSixtyTwentyMatrix:
 
     def test_cognate_cells_are_all_masked_and_rows_align(self) -> None:
         import pandas as pd
-        from src.tarsus.assets import NECE_MASK_CSV, SIXTY_TWENTY_MASK_CSV
+        from src.tarsus.codons import NECE_MASK_CSV, SIXTY_TWENTY_MASK_CSV
         from src.tarsus.steps.step12_visualize import _load_masks, _multiindex_codon_aa
 
         mat = pd.DataFrame(0.0, index=ALL_CODONS, columns=ALL_AA)
@@ -146,7 +146,7 @@ class TestSixtyTwentyMatrix:
         a real biological zero, not an unreachable cell.
         """
         import pandas as pd
-        from src.tarsus.assets import NECE_MASK_CSV
+        from src.tarsus.codons import NECE_MASK_CSV
 
         nece = pd.read_csv(NECE_MASK_CSV, index_col=0)
         assert bool(nece.loc["GGC", "A"])

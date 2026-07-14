@@ -24,6 +24,29 @@ FASTA header (``PEPTIDE_T5S``), not a real protein ID.
 from collections import Counter
 from pathlib import Path
 
+_ASSETS_DIR = Path(__file__).resolve().parent / "assets"
+
+#: Cells to grey out on the 61x19 heatmap — chiefly each codon's cognate (self) cell.
+#: Indexed by **RNA** codon (``UUU``).
+SIXTY_TWENTY_MASK_CSV = _ASSETS_DIR / "SixtyTwentyMask.csv"
+
+#: Near-Cognate Error cells — substitutions reachable by a single nucleotide change.
+#: Indexed by **DNA** codon (``ATA``), unlike :data:`SIXTY_TWENTY_MASK_CSV`.
+NECE_MASK_CSV = _ASSETS_DIR / "NeCEMask.csv"
+
+# These two live here, not in `tarsus.assets`, on purpose.
+#
+# `orchestration` imports step modules **lazily**, so a master job that has been
+# running for hours already holds `tarsus.assets` in `sys.modules` — the version
+# that existed when Step 3b first imported it. Adding a new constant to that module
+# mid-run is invisible to the live process, so a freshly-read Step 12 doing
+# `from ..assets import NECE_MASK_CSV` raises ImportError and kills an otherwise
+# finished pipeline at the very last step. That is exactly what happened to
+# `hoMS_24814` on 2026-07-14 (the D-063 mid-run-edit hazard, in the flesh).
+#
+# This module is the home of the 61x19 domain (GENCODE, ALL_CODONS, ALL_AA), so the
+# masks belong here anyway — and being a *new* module it can never be stale-cached.
+
 #: The standard genetic code (DNA codons). Verbatim from the lab's script.
 GENCODE: dict[str, str] = {
     "ATA": "I", "ATC": "I", "ATT": "I", "ATG": "M",
