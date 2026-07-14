@@ -43,6 +43,44 @@ class TestLoadSubstitutionMatrix:
         assert "I" in matrix["A"] and "I/L" not in matrix["A"]
 
 
+class TestIsobaricCollapse:
+    """Ile and Leu are isobaric (113.08406 Da) and collapse onto one class, `I`.
+
+    The CSV names the pair inconsistently — one merged `I/L` *origin column*, but
+    separate `I` and `L` *destination rows*. All three mean the same residue. See
+    D-064.
+    """
+
+    def test_L_is_never_an_origin_or_a_destination(self) -> None:
+        from src.tarsus.assets import SUBS_EXCLUDE_CSV
+        matrix = _load_substitution_matrix(SUBS_EXCLUDE_CSV)
+        assert "L" not in matrix
+        assert all("L" not in dests for dests in matrix.values())
+        assert "I" in matrix
+
+    def test_merged_destination_rows_take_the_exclusion(self, tmp_path: Path) -> None:
+        """Where the `I` and `L` rows disagree, **the exclusion wins.**
+
+        Exactly one of the 19 origins disagrees in the real matrix: `A->I` is
+        excluded while `A->L` is allowed. That is incoherent — Ala->Ile/Leu is
+        +42.04695 Da, *exactly trimethylation*, which is precisely why `A->I` is
+        excluded. Taking the exclusion also drops the 41,085 `A->L`
+        trimethylation-artifact candidates.
+        """
+        csv = tmp_path / "subs.csv"
+        csv.write_text(",A,T\nI,TRUE,FALSE\nL,FALSE,FALSE\n")
+        matrix = _load_substitution_matrix(csv)
+        assert matrix["A"]["I"] is True    # excluded by the I row -> exclusion wins
+        assert matrix["T"]["I"] is False   # both rows allow it -> allowed
+
+    def test_real_matrix_excludes_A_to_isobaric_trimethylation(self) -> None:
+        from src.tarsus.assets import SUBS_EXCLUDE_CSV
+        matrix = _load_substitution_matrix(SUBS_EXCLUDE_CSV)
+        assert matrix["A"]["I"] is True     # +42.04695 Da == trimethylation
+        assert matrix["T"]["S"] is False    # D-061 — must stay allowed
+        assert matrix["F"]["M"] is True     # D-062 — oxidised-Met artifact
+
+
 class TestSingleSubstitutions:
     def test_single_origin_appears_once(self) -> None:
         result = _single_substitutions("ABC", "B", "X")
@@ -60,9 +98,24 @@ class TestSingleSubstitutions:
         result = _single_substitutions("ABC", "B", "B")
         assert result == [("ABC", 1)]
 
-    def test_i_slash_l_normalized_in_sequence(self) -> None:
-        result = _single_substitutions("AIC", "I", "I/L")
-        assert result == [("AIC", 1)]  # I/L → I, not "I/L" in sequence
+    def test_origin_I_matches_a_LEU_residue(self) -> None:
+        """**The bug this fixes.** Ile and Leu are isobaric — one origin class.
+
+        The reference generates *no* substitution from any I or L position: its
+        `rename(index={'I/L': 'I'})` renames the row axis while `I/L` is a column,
+        so it silently does nothing and `'I/L' not in peptide` is always true. We
+        matched Ile only, which is half-right and internally incoherent — the same
+        mass, yet Leu positions were never searched.
+        """
+        assert _single_substitutions("ALC", "I", "V") == [("AVC", 1)]
+        assert _single_substitutions("AIC", "I", "V") == [("AVC", 1)]
+
+    def test_origin_I_matches_ILE_and_LEU_in_the_same_peptide(self) -> None:
+        assert _single_substitutions("ILK", "I", "V") == [("VLK", 0), ("IVK", 1)]
+
+    def test_only_the_substituted_position_changes(self) -> None:
+        """Other Leu residues keep their real letter — the candidate stays accurate."""
+        assert _single_substitutions("LTL", "T", "S") == [("LSL", 1)]
 
 
 class TestMakePeptideCandidates:
@@ -220,13 +273,51 @@ class TestLibrarySpectrumGuard:
         spectrum = check_library_spectrum(fa, matrix, required={("T", "S")})
         assert spectrum[("T", "S")] == 1
 
-    def test_real_library_passes(self) -> None:
-        """The CURRENT, corrected library must pass: T->S 22,923 and F->M 0."""
-        fa = Path("output/trial/03b_candidates/pep_candidates.fa")
-        if not fa.is_file():
-            pytest.skip("no run present")
-        from src.tarsus.assets import SUBS_EXCLUDE_CSV
-        matrix = _load_substitution_matrix(SUBS_EXCLUDE_CSV)
-        spectrum = check_library_spectrum(fa, matrix, required={("T", "S")})
-        assert spectrum[("T", "S")] > 0
-        assert spectrum.get(("F", "M"), 0) == 0
+    def test_raises_on_a_stray_L(self, tmp_path: Path) -> None:
+        """`L` must never reach a header — and the matrix check CANNOT catch it.
+
+        `matrix["L"]` does not exist after the collapse, so the forbidden-lookup
+        `matrix.get("L", {}).get(d, False)` returns False and a stray `L` would
+        sail straight through. It needs its own check. This test fails if that
+        check is ever removed.
+        """
+        fa = tmp_path / "cand.fa"
+        fa.write_text(">PEPTIDET_T7S\nPEPTIDES\n>PEPTIDEV_V7L\nPEPTIDEL\n")
+        matrix = {"T": {"S": False}, "V": {"I": False}}   # note: no "L" key at all
+        with pytest.raises(RuntimeError, match="isobaric"):
+            check_library_spectrum(fa, matrix, required={("T", "S")})
+
+    def test_library_built_from_the_real_matrix_satisfies_every_contract(
+        self, tmp_path: Path,
+    ) -> None:
+        """Build a library with the REAL bundled matrix and assert the full contract.
+
+        This exercises `make_peptide_candidates` itself rather than a run artifact
+        on disk: a test that reads `output/trial/...` passes or fails on the state
+        of the last run, not on the state of the code. (On-disk staleness is what
+        `provenance.stale_artifacts()` is for — D-063.)
+        """
+        peptides = tmp_path / "peptide.tsv"
+        peptides.write_text(
+            "Peptide\tIntensity\n"
+            "PEPTIDEK\t100\n"      # Ile  -> the `I` class
+            "PEPTLDEK\t100\n"      # Leu  -> the SAME class (was never searched)
+            "AAATTTK\t100\n"       # Ala + Thr -> A->I (excluded) and T->S (required)
+        )
+        fa = tmp_path / "cand.fa"
+        make_peptide_candidates(peptides, output_fasta=fa)   # guard runs inside
+
+        headers = [ln[1:] for ln in fa.read_text().splitlines() if ln.startswith(">")]
+        subs = {(m.group(1), m.group(3))
+                for h in headers
+                if (m := re.search(r"_([A-Z])(\d+)([A-Z])$", h))}
+
+        assert not any("L" in pair for pair in subs), "L must not survive the collapse"
+        assert ("A", "I") not in subs, "A->I/L is +42.04695 Da — exactly trimethylation"
+        assert ("F", "M") not in subs, "D-062 — oxidised-Met artifact"
+        assert ("T", "S") in subs, "D-061 — the reference's dominant substitution"
+        assert ("I", "V") in subs, "substitutions FROM the I/L class must be generated"
+
+        # The Leu peptide must contribute — this is the whole point of the collapse.
+        assert any(h.startswith("PEPTLDEK_I") for h in headers), \
+            "a Leu position generated no candidate: the isobaric collapse regressed"

@@ -11,10 +11,53 @@ import polars as pl
 from ..assets import SUBS_EXCLUDE_CSV
 
 
+#: Ile and Leu are isobaric (113.08406 Da) — MS cannot tell them apart, and the
+#: pipeline does not try. Both collapse onto this single letter and the whole
+#: pipeline runs on it; Step 11 relabels it ``I/L`` on the way out.
+#:
+#: The ``/`` must never enter the pipeline itself. Step 7's header regex is
+#: ``_(\w)(\d+)(\w)`` and ``\w`` does not match ``/``; Step 11 looks up
+#: ``SUBSTITUTION_SHIFTS[origin][dest]`` and ``AA_MONO`` has no ``I/L`` key. Both
+#: would drop such rows **silently** — the ``.get() -> None -> continue`` mode of
+#: D-048/D-049/D-057. See D-064.
+IL_CLASS = "I"
+
+
 def _norm_aa(aa: str) -> str:
-    """Normalize an amino-acid label; the CSV's 'I/L' means 'I'."""
+    """Collapse a matrix label onto its residue class.
+
+    The CSV names the isobaric pair inconsistently: **one merged ``I/L`` origin
+    column, but separate ``I`` and ``L`` destination rows.** All three denote the
+    same residue class, so all three collapse to :data:`IL_CLASS`.
+    """
     aa = aa.strip()
-    return "I" if aa == "I/L" else aa
+    return IL_CLASS if aa in {"I", "L", "I/L"} else aa
+
+
+def _residue_class(char: str) -> str:
+    """The origin class a peptide residue belongs to. Ile and Leu are one class.
+
+    This is what lets an origin of ``I`` match a **Leu** residue. The reference
+    intended exactly this — ``make_peptides.py:31`` reads
+
+        pd.read_csv(...).rename(index={'I/L': 'I'}).to_dict()
+
+    but ``rename(index=...)`` renames *rows* while ``I/L`` is a *column*, so the
+    rename silently does nothing: ``'I/L'`` survives as an origin key,
+    ``'I/L' not in peptide`` is always true, and **no substitution from any I or L
+    position is ever generated**. We implement the intent, not the typo (D-064).
+    """
+    return IL_CLASS if char in {"I", "L"} else char
+
+
+def _residue_class_set(peptide: str) -> set[str]:
+    """The origin classes present in *peptide*.
+
+    Use this instead of a substring test (``origin in peptide``): a peptide whose
+    only isobaric residue is a ``L`` still makes the ``I`` class present, and
+    ``"I" in peptide`` would say otherwise.
+    """
+    return {_residue_class(c) for c in peptide}
 
 
 def _load_substitution_matrix(path: Path) -> dict[str, dict[str, bool]]:
@@ -51,14 +94,29 @@ def _load_substitution_matrix(path: Path) -> dict[str, dict[str, bool]]:
                 continue
             origin = _norm_aa(col)                      # COLUMN name = ORIGIN
             excluded = str(val).strip().upper() == "TRUE"
-            matrix.setdefault(origin, {})[dest] = excluded
+            # The `I` and `L` destination rows collapse onto one key, so two
+            # values land here. Where they disagree, **the exclusion wins.**
+            # Exactly one of the 19 origins disagrees: `A->I` is excluded while
+            # `A->L` is allowed — which is incoherent, because Ala->Ile/Leu is
+            # +42.04695 Da, *exactly trimethylation*, and that is precisely why
+            # `A->I` is excluded. Taking the exclusion drops the 41,085 `A->L`
+            # trimethylation-artifact candidates (0 results) as a side effect.
+            prior = matrix.setdefault(origin, {}).get(dest, False)
+            matrix[origin][dest] = prior or excluded
     return matrix
 
 
-#: Substitutions the reference's own results prove must be present in any healthy
-#: library. T->S is its DOMINANT substitution — 422 of its 697 localized SAAVs
-#: (61%). D-061's transposed matrix made it zero, and nothing noticed for weeks.
-REQUIRED_SUBSTITUTIONS: set[tuple[str, str]] = {("T", "S")}
+#: Substitutions that must be present in any healthy library.
+#:
+#: - ``T->S`` — the reference's DOMINANT substitution, 422 of its 697 localized
+#:   SAAVs (61%). D-061's transposed matrix made it zero, and nothing noticed for
+#:   weeks.
+#: - ``I->V`` — the anchor for the I/L collapse. The reference generates **no**
+#:   substitution from any I or L position at all (its `rename(index=)` is a
+#:   silent no-op; see :func:`_residue_class`). This pair is zero the moment
+#:   anyone reintroduces that skip. Origin ``I/L`` excludes no destination, so
+#:   ``I->V`` is always available when the library is built correctly.
+REQUIRED_SUBSTITUTIONS: set[tuple[str, str]] = {("T", "S"), ("I", "V")}
 
 
 def check_library_spectrum(
@@ -110,6 +168,23 @@ def check_library_spectrum(
                 key = (m.group(1), m.group(3))
                 spectrum[key] = spectrum.get(key, 0) + 1
 
+    # `L` is not a residue class — Ile and Leu collapse onto `I` (D-064). A stray
+    # `L` origin or destination means the collapse regressed somewhere, and the
+    # matrix lookup below cannot catch it: `matrix["L"]` does not exist, so
+    # `.get("L", {}).get(d, False)` returns False and the row passes silently.
+    stray = sorted(
+        f"{o}->{d} ({n:,} candidates)"
+        for (o, d), n in spectrum.items()
+        if n and ("L" in (o, d))
+    )
+    if stray:
+        raise RuntimeError(
+            f"Step 3b emitted `L` as an origin or destination: {', '.join(stray)}. "
+            f"Ile and Leu are isobaric (113.08406 Da) and collapse onto the single "
+            f"letter `I` for the whole pipeline; `L` must not survive into a "
+            f"candidate header. Check `_norm_aa` / `_residue_class` (D-064)."
+        )
+
     forbidden = sorted(
         f"{o}->{d} ({n:,} candidates)"
         for (o, d), n in spectrum.items()
@@ -140,21 +215,19 @@ def check_library_spectrum(
 def _single_substitutions(
     peptide: str, origin: str, dest: str,
 ) -> list[tuple[str, int]]:
-    """Generate all single-AA substitutions in *peptide*.
+    """Generate all single-AA substitutions of *origin* -> *dest* in *peptide*.
 
-    Canonicalizes I/L to I — mass spec cannot distinguish isoleucine
-    from leucine (identical mass 113.08406 Da).  The FASTA header
-    retains "I/L" notation for informational purposes.
+    *origin* is a residue **class**, not a literal character, so an origin of ``I``
+    matches Leu residues as well as Ile ones (see :func:`_residue_class`). Only the
+    substituted position changes: the peptide's other ``L`` residues are left
+    alone, so the emitted candidate stays sequence-accurate to the proteome.
 
     Returns list of (variant_sequence, position).
     """
-    if dest == "I/L":
-        dest = "I"
     results: list[tuple[str, int]] = []
     for i, char in enumerate(peptide):
-        if char == origin:
-            variant = peptide[:i] + dest + peptide[i + 1:]
-            results.append((variant, i))
+        if _residue_class(char) == origin:
+            results.append((peptide[:i] + dest + peptide[i + 1:], i))
     return results
 
 
@@ -190,11 +263,15 @@ def make_peptide_candidates(
     output_fasta.parent.mkdir(parents=True, exist_ok=True)
     with output_fasta.open("w") as f:
         for pep in sorted(observed):
+            # Origins are residue *classes*, so a peptide's `L` residues make the
+            # `I` class present. A literal `origin not in pep` substring test —
+            # which is what the reference does — would miss every Leu position.
+            present = _residue_class_set(pep)
             for origin, dest_map in matrix.items():
+                if origin not in present:
+                    continue
                 for dest, excluded in dest_map.items():
                     if excluded or origin == dest:
-                        continue
-                    if origin not in pep:
                         continue
                     for var, pos in _single_substitutions(pep, origin, dest):
                         if var in observed:
@@ -209,10 +286,13 @@ def make_peptide_candidates(
     # Only require a substitution whose ORIGIN residue actually occurs in the
     # observed peptides and which the matrix allows: absence is a bug only when the
     # library *could* have contained it.
+    # Origins are residue *classes*, so test membership against the class set, not
+    # by substring: a peptide whose only isobaric residue is a `L` still makes the
+    # `I` class present, and `"I" in pep` would say otherwise.
+    classes_seen = {c for pep in observed for c in _residue_class_set(pep)}
     required = {
         (o, d) for (o, d) in REQUIRED_SUBSTITUTIONS
-        if not matrix.get(o, {}).get(d, True)
-        and any(o in pep for pep in observed)
+        if not matrix.get(o, {}).get(d, True) and o in classes_seen
     }
     spectrum = check_library_spectrum(output_fasta, matrix, required=required)
     top = sorted(spectrum.items(), key=lambda kv: kv[1], reverse=True)[:10]

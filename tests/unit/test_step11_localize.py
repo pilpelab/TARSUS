@@ -7,6 +7,7 @@ import pytest
 from src.tarsus.steps.step11_localize import (
     mz_diff,
     ascore_to_probability,
+    AA_MONO,
     SUBSTITUTION_SHIFTS,
     get_var_mod_positions,
     _parse_aux_mods,
@@ -14,6 +15,7 @@ from src.tarsus.steps.step11_localize import (
     _expected_position,
     _strip_mod_suffix,
     _read_psmrank,
+    _label_isobaric_il,
 )
 
 _PSMRANK_HEADER = (
@@ -198,15 +200,6 @@ class TestSubstitutionShifts:
             assert aa in SUBSTITUTION_SHIFTS
 
 
-AA_MONO = {
-    "A": 71.03711, "R": 156.10111, "N": 114.04293, "D": 115.02694,
-    "C": 103.00919, "E": 129.04259, "Q": 128.05858, "G": 57.02146,
-    "H": 137.05891, "I": 113.08406, "L": 113.08406, "K": 128.09496,
-    "M": 131.04049, "F": 147.06841, "P": 97.05276, "S": 87.03203,
-    "T": 101.04768, "W": 186.07931, "Y": 163.06333, "V": 99.06841,
-}
-
-
 class TestGetVarModPositions:
     def test_no_modifications(self) -> None:
         positions = get_var_mod_positions(
@@ -258,3 +251,64 @@ class TestGetVarModPositions:
                 np.array([], dtype=np.float32),
                 0.05,
             )
+
+
+class TestIsobaricIlLabel:
+    """`I` -> `I/L` is the pipeline's LAST act, and the ordering is load-bearing.
+
+    Ile and Leu are isobaric (113.08406 Da). Step 3b collapses both onto `I` and the
+    whole pipeline runs on that single letter, so an `I` in the results genuinely
+    means "I or L". `_label_isobaric_il` says so out loud, on the way out.
+
+    It must run AFTER `localize_shift`. The `/` fails **silently** upstream, in the
+    `.get() -> None -> continue` mode behind D-048/D-049/D-057. See D-064.
+    """
+
+    def test_relabels_both_columns(self) -> None:
+        df = pl.DataFrame({
+            "origin": ["T", "I", "V"],
+            "destination": ["S", "V", "I"],
+        })
+        out = _label_isobaric_il(df)
+        assert out["origin"].to_list() == ["T", "I/L", "V"]
+        assert out["destination"].to_list() == ["S", "V", "I/L"]
+
+    def test_relabel_drops_no_rows(self) -> None:
+        """The relabel is cosmetic — it must never change the row count."""
+        df = pl.DataFrame({
+            "origin": ["T", "I", "V", "I"],
+            "destination": ["S", "V", "I", "S"],
+        })
+        assert _label_isobaric_il(df).height == df.height == 4
+
+    def test_no_bare_I_or_L_survives(self) -> None:
+        df = pl.DataFrame({"origin": ["I"], "destination": ["I"]})
+        out = _label_isobaric_il(df)
+        assert "I" not in out["origin"].to_list()
+        assert "I" not in out["destination"].to_list()
+
+    def test_the_landmine_relabelling_early_would_silently_drop_every_IL_row(self) -> None:
+        """**Why the relabel must come last.** This is the regression test.
+
+        `localize_shift` does:
+
+            mod_mass = SUBSTITUTION_SHIFTS.get(origin, {}).get(dest)
+            if mod_mass is None:
+                continue          # <- silently drops the row
+
+        `AA_MONO` has no `I/L` key, so `SUBSTITUTION_SHIFTS` has no `I/L` entry. Had
+        the relabel run before that lookup, every I/L substitution would have
+        vanished from the results with no error and no warning — a "harmless
+        cosmetic change" that quietly deletes data.
+
+        The collapsed letter `I` resolves; the label `I/L` does not. That asymmetry
+        is the whole reason for the ordering.
+        """
+        assert SUBSTITUTION_SHIFTS.get("T", {}).get("I") is not None, \
+            "the collapsed letter must resolve — the lookup runs on `I`"
+        assert SUBSTITUTION_SHIFTS.get("T", {}).get("I/L") is None, \
+            "if this ever resolves, the landmine is disarmed and this test is moot"
+        assert "I/L" not in AA_MONO, \
+            "AA_MONO must stay free of `I/L`: the label never reaches the mass lookup"
+        assert AA_MONO["I"] == AA_MONO["L"] == 113.08406, \
+            "Ile and Leu are isobaric — that is why they collapse to one letter"

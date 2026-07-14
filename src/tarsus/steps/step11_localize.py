@@ -266,6 +266,35 @@ def localize_shift(
     return sure_spectra
 
 
+def _label_isobaric_il(localized: pl.DataFrame) -> pl.DataFrame:
+    """Relabel the collapsed ``I`` class as ``I/L`` — the pipeline's last act.
+
+    Ile and Leu are isobaric (113.08406 Da). Step 3b collapses both onto the single
+    letter ``I`` and the entire pipeline runs on it, so an ``I`` here genuinely
+    means *"I or L"*. This says so out loud.
+
+    **This must run after :func:`localize_shift` and immediately before the write.**
+    The ``/`` cannot exist anywhere upstream, and it fails *silently* in two places
+    if it does:
+
+    - ``step07_analyze_outputs.py:327`` — origin/destination are extracted from the
+      FASTA header with ``_(\\w)(\\d+)(\\w)``, and ``\\w`` is ``[A-Za-z0-9_]``: it
+      does **not** match ``/``. A header ``_T5I/L`` yields destination ``"I"``, the
+      ``L`` quietly dropped.
+    - ``step11_localize.py:222`` — ``SUBSTITUTION_SHIFTS.get(origin, {}).get(dest)``
+      returns ``None`` for ``I/L`` (``AA_MONO`` has no such key) and the next line
+      is ``continue``: **every I/L row would vanish from the results.**
+
+    Both are the ``.get() -> None -> continue`` mode behind D-048, D-049 and D-057.
+    Relabelling only here sidesteps both, and is why ``AA_MONO`` needs no ``I/L``
+    entry. See D-064.
+    """
+    return localized.with_columns(
+        pl.col("origin").replace({"I": "I/L"}),
+        pl.col("destination").replace({"I": "I/L"}),
+    )
+
+
 def localize(
     subs_ipc: Path,
     psmrankall_path: Path,
@@ -299,6 +328,8 @@ def localize(
 
     # Return subs.ipc's own schema, as the reference does — not the widened join.
     localized = subs.filter(pl.col("spectrum_title").is_in(sure_titles))
+
+    localized = _label_isobaric_il(localized)
 
     output_ipc.parent.mkdir(parents=True, exist_ok=True)
     localized.write_ipc(output_ipc)

@@ -1211,3 +1211,37 @@ Additionally: PepQuery organises spectra into mass-bin files (named by `floor(pr
 **Context:** The substitution exclusion matrix (`subs_exclude.csv`) uses "I/L" notation for isoleucine/leucine positions. This string was leaking into peptide sequences, causing FragPipe/MSBooster to fail with "WARNING: Trying to compute mass of non-residue: /".
 **Decision:** Normalize "I/L" → "I" in both the matrix column headers and the `_single_substitutions` function. FASTA headers retain "I/L" for informational clarity, but the actual peptide sequences use only canonical amino acid codes.
 **Rationale:** Mass spectrometry cannot distinguish isoleucine from leucine — they have identical monoisotopic mass (113.08406 Da). Using "I" as the canonical representation is the standard convention in proteomics. The "/" character is not a valid amino acid and breaks downstream tools.
+
+## D-064: I/L — collapse to one letter, run, relabel `I/L` at the last write
+**Date:** 2026-07-14
+**Supersedes:** the "FASTA headers retain I/L" half of D-026 (they never did, and must not).
+
+**Context.** Ile and Leu are isobaric (113.08406 Da). Slava was asked to preserve `I/L` in the outputs and said the skip of I/L origins was "a feature, not a bug". Investigating that produced three findings, two of which invalidated my own first two plans.
+
+**1. The reference INTENDS the collapse. Its code fails to perform it.**
+`TARSUS_elizabev/make_peptides.py:31`:
+```python
+subs_allowed = pd.read_csv('subs_exclude.csv', index_col=0).rename(index={'I/L': 'I'}).to_dict()
+```
+`rename(index=...)` renames ROWS. `I/L` is a COLUMN (the CSV is COLUMN=origin, ROW=destination — D-061). There is no row named `I/L`, so **the rename is a silent no-op.** Verified by executing that exact line: `'I/L'` survives as an origin key and `'I'` is not a key at all. Line 44 then reads `if origin not in i: pass` — and `'I/L' not in peptide` is *always* true, so **the reference generates no substitution from any I or L position, ever.** Had he written `rename(columns=...)` it would have worked. He appears to have believed the index held the origins: **the same row/column transposition that caused D-061.**
+
+So "it's a feature" does not survive line 31 — you do not write a rename to undo a feature. **Our `_norm_aa` I/L→I was his intent, correctly implemented.** We were never diverging from his design; we diverge from his typo. An earlier plan to *delete* our 188 subs.ipc / 23 localized I-origin results to "match" his count would have been deleting real detections to reproduce a bug. **Rejected by the PI, correctly.**
+
+**2. Our own implementation was half-right and incoherent.** Origin class `I` matched Ile residues only, so **every Leu position was silently unsearched** (origin `L` = 0 in our own output, while origin `I` = 188). Same mass, opposite treatment.
+
+**3. The `/` cannot enter the pipeline.** D-026 already recorded FragPipe dying on it (`WARNING: Trying to compute mass of non-residue: /`). Two *silent* failure sites remain, both the `.get() -> None -> continue` mode of D-048/D-049/D-057:
+- `step07_analyze_outputs.py:327` — the final `origin`/`destination` come from the FASTA header via `_(\w)(\d+)(\w)`, and `\w` = `[A-Za-z0-9_]` does **not** match `/`. A header `_T5I/L` silently yields destination `"I"`, dropping the `L`.
+- `step11_localize.py:222` — `SUBSTITUTION_SHIFTS.get(origin, {}).get(dest)` returns `None` for `I/L` (`AA_MONO` has no such key) and the next line is `continue`. **Every I/L row would vanish, with no error.**
+
+**Decision.**
+- **Step 3b collapses Ile and Leu onto the single letter `I`** and the whole pipeline runs on it. Origin class `I` matches *both* I and L residues (`_residue_class`); destination rows `I` and `L` merge into one, **excluded if either is excluded**.
+- **Step 11 relabels `I` -> `I/L` as the last statement before the write** (`_label_isobaric_il`), after the mass lookup. The `/` therefore never enters any computation, and **`AA_MONO` needs no `I/L` entry** — which is the point.
+- `subs.ipc` (Step 7) keeps single letters: it is an intermediate, Step 8 does not read those columns, and Step 11 needs `I` for its lookup.
+
+**Consequences.**
+- Exactly one of 19 origins conflicts on the destination merge: `A->I` excluded, `A->L` allowed. Incoherent — **Ala->Ile/Leu is +42.04695 Da, exactly trimethylation**, which is *why* `A->I` is excluded. The exclusion wins, dropping 41,085 `A->L` trimethylation-artifact candidates (0 results) for free.
+- `AA_MAP` (step07:14) is **not** the lever and was left alone: its origin/dest feed the internal single-SAV filter and are then discarded (only `spectrum_title` survives at step07:211). Changing it would have been a pure no-op — an earlier plan's centrepiece.
+- **Our totals will exceed the reference's** for the I/L-origin class, because its library contains none of them. That is correct, not a discrepancy.
+- Guard (`check_library_spectrum`) now pins: no `L` as origin/destination (the matrix lookup *cannot* catch this — `matrix["L"]` does not exist, so `.get("L", {})` returns `{}` and a stray `L` sails through); `A->I` == 0; `I->V` > 0 (zero the moment anyone reintroduces the reference's skip); plus D-061's `T->S` and D-062's `F->M`.
+
+**Lesson (the transferable one).** An isobaric ambiguity is *plumbing, not science*. Collapse it to one symbol at the boundary, compute on the symbol, and label it honestly on the way out. Never let a display label into a lookup key.

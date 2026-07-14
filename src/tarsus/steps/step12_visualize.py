@@ -23,7 +23,12 @@ from matplotlib import pyplot as plt
 matplotlib.use("Agg")  # headless — no X11 needed
 
 # Canonical amino acid order for heatmaps (standard proteomics ordering).
-_AA_ORDER = list("GALMFWKQESPVICYHRNTD-")
+#
+# Ile and Leu are isobaric and the pipeline collapses them onto one class, which
+# Step 11 labels `I/L` on its way out (D-064). Neither bare `I` nor bare `L` can
+# reach a plot, so the merged class takes Leu's slot and Ile's is dropped.
+_AA_ORDER = ["G", "A", "I/L", "M", "F", "W", "K", "Q", "E", "S",
+             "P", "V", "C", "Y", "H", "R", "N", "T", "D", "-"]
 
 
 def _detect_groups(df: pl.DataFrame) -> dict[str, str]:
