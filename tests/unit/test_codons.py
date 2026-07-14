@@ -150,3 +150,41 @@ class TestSixtyTwentyMatrix:
 
         nece = pd.read_csv(NECE_MASK_CSV, index_col=0)
         assert bool(nece.loc["GGC", "A"])
+
+
+class TestFractionMerging:
+    """Offline fractions are technical splits of ONE sample — never separate groups.
+
+    hoMS_24814 is 15 offline fractions of a single GAPDH prep. Grouping by filename
+    turned it into 13 "groups", implying 13 conditions and scattering one sample's
+    44 substitutions across 13 thin bars.
+    """
+
+    def test_fractions_of_one_sample_collapse_to_one_group(self) -> None:
+        import polars as pl
+        from src.tarsus.steps.step12_visualize import _detect_groups
+
+        df = pl.DataFrame({"spectrum_title": [
+            "EX1_24814_Fraction-1_03092025:100:2",
+            "EX1_24814_Fraction-7_03092025:200:2",
+            "EX1_24814_Fraction-15_03092025:300:2",
+        ]})
+        groups = set(_detect_groups(df).values())
+        assert len(groups) == 1, f"fractions must merge, got {groups}"
+
+    def test_real_conditions_stay_separate(self) -> None:
+        """Merging fractions must NOT merge genuinely different samples."""
+        import polars as pl
+        from src.tarsus.steps.step12_visualize import _detect_groups
+
+        df = pl.DataFrame({"spectrum_title": [
+            "EX1_OR_26227_L73a-1_10062026:1:2",
+            "EX1_OR_26227_WT-1_10062026:2:2",
+        ]})
+        assert len(set(_detect_groups(df).values())) == 2
+
+        df2 = pl.DataFrame({"spectrum_title": [
+            "HouYM-25-G140-AstralDDA-AlaGGC-HS-1:1:2",
+            "HouYM-25-G140-AstralDDA-AlaGGC-LS-1:2:2",
+        ]})
+        assert len(set(_detect_groups(df2).values())) == 2, "HS/LS are distinct samples"

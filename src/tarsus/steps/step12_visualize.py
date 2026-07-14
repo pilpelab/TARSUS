@@ -47,10 +47,17 @@ _AA_ORDER = ["G", "A", "I/L", "M", "F", "W", "K", "Q", "E", "S",
              "P", "V", "C", "Y", "H", "R", "N", "T", "D", "-"]
 
 
+#: An offline fraction (`..._Fraction-7_...`) is a *technical split of one sample*, not
+#: a condition. Plotting each as its own group implies N experimental groups where
+#: there is one, and scatters a single sample's substitutions across N thin bars.
+#: Fractions are merged before grouping; the biology is the sum over them.
+_FRACTION_RE = re.compile(r"[_-]fraction[_-]?\d+", re.IGNORECASE)
+
+
 def _detect_groups(df: pl.DataFrame) -> dict[str, str]:
     """Map each spectrum_title to a group label inferred from the filename.
 
-    Scans the spectrum_title column for known group tokens.
+    Fractions of one sample collapse to a single group (see :data:`_FRACTION_RE`).
     Returns dict of spectrum_title -> group.
     """
     titles = df["spectrum_title"].unique().to_list()
@@ -64,9 +71,12 @@ def _detect_groups(df: pl.DataFrame) -> dict[str, str]:
         elif "WT" in fname:
             mapping[title] = "WT"
         else:
-            # Fallback: use the first underscore-delimited token after EX1_OR_
-            m = re.match(r"EX1_OR_\d+_([A-Za-z0-9]+)", fname)
-            mapping[title] = m.group(1) if m else fname
+            # Drop the fraction token, then tidy the separator it leaves behind, so
+            # every fraction of a sample lands in the same group.
+            base = _FRACTION_RE.sub("", fname)
+            base = re.sub(r"[_-]{2,}", "_", base).strip("_-")
+            m = re.match(r"EX1_OR_\d+_([A-Za-z0-9]+)", base)
+            mapping[title] = m.group(1) if m else base
 
     return mapping
 
@@ -239,6 +249,49 @@ def _plot_origin_frequencies(df: pl.DataFrame, out: Path) -> None:
     plt.close(fig)
 
 
+def _plot_protein_burden(df: pl.DataFrame, out: Path, top_n: int = 20) -> None:
+    """Which proteins carry the substitutions, and how concentrated are they?
+
+    This distinguishes two very different experiments at a glance:
+
+    - **AlaGGC (E. coli):** 358 substitutions spread over **84** proteins, led by
+      EF-Tu (53) — a highly expressed translation factor. A proteome-wide picture.
+    - **hoMS:** 44 substitutions on **one gene** (GAPDH, two isoform entries). The
+      signature of a purified / overexpressed reporter, not a proteome survey.
+
+    Use ``Protein_first`` — the accession from the first-pass search. The ``Protein``
+    column holds the *candidate FASTA header* (``PEPTIDE_T5S``), not a real protein.
+    """
+    col = "Protein_first" if "Protein_first" in df.columns else "Protein"
+    counts = (
+        df.group_by(col).len().sort("len", descending=True)
+        .rename({col: "protein", "len": "n"})
+    )
+    n_prot, n_subs = counts.height, int(counts["n"].sum())
+    shown = counts.head(top_n)
+
+    fig, ax = plt.subplots(figsize=(10, max(3.0, 0.42 * shown.height + 1.6)))
+    sns.barplot(
+        data=shown.to_pandas(), y="protein", x="n", color="steelblue", ax=ax,
+    )
+    ax.set_xlabel("Localized substitutions")
+    ax.set_ylabel("")
+
+    top_share = 100.0 * int(shown["n"][0]) / n_subs if n_subs else 0.0
+    extra = f" (top {shown.height} of {n_prot})" if n_prot > shown.height else ""
+    ax.set_title(
+        f"{n_subs} substitutions across {n_prot} protein"
+        f"{'s' if n_prot != 1 else ''}{extra}\n"
+        f"most-substituted protein carries {top_share:.0f}%",
+    )
+    for i, v in enumerate(shown["n"].to_list()):
+        ax.text(v, i, f" {v}", va="center", fontsize=9)
+
+    fig.tight_layout()
+    fig.savefig(out, dpi=150)
+    plt.close(fig)
+
+
 # ---------------------------------------------------------------------------
 # The 61x19 codon heatmap — the lab's canonical figure
 # ---------------------------------------------------------------------------
@@ -380,6 +433,14 @@ def step12_visualize(
     _plot_grouped_bars(df, viz_dir / "top_substitutions.png")
     _plot_dpbp_distribution(df, viz_dir / "dpbp_distribution.png")
     _plot_origin_frequencies(df, viz_dir / "origin_frequencies.png")
+    _plot_protein_burden(df, viz_dir / "protein_burden.png")
+
+    n_groups = df["_group"].n_unique()
+    print(
+        f"[step12] {df.height} substitutions | "
+        f"{df['Protein_first'].n_unique() if 'Protein_first' in df.columns else '?'} "
+        f"proteins | {n_groups} group(s) (fractions merged)"
+    )
 
     # The 61x19 codon heatmap. Needs a CDS FASTA; say so out loud when absent.
     if cds_fasta is None or not Path(cds_fasta).is_file():
