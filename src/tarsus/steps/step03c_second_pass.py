@@ -172,7 +172,11 @@ set -euo pipefail
 PHILOSOPHER="{philosopher}"
 FRAGPIPE="{fragpipe}"
 "$PHILOSOPHER" workspace --init "{output_dir}"
-"$PHILOSOPHER" database --custom "{decoy_fasta}" "{output_dir}"
+# NOTE: no `philosopher database --custom` here. FragPipe runs it itself, from the
+# workflow's `database.db-path` (verified in step03a.log). Calling it ourselves on
+# an ALREADY-DECOYED fasta made Philosopher decoy it a second time, producing a
+# ~2.5 GB `*-decoys-protein_decoy.fasta.fas` with 6,909,383 `rev_rev_` entries —
+# written to CWD and never used by anything. See D-062.
 "$FRAGPIPE" --headless --ram {fragpipe_ram_gb} \
   --workflow "{second_workflow}" \
   --manifest "{manifest}" \

@@ -122,3 +122,31 @@ class TestManifestGeneration:
         manifest = tmp_path / "empty.manifest"
         manifest.touch()
         assert manifest.read_text() == ""
+
+
+class TestNoRedundantPhilosopherDatabaseCall:
+    """Regression (D-062): we ran `philosopher database --custom` on an
+    ALREADY-DECOYED fasta, so Philosopher decoyed it a SECOND time.
+
+    Real output: `2026-07-13-decoys-protein_decoy.fasta.fas` — 20,728,149
+    sequences, of which **6,909,383 were `rev_rev_`**. ~2.5 GB per run, written to
+    CWD, and **never used by anything** (both workflows point at our own clean
+    `protein_decoy.fasta`, which is a correct 50/50 target:decoy split).
+
+    FDR was never corrupted — but it burned GBs and hours. The call is redundant:
+    FragPipe runs `philosopher database` itself from the workflow's
+    `database.db-path`.
+    """
+
+    INVOCATION = '"$PHILOSOPHER" database'
+
+    def test_step03a_runner_does_not_invoke_philosopher_database(self) -> None:
+        src = Path("src/tarsus/steps/step03a_first_pass.py").read_text()
+        assert self.INVOCATION not in src, (
+            "philosopher database --custom double-decoys our already-decoyed FASTA; "
+            "FragPipe already runs it from the workflow's database.db-path"
+        )
+
+    def test_step03c_runner_does_not_invoke_philosopher_database(self) -> None:
+        src = Path("src/tarsus/steps/step03c_second_pass.py").read_text()
+        assert self.INVOCATION not in src

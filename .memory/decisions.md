@@ -1,5 +1,43 @@
 # Decisions Log
 
+## D-062: Step 3b Spectrum Guard + Removing the Redundant Philosopher Call (double-decoy waste)
+**Date:** 2026-07-14
+**Status:** Implemented. 266 tests pass, mypy + ruff clean.
+
+### Part 1 — Step 3b substitution-spectrum guard (the important one)
+**Step 3b decides the entire search space.** A substitution absent from the library can never be found
+by *any* downstream step, and **nothing anywhere reports its absence**. That silence invalidated every
+result in this project **twice**:
+- **D-057** — library built 76 min before its own I/L fix → **0 of 7.37M** `->Ile` variants.
+- **D-061** — exclusion matrix transposed → **F->M** (an oxidised-Met artifact the reference excludes)
+  got 15,004 candidates and became our largest "finding"; **T->S** (the reference's dominant
+  substitution, 422 of its 697 localized) got **zero**.
+
+`check_library_spectrum()` now runs inside `make_peptide_candidates()` and **raises** when:
+- an **excluded** substitution has candidates (pins **F->M == 0**), or
+- a **required** substitution is missing (pins **T->S > 0**), gated on its origin residue actually
+  occurring in the observed peptides — absence is only a bug when the library *could* have contained it.
+
+It also logs the top-10 substitution classes to `master.log`, so a spectrum shift is visible without
+extra tooling. **This single check would have caught both D-057 and D-061 on day one.**
+
+### Part 2 — the redundant `philosopher database --custom` call
+**FDR was never corrupted** — both searches point at our own `protein_decoy.fasta`, a clean 50/50 split
+(4,403 target + 4,403 `rev_`; **0** `rev_rev_`).
+
+But the runner called `philosopher database --custom` on the **already-decoyed** FASTA, so Philosopher
+decoyed it **again**: `2026-07-13-decoys-protein_decoy.fasta.fas` = **20,728,149 sequences, 6,909,383 of
+them `rev_rev_`** — ~2.5 GB per run, written to CWD, and **never used by anything**.
+
+The call is **redundant**: FragPipe runs `philosopher database` itself from the workflow's
+`database.db-path` (verified in our own `step03a.log`). Removed from both runners; `workspace --init`
+kept; `*.fas` gitignored. **No result changes** — the searches already used the clean file.
+
+### Known, accepted deviation (documented, NOT fixed)
+`_make_decoy_fasta()` does a naive `seq[::-1]`, so decoy proteins end in K/R **0%** of the time vs
+**19.9%** for targets; the reference lets Philosopher generate K/R-aware decoys. Changing this alters
+the decoy DB → FDR → SAAV counts, so it is a separate, deliberate experiment — **not a drive-by fix**.
+
 ## D-061: 🔴🔴 THE SUBSTITUTION MATRIX WAS TRANSPOSED. Every SAAV result to date is void.
 **Date:** 2026-07-13
 **Status:** Fixed (260 tests pass, mypy + ruff clean). **A full rerun from Step 3b is required.**

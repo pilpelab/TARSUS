@@ -53,3 +53,6 @@ TARSUS_elizabev
 
 # macOS
 .DS_Store
+
+# Philosopher decoy DBs (regenerated; formerly double-decoyed, see D-062)
+*.fas

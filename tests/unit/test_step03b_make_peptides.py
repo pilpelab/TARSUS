@@ -2,10 +2,13 @@
 
 import re
 from pathlib import Path
+
+import pytest
 import polars as pl
 from src.tarsus.steps.step03b_make_peptides import (
     _load_substitution_matrix,
     _single_substitutions,
+    check_library_spectrum,
     make_peptide_candidates,
 )
 
@@ -176,3 +179,54 @@ class TestExclusionMatrixOrientation:
         f_to_m = [h for h in headers if re.search(r"_F\d+M$", h)]
         assert t_to_s, "T->S must be generated — it is the reference's dominant substitution"
         assert not f_to_m, "F->M must NOT be generated — the reference excludes it"
+
+
+class TestLibrarySpectrumGuard:
+    """The guard that would have caught BOTH catastrophes on day one.
+
+    Step 3b decides the ENTIRE search space. A substitution absent from the
+    library can never be found by any downstream step, and **nothing anywhere
+    reports its absence**. It has silently invalidated every result twice:
+
+      D-057  library built 76 min before its own I/L fix -> 0 of 7.37M `->Ile`
+             variants. Two weeks of results computed against a search space that
+             could not contain the answer.
+      D-061  exclusion matrix transposed -> F->M (an oxidised-Met artifact,
+             excluded by the reference) got 15,004 candidates and became our
+             single largest "finding"; T->S (the reference's DOMINANT
+             substitution, 422 of its 697 localized) got ZERO.
+    """
+
+    def test_raises_when_an_excluded_substitution_is_present(self, tmp_path: Path) -> None:
+        """D-061's signature: a library containing F->M."""
+        fa = tmp_path / "cand.fa"
+        fa.write_text(">PEPTIDEF_F7M\nPEPTIDEM\n>PEPTIDET_T7S\nPEPTIDES\n")
+        matrix = {"F": {"M": True}, "T": {"S": False}}   # F->M excluded, T->S allowed
+        with pytest.raises(RuntimeError, match="forbids"):
+            check_library_spectrum(fa, matrix, required={("T", "S")})
+
+    def test_raises_when_a_required_substitution_is_missing(self, tmp_path: Path) -> None:
+        """D-057/D-061's signature: the dominant substitution absent entirely."""
+        fa = tmp_path / "cand.fa"
+        fa.write_text(">PEPTIDEV_V7P\nPEPTIDEP\n")          # no T->S at all
+        matrix = {"F": {"M": True}, "T": {"S": False}}
+        with pytest.raises(RuntimeError, match="T->S"):
+            check_library_spectrum(fa, matrix, required={("T", "S")})
+
+    def test_passes_on_a_healthy_library(self, tmp_path: Path) -> None:
+        fa = tmp_path / "cand.fa"
+        fa.write_text(">PEPTIDET_T7S\nPEPTIDES\n>PEPTIDEV_V7P\nPEPTIDEP\n")
+        matrix = {"F": {"M": True}, "T": {"S": False}, "V": {"P": False}}
+        spectrum = check_library_spectrum(fa, matrix, required={("T", "S")})
+        assert spectrum[("T", "S")] == 1
+
+    def test_real_library_passes(self) -> None:
+        """The CURRENT, corrected library must pass: T->S 22,923 and F->M 0."""
+        fa = Path("output/trial/03b_candidates/pep_candidates.fa")
+        if not fa.is_file():
+            pytest.skip("no run present")
+        from src.tarsus.assets import SUBS_EXCLUDE_CSV
+        matrix = _load_substitution_matrix(SUBS_EXCLUDE_CSV)
+        spectrum = check_library_spectrum(fa, matrix, required={("T", "S")})
+        assert spectrum[("T", "S")] > 0
+        assert spectrum.get(("F", "M"), 0) == 0

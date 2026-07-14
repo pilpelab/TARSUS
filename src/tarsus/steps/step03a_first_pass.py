@@ -72,8 +72,11 @@ FRAGPIPE="{fragpipe}"
 echo "[step03a] Philosopher workspace --init"
 "$PHILOSOPHER" workspace --init "{output_dir}"
 
-echo "[step03a] Philosopher database --custom"
-"$PHILOSOPHER" database --custom "{fasta_path}" "{output_dir}"
+# NOTE: no `philosopher database --custom` here. FragPipe runs it itself, from the
+# workflow's `database.db-path` (verified in step03a.log). Calling it ourselves on
+# an ALREADY-DECOYED fasta made Philosopher decoy it a second time, producing a
+# multi-GB `*-decoys-protein_decoy.fasta.fas` full of `rev_rev_` entries — written
+# to CWD and never used by anything. See D-062.
 
 echo "[step03a] FragPipe --headless"
 "$FRAGPIPE" --headless --ram {fragpipe_ram_gb} \
