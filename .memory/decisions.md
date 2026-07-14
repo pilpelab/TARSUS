@@ -1,5 +1,33 @@
 # Decisions Log
 
+## D-063: Provenance Recording — `.done` Records THAT a Step Ran, Never WHICH CODE Ran It
+**Date:** 2026-07-14
+**Status:** Implemented (`src/tarsus/provenance.py`). 268 tests pass, mypy + ruff clean.
+
+**Why.** Nothing in this repo recorded which commit produced which artifact. That gap silently
+invalidated every result **twice**:
+- **D-057** — `03b_candidates/pep_candidates.fa` built 2026-06-30 **13:14**; its own I/L fix (`4c2d9d6`)
+  landed **14:30** — 76 minutes later. Preserved as "unaffected" by every later invalidation; held
+  **0 of 7.37M** `->Ile` variants. Two weeks of results computed against a search space that could not
+  contain the answer.
+- **D-061** — the same artifact, built from a transposed exclusion matrix.
+
+Both were invisible because **nothing compared an artifact's age against the age of the code that
+produced it**.
+
+**Implemented:**
+- `write_provenance()` — every run writes `<outdir>/provenance.json`: git SHA, dirty flag, UTC
+  timestamp, and the full CLI args.
+- `check_clean_tree()` — **`tarsus run` refuses to start on a dirty tree** (`--allow-dirty` to override).
+  Untracked files do not count: they cannot change what the pipeline executes. This *also* closes the
+  shared-mutable-source hazard — `~/LIS1_mutant_organoids__Orly_Reiner` has no `src/` of its own and
+  imports **this** package, while `orchestration.py` imports step modules **lazily**, so an edit made
+  mid-run is executed by a live pipeline and one run can span several commits.
+- `stale_artifacts()` — the **D-057 detector**. On every run, each preserved `.done` is compared against
+  the last commit touching *that step's own module*, and warns loudly if the artifact is older.
+
+**Verified live:** with a dirty tree, `tarsus run` refuses and prints the offending files.
+
 ## D-062: Step 3b Spectrum Guard + Removing the Redundant Philosopher Call (double-decoy waste)
 **Date:** 2026-07-14
 **Status:** Implemented. 266 tests pass, mypy + ruff clean.

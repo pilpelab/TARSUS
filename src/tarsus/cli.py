@@ -13,6 +13,13 @@ import click
 
 from .env import ToolEnvironment
 from .lsf import submit_bsub
+from .provenance import (
+    git_sha,
+    DirtyTreeError,
+    check_clean_tree,
+    stale_artifacts,
+    write_provenance,
+)
 
 
 # ── CLI group ────────────────────────────────────────────────────────
@@ -77,7 +84,12 @@ def convert(inputs: tuple[str, ...], output_dir: str, queue: str,
               help="LSF queue for all jobs")
 @click.option("--memory", default=32000, type=int, show_default=True,
               help="Memory for the master orchestration job in MB")
-def run(fasta: str, inputs: tuple[str, ...], output_dir: str, queue: str, memory: int) -> None:
+@click.option("--allow-dirty", is_flag=True,
+              help="Run despite uncommitted changes (results become unattributable)")
+def run(
+    fasta: str, inputs: tuple[str, ...], output_dir: str, queue: str, memory: int,
+    allow_dirty: bool,
+) -> None:
     """Run the full TARSUS pipeline on LSF.
 
     Submits a single master job that orchestrates all 11 steps on
@@ -96,6 +108,27 @@ def run(fasta: str, inputs: tuple[str, ...], output_dir: str, queue: str, memory
     if fasta_path.suffix.lower() not in (".fasta", ".fa", ".faa"):
         click.echo(f"Warning: FASTA file has unexpected extension: {fasta_path.suffix}",
                    err=True)
+
+    # A run from a dirty tree is attributable to no commit. TWICE (D-057, D-061) a
+    # Step 3b library built by since-fixed code silently voided every result, and
+    # nothing recorded which code produced it.
+    try:
+        check_clean_tree(allow_dirty=allow_dirty)
+    except DirtyTreeError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    # Warn loudly about any preserved .done that predates its own step's code.
+    for warning in stale_artifacts(outdir):
+        click.echo(f"WARNING: {warning}", err=True)
+
+    prov = write_provenance(outdir, {
+        "fasta": str(fasta_path),
+        "inputs": [str(f) for f in raw_files],
+        "output_dir": str(outdir),
+        "queue": queue,
+        "memory_mb": memory,
+        "allow_dirty": allow_dirty,
+    })
 
     # Submit master job — runs tarsus.orchestration on a compute node
     os.environ["PYTHONUNBUFFERED"] = "1"
@@ -118,6 +151,7 @@ def run(fasta: str, inputs: tuple[str, ...], output_dir: str, queue: str, memory
     click.echo(f"  Monitor:  bjobs {jid}")
     click.echo(f"  Log:      {log_path}")
     click.echo(f"  Output:   {outdir}/")
+    click.echo(f"  Code:     {prov.name} (git {git_sha() or 'unknown'})")
 
 
 if __name__ == "__main__":
