@@ -27,14 +27,23 @@ def _skip_if_done(sentinel: Path, label: str) -> bool:
     return False
 
 
-def run_pipeline(outdir: Path, fasta: Path, raw_files: list[Path]) -> None:
-    """Execute the full TARSUS pipeline with checkpoint resumption."""
+def run_pipeline(
+    outdir: Path, fasta: Path, raw_files: list[Path],
+    cds_fasta: Path | None = None,
+) -> None:
+    """Execute the full TARSUS pipeline with checkpoint resumption.
+
+    Args:
+        cds_fasta: CDS (nucleotide) FASTA. Optional; only Step 12's 61x19 codon
+            heatmap needs it. Absent -> that one figure is skipped, loudly.
+    """
     from tarsus.env import ToolEnvironment
 
     tool_env = ToolEnvironment.from_env()
 
     _log("INIT", f"Output: {outdir}")
     _log("INIT", f"FASTA:  {fasta}")
+    _log("INIT", f"CDS:    {cds_fasta or '(none — 61x19 codon heatmap will be skipped)'}")
     _log("INIT", f"Files:  {len(raw_files)} raw file(s)")
     for f in raw_files:
         _log("INIT", f"  {f.name}")
@@ -257,6 +266,7 @@ def run_pipeline(outdir: Path, fasta: Path, raw_files: list[Path]) -> None:
         step12_visualize(
             localized_ipc=outdir / "11_localized" / "subs_localized.ipc",
             output_dir=outdir,
+            cds_fasta=cds_fasta,
         )
         _s12.touch()
         _log("S12", f"Done → {_12_out}/")
@@ -265,7 +275,16 @@ def run_pipeline(outdir: Path, fasta: Path, raw_files: list[Path]) -> None:
 
 
 if __name__ == "__main__":
-    outdir = Path(sys.argv[1])
-    fasta = Path(sys.argv[2])
-    raw_files = [Path(f) for f in sys.argv[3:]]
-    run_pipeline(outdir, fasta, raw_files)
+    # `--cds <path>` is optional and must be stripped before the positionals, which
+    # are variadic (outdir, fasta, *raw_files).
+    _argv = sys.argv[1:]
+    _cds: Path | None = None
+    if "--cds" in _argv:
+        _i = _argv.index("--cds")
+        _cds = Path(_argv[_i + 1])
+        del _argv[_i:_i + 2]
+
+    outdir = Path(_argv[0])
+    fasta = Path(_argv[1])
+    raw_files = [Path(f) for f in _argv[2:]]
+    run_pipeline(outdir, fasta, raw_files, cds_fasta=_cds)

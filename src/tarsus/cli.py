@@ -84,11 +84,16 @@ def convert(inputs: tuple[str, ...], output_dir: str, queue: str,
               help="LSF queue for all jobs")
 @click.option("--memory", default=32000, type=int, show_default=True,
               help="Memory for the master orchestration job in MB")
+@click.option("--cds", default=None, type=click.Path(exists=True, dir_okay=False),
+              help="CDS (nucleotide) FASTA — enables Step 12's 61x19 codon heatmap. "
+                   "Mistranslation happens in codon space: an engineered tRNA reads ONE "
+                   "codon, so amino-acid-level counts smear the signal across synonymous "
+                   "codons. Without this the heatmap is skipped (loudly).")
 @click.option("--allow-dirty", is_flag=True,
               help="Run despite uncommitted changes (results become unattributable)")
 def run(
     fasta: str, inputs: tuple[str, ...], output_dir: str, queue: str, memory: int,
-    allow_dirty: bool,
+    cds: str | None, allow_dirty: bool,
 ) -> None:
     """Run the full TARSUS pipeline on LSF.
 
@@ -121,10 +126,13 @@ def run(
     for warning in stale_artifacts(outdir):
         click.echo(f"WARNING: {warning}", err=True)
 
+    cds_path = Path(cds).resolve() if cds else None
+
     prov = write_provenance(outdir, {
         "fasta": str(fasta_path),
         "inputs": [str(f) for f in raw_files],
         "output_dir": str(outdir),
+        "cds": str(cds_path) if cds_path else None,
         "queue": queue,
         "memory_mb": memory,
         "allow_dirty": allow_dirty,
@@ -136,8 +144,10 @@ def run(
     tool_env = ToolEnvironment.from_env()
     log_path = outdir / "master.log"
 
+    cds_args = ["--cds", str(cds_path)] if cds_path else []
     jid = submit_bsub(
-        cmd=[python_bin, "-m", "tarsus.orchestration", str(outdir), str(fasta_path),
+        cmd=[python_bin, "-m", "tarsus.orchestration", *cds_args,
+             str(outdir), str(fasta_path),
              *[str(f) for f in raw_files]],
         job_name="tarsus_master",
         queue=queue,
