@@ -188,3 +188,35 @@ class TestFractionMerging:
             "HouYM-25-G140-AstralDDA-AlaGGC-LS-1:2:2",
         ]})
         assert len(set(_detect_groups(df2).values())) == 2, "HS/LS are distinct samples"
+
+
+class TestHeatmapAxes:
+    """Origin and destination axes carry DIFFERENT alphabets (D-065).
+
+    Origin is genome-known (real I or L, never I/L); destination is mass-only (I/L,
+    never bare I or L). Forcing a shared square axis printed empty `I/L` origin rows
+    and empty `I`/`L` destination columns — the phantom cells Slava flagged.
+    """
+
+    def test_origin_rows_and_destination_cols_are_independent(self, tmp_path) -> None:
+        import polars as pl
+        from src.tarsus.steps.step12_visualize import (
+            _ensure_aa_order, _plot_substitution_heatmap,
+        )
+        df = pl.DataFrame({
+            "origin":      ["I", "L", "T", "V"],   # real residues
+            "destination": ["I/L", "V", "S", "I/L"],
+        })
+        mat = (df.group_by(["origin", "destination"]).len()
+               .pivot(index="origin", on="destination", values="len").fill_null(0))
+        origins = _ensure_aa_order(mat["origin"].to_list())
+        dests = _ensure_aa_order([c for c in mat.columns if c != "origin"])
+
+        assert "I/L" not in origins, "origin axis must NOT show I/L"
+        assert "I" in origins and "L" in origins, "origin axis must show real I and L"
+        assert "I" not in dests and "L" not in dests, "destination axis must NOT show bare I/L"
+        assert "I/L" in dests, "destination axis must show I/L"
+
+        # And it renders without forcing a square shared axis.
+        _plot_substitution_heatmap(df, tmp_path / "h.png")
+        assert (tmp_path / "h.png").is_file()

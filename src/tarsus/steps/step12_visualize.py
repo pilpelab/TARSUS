@@ -94,37 +94,44 @@ def _ensure_aa_order(values: list[str]) -> list[str]:
 
 
 def _plot_substitution_heatmap(df: pl.DataFrame, out: Path) -> None:
-    """Origin x destination count heatmap."""
+    """Origin x destination count heatmap.
+
+    The two axes have **different alphabets** and must not be forced square (D-065):
+    the origin is the residue read from the genome, so it is a real ``I`` or ``L`` and
+    **never** ``I/L``; the destination is seen only by mass, so it is ``I/L`` and never
+    a bare ``I`` or ``L``. Each axis therefore lists only the values it actually
+    holds — merging them into one shared axis printed empty ``I/L`` origin rows and
+    empty ``I``/``L`` destination columns.
+    """
     mat = (
         df.group_by(["origin", "destination"])
         .len()
         .pivot(index="origin", on="destination", values="len")
         .fill_null(0)
     )
-    # Build a full square matrix on _AA_ORDER.
+    # Independent axes: rows = origins present, cols = destinations present.
     origins = _ensure_aa_order(mat["origin"].to_list())
-    dests = _ensure_aa_order(
-        [c for c in mat.columns if c not in ("origin",)]
-    )
-    all_aas = _ensure_aa_order(list(set(origins + dests)))
+    dests = _ensure_aa_order([c for c in mat.columns if c != "origin"])
 
-    data = np.zeros((len(all_aas), len(all_aas)))
-    row_idx = {aa: i for i, aa in enumerate(all_aas)}
+    row_idx = {aa: i for i, aa in enumerate(origins)}
+    col_idx = {aa: j for j, aa in enumerate(dests)}
+    data = np.zeros((len(origins), len(dests)))
     for row in mat.iter_rows(named=True):
-        o = row["origin"]
-        if o not in row_idx:
-            continue
+        i = row_idx[row["origin"]]
         for d in dests:
-            if d not in row_idx:
-                continue
-            data[row_idx[o]][row_idx[d]] = row.get(d, 0) or 0
+            data[i][col_idx[d]] = row.get(d, 0) or 0
 
-    fig, ax = plt.subplots(figsize=(10, 8))
-    mask = np.eye(len(all_aas), dtype=bool)
+    # Grey out any self-substitution cell (same label on both axes) — these are
+    # not real substitutions and are always empty; masking keeps them from reading
+    # as a measured zero.
+    mask = np.array([[o == d for d in dests] for o in origins], dtype=bool)
+
+    fig, ax = plt.subplots(figsize=(max(8, 0.6 * len(dests) + 2),
+                                    max(6, 0.6 * len(origins) + 2)))
     sns.heatmap(
         data,
-        xticklabels=all_aas,
-        yticklabels=all_aas,
+        xticklabels=dests,
+        yticklabels=origins,
         mask=mask,
         square=True,
         cmap="YlOrRd",
