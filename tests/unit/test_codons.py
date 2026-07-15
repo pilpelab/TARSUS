@@ -5,6 +5,7 @@ from pathlib import Path
 from src.tarsus.codons import (
     ALL_AA,
     ALL_CODONS,
+    ALL_ORIGIN_AA,
     GENCODE,
     UNRESOLVED,
     codon_counts,
@@ -191,32 +192,37 @@ class TestFractionMerging:
 
 
 class TestHeatmapAxes:
-    """Origin and destination axes carry DIFFERENT alphabets (D-065).
+    """The substitution heatmap is a FIXED 20 x 19 grid (D-065).
 
-    Origin is genome-known (real I or L, never I/L); destination is mass-only (I/L,
-    never bare I or L). Forcing a shared square axis printed empty `I/L` origin rows
-    and empty `I`/`L` destination columns — the phantom cells Slava flagged.
+    20 origin AAs (I and L separate — origin is genome-known, never I/L) x 19
+    destination classes (I/L merged — destination is mass-only). Hard-coded and
+    complete: an absent origin/destination is an empty row/column, never dropped, so
+    every run's heatmap is comparable cell-for-cell.
     """
 
-    def test_origin_rows_and_destination_cols_are_independent(self, tmp_path) -> None:
+    def test_axes_are_the_fixed_20_by_19(self) -> None:
+        assert len(ALL_ORIGIN_AA) == 20
+        assert "I" in ALL_ORIGIN_AA and "L" in ALL_ORIGIN_AA and "I/L" not in ALL_ORIGIN_AA
+        assert len(ALL_AA) == 19
+        assert "I/L" in ALL_AA and "I" not in ALL_AA and "L" not in ALL_AA
+        # Column-aligned: the 18 non-isobaric classes sit in the same order.
+        assert [a for a in ALL_ORIGIN_AA if a not in ("I", "L")] == \
+               [a for a in ALL_AA if a != "I/L"]
+
+    def test_absent_residues_are_kept_not_dropped(self, tmp_path) -> None:
+        """A tiny input (one substitution) still yields the full 20 x 19 grid."""
+        import numpy as np
         import polars as pl
-        from src.tarsus.steps.step12_visualize import (
-            _ensure_aa_order, _plot_substitution_heatmap,
-        )
-        df = pl.DataFrame({
-            "origin":      ["I", "L", "T", "V"],   # real residues
-            "destination": ["I/L", "V", "S", "I/L"],
-        })
-        mat = (df.group_by(["origin", "destination"]).len()
-               .pivot(index="origin", on="destination", values="len").fill_null(0))
-        origins = _ensure_aa_order(mat["origin"].to_list())
-        dests = _ensure_aa_order([c for c in mat.columns if c != "origin"])
+        from src.tarsus.steps.step12_visualize import _plot_substitution_heatmap
 
-        assert "I/L" not in origins, "origin axis must NOT show I/L"
-        assert "I" in origins and "L" in origins, "origin axis must show real I and L"
-        assert "I" not in dests and "L" not in dests, "destination axis must NOT show bare I/L"
-        assert "I/L" in dests, "destination axis must show I/L"
-
-        # And it renders without forcing a square shared axis.
+        df = pl.DataFrame({"origin": ["T"], "destination": ["S"]})
         _plot_substitution_heatmap(df, tmp_path / "h.png")
         assert (tmp_path / "h.png").is_file()
+
+        # The rendered grid must be exactly 20 x 19 regardless of how few AAs occur.
+        counts = {(r["origin"], r["destination"]): r["len"]
+                  for r in df.group_by(["origin", "destination"]).len().iter_rows(named=True)}
+        data = np.array([[float(counts.get((o, d), 0)) for d in ALL_AA]
+                         for o in ALL_ORIGIN_AA])
+        assert data.shape == (20, 19)
+        assert data.sum() == 1.0  # the lone T->S; everything else a kept, empty cell

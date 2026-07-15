@@ -28,6 +28,7 @@ from matplotlib.patches import Rectangle
 from ..codons import (
     ALL_AA,
     ALL_CODONS,
+    ALL_ORIGIN_AA,
     GENCODE,
     NECE_MASK_CSV,
     SIXTY_TWENTY_MASK_CSV,
@@ -94,40 +95,36 @@ def _ensure_aa_order(values: list[str]) -> list[str]:
 
 
 def _plot_substitution_heatmap(df: pl.DataFrame, out: Path) -> None:
-    """Origin x destination count heatmap.
+    """Origin x destination count heatmap — a **fixed 20 x 19 grid**.
 
-    The two axes have **different alphabets** and must not be forced square (D-065):
-    the origin is the residue read from the genome, so it is a real ``I`` or ``L`` and
-    **never** ``I/L``; the destination is seen only by mass, so it is ``I/L`` and never
-    a bare ``I`` or ``L``. Each axis therefore lists only the values it actually
-    holds — merging them into one shared axis printed empty ``I/L`` origin rows and
-    empty ``I``/``L`` destination columns.
+    The axes are hard-coded and complete, never derived from the data: **20 origin**
+    amino acids down (Ile and Leu separate — the origin is read from the genome, so it
+    is a real ``I`` or ``L``, never ``I/L``) x **19 destination** classes across (Ile
+    and Leu merged to ``I/L`` — a misincorporation is seen only by mass). An origin or
+    destination that happens not to occur in a given run is drawn as an empty row/
+    column, not dropped, so every heatmap is directly comparable cell-for-cell.
+
+    See :data:`ALL_ORIGIN_AA` (20) and :data:`ALL_AA` (19); this is the amino-acid
+    companion to the 61x19 codon heatmap.
     """
-    mat = (
-        df.group_by(["origin", "destination"])
-        .len()
-        .pivot(index="origin", on="destination", values="len")
-        .fill_null(0)
+    counts: dict[tuple[str, str], int] = {
+        (r["origin"], r["destination"]): r["len"]
+        for r in df.group_by(["origin", "destination"]).len().iter_rows(named=True)
+    }
+
+    origins, dests = ALL_ORIGIN_AA, ALL_AA
+    data = np.array(
+        [[float(counts.get((o, d), 0)) for d in dests] for o in origins]
     )
-    # Independent axes: rows = origins present, cols = destinations present.
-    origins = _ensure_aa_order(mat["origin"].to_list())
-    dests = _ensure_aa_order([c for c in mat.columns if c != "origin"])
 
-    row_idx = {aa: i for i, aa in enumerate(origins)}
-    col_idx = {aa: j for j, aa in enumerate(dests)}
-    data = np.zeros((len(origins), len(dests)))
-    for row in mat.iter_rows(named=True):
-        i = row_idx[row["origin"]]
-        for d in dests:
-            data[i][col_idx[d]] = row.get(d, 0) or 0
+    # Grey out self-substitution cells (undetectable, always empty): the same
+    # residue on both axes, plus the two isobaric self-cells I->I/L and L->I/L.
+    mask = np.array(
+        [[o == d or (o in ("I", "L") and d == "I/L") for d in dests] for o in origins],
+        dtype=bool,
+    )
 
-    # Grey out any self-substitution cell (same label on both axes) — these are
-    # not real substitutions and are always empty; masking keeps them from reading
-    # as a measured zero.
-    mask = np.array([[o == d for d in dests] for o in origins], dtype=bool)
-
-    fig, ax = plt.subplots(figsize=(max(8, 0.6 * len(dests) + 2),
-                                    max(6, 0.6 * len(origins) + 2)))
+    fig, ax = plt.subplots(figsize=(11, 11))
     sns.heatmap(
         data,
         xticklabels=dests,

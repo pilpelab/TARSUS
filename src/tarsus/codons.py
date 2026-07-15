@@ -77,10 +77,20 @@ ALL_CODONS: list[str] = [
     "TGG",
 ]
 
-#: The 19 destination classes — Ile and Leu merged, exactly as Step 11 emits them.
+#: The 19 **destination** classes — Ile and Leu merged (`I/L`), exactly as Step 11
+#: emits them. A misincorporated residue is seen only by mass, so I and L are one.
 ALL_AA: list[str] = [
     "A", "Q", "Y", "W", "N", "S", "R", "G", "M", "H",
     "C", "V", "K", "F", "T", "E", "D", "I/L", "P",
+]
+
+#: The 20 **origin** amino acids — Ile and Leu **separate**. The origin residue is
+#: read from the genome (the codon spells out I vs L), so it is never ambiguous
+#: (D-065). Same order as :data:`ALL_AA` with the merged `I/L` split back into `I`,
+#: `L`, so the two heatmap axes stay column-aligned.
+ALL_ORIGIN_AA: list[str] = [
+    "A", "Q", "Y", "W", "N", "S", "R", "G", "M", "H",
+    "C", "V", "K", "F", "T", "E", "D", "I", "L", "P",
 ]
 
 #: Sentinel for a substitution whose codon could not be resolved. Counted and
