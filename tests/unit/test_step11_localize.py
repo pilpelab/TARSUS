@@ -254,38 +254,66 @@ class TestGetVarModPositions:
 
 
 class TestIsobaricIlLabel:
-    """`I` -> `I/L` is the pipeline's LAST act, and the ordering is load-bearing.
+    """Origin is KNOWN (I or L), destination is ambiguous (I/L) — D-065.
 
-    Ile and Leu are isobaric (113.08406 Da). Step 3b collapses both onto `I` and the
-    whole pipeline runs on that single letter, so an `I` in the results genuinely
-    means "I or L". `_label_isobaric_il` says so out loud, on the way out.
+    Ile and Leu share a mass, but the two ends of a substitution differ. The ORIGIN
+    is the reference residue at the substituted position — fixed by the genome codon,
+    so it is a definite `I` or `L`, recovered from `base[mistranslated_pos]`. The
+    DESTINATION is the misincorporated residue, seen only by mass, so it is genuinely
+    `I/L`. (D-064 wrongly collapsed both; Slava corrected it.)
 
-    It must run AFTER `localize_shift`. The `/` fails **silently** upstream, in the
-    `.get() -> None -> continue` mode behind D-048/D-049/D-057. See D-064.
+    The relabel must still run AFTER `localize_shift`: the `/` fails **silently**
+    upstream, in the `.get() -> None -> continue` mode behind D-048/D-049/D-057.
     """
 
-    def test_relabels_both_columns(self) -> None:
-        df = pl.DataFrame({
-            "origin": ["T", "I", "V"],
-            "destination": ["S", "V", "I"],
+    def _df(self, origin: list[str], dest: list[str], base: list[str],
+            pos: list[int]) -> pl.DataFrame:
+        return pl.DataFrame({
+            "origin": origin, "destination": dest,
+            "base": base, "mistranslated_pos": pos,
         })
-        out = _label_isobaric_il(df)
-        assert out["origin"].to_list() == ["T", "I/L", "V"]
-        assert out["destination"].to_list() == ["S", "V", "I/L"]
 
-    def test_relabel_drops_no_rows(self) -> None:
-        """The relabel is cosmetic — it must never change the row count."""
-        df = pl.DataFrame({
-            "origin": ["T", "I", "V", "I"],
-            "destination": ["S", "V", "I", "S"],
-        })
-        assert _label_isobaric_il(df).height == df.height == 4
-
-    def test_no_bare_I_or_L_survives(self) -> None:
-        df = pl.DataFrame({"origin": ["I"], "destination": ["I"]})
+    def test_origin_recovered_from_base_destination_becomes_IL(self) -> None:
+        # base[pos]: THR at 1 -> T; ILE at 0 -> I; base "PEPTLDE" at 4 -> L
+        df = self._df(
+            origin=["I", "I", "I"],          # header class — should be overridden
+            dest=["S", "V", "V"],
+            base=["FTGQ", "IEK", "PEPTLDE"],
+            pos=[1, 0, 4],
+        )
         out = _label_isobaric_il(df)
-        assert "I" not in out["origin"].to_list()
-        assert "I" not in out["destination"].to_list()
+        assert out["origin"].to_list() == ["T", "I", "L"], "origin = real base residue"
+        assert out["destination"].to_list() == ["S", "V", "V"], "no I dest -> no I/L"
+
+    def test_leu_origin_is_labelled_L_not_IL_and_not_I(self) -> None:
+        out = _label_isobaric_il(self._df(["I"], ["S"], ["PEPTLDE"], [4]))
+        assert out["origin"][0] == "L"
+        assert out["origin"][0] not in ("I/L", "I")
+
+    def test_destination_I_becomes_IL(self) -> None:
+        out = _label_isobaric_il(self._df(["V"], ["I"], ["VEK"], [0]))
+        assert out["destination"][0] == "I/L"
+
+    def test_non_isobaric_origin_untouched(self) -> None:
+        out = _label_isobaric_il(self._df(["T"], ["S"], ["TEST"], [0]))
+        assert out["origin"][0] == "T" and out["destination"][0] == "S"
+
+    def test_drops_no_rows(self) -> None:
+        df = self._df(["I", "T", "I"], ["V", "S", "S"],
+                      ["IEK", "TEST", "PEPTLDE"], [0, 0, 4])
+        assert _label_isobaric_il(df).height == df.height == 3
+
+    def test_idempotent(self) -> None:
+        """Guards the in-place relabel of existing outputs: applying twice == once.
+
+        Origin is recomputed from `base` regardless of its current value, so a second
+        pass reproduces the same letter rather than mangling `I/L` back into a lookup.
+        """
+        df = self._df(["I", "T"], ["V", "S"], ["PEPTLDE", "TEST"], [4, 0])
+        once = _label_isobaric_il(df)
+        twice = _label_isobaric_il(once)
+        assert twice["origin"].to_list() == once["origin"].to_list() == ["L", "T"]
+        assert twice["destination"].to_list() == once["destination"].to_list()
 
     def test_the_landmine_relabelling_early_would_silently_drop_every_IL_row(self) -> None:
         """**Why the relabel must come last.** This is the regression test.

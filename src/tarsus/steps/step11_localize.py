@@ -267,30 +267,41 @@ def localize_shift(
 
 
 def _label_isobaric_il(localized: pl.DataFrame) -> pl.DataFrame:
-    """Relabel the collapsed ``I`` class as ``I/L`` — the pipeline's last act.
+    """Label the isobaric pair correctly — the pipeline's last act.
 
-    Ile and Leu are isobaric (113.08406 Da). Step 3b collapses both onto the single
-    letter ``I`` and the entire pipeline runs on it, so an ``I`` here genuinely
-    means *"I or L"*. This says so out loud.
+    Ile and Leu share a mass (113.08406 Da), but the two ends of a substitution are
+    **not** equally ambiguous (D-065, Slava's correction of D-064):
+
+    - **origin** is the residue *before* the error. It comes from the base peptide,
+      which maps to the reference proteome, whose sequence is fixed by the genome
+      codon (I = ATT/ATC/ATA, L = CTN/TTA/TTG). So the origin is **known** — it is
+      literally ``base[mistranslated_pos]``, a definite ``I`` or ``L``.
+    - **destination** is the *misincorporated* residue, seen only by MS mass. That is
+      genuinely ``I/L`` — the mass cannot tell Ile from Leu, and a misincorporation is
+      not on the genome to look up.
+
+    So origin is recovered from ``base`` (authoritative — verified to match the
+    header-derived origin on every non-I/L row across all runs), and only the
+    destination collapses to ``I/L``.
 
     **This must run after :func:`localize_shift` and immediately before the write.**
-    The ``/`` cannot exist anywhere upstream, and it fails *silently* in two places
-    if it does:
+    The ``/`` cannot exist upstream — it fails *silently* in two places if it does:
 
-    - ``step07_analyze_outputs.py:327`` — origin/destination are extracted from the
-      FASTA header with ``_(\\w)(\\d+)(\\w)``, and ``\\w`` is ``[A-Za-z0-9_]``: it
-      does **not** match ``/``. A header ``_T5I/L`` yields destination ``"I"``, the
-      ``L`` quietly dropped.
+    - ``step07_analyze_outputs.py:327`` — the header regex ``_(\\w)(\\d+)(\\w)`` and
+      ``\\w`` (``[A-Za-z0-9_]``) does **not** match ``/``; ``_T5I/L`` would yield
+      destination ``"I"``, the ``L`` quietly dropped.
     - ``step11_localize.py:222`` — ``SUBSTITUTION_SHIFTS.get(origin, {}).get(dest)``
-      returns ``None`` for ``I/L`` (``AA_MONO`` has no such key) and the next line
-      is ``continue``: **every I/L row would vanish from the results.**
+      returns ``None`` for ``I/L`` (``AA_MONO`` has no such key) → ``continue``:
+      **every I/L row would vanish.**
 
-    Both are the ``.get() -> None -> continue`` mode behind D-048, D-049 and D-057.
-    Relabelling only here sidesteps both, and is why ``AA_MONO`` needs no ``I/L``
-    entry. See D-064.
+    Both are the ``.get() -> None -> continue`` mode behind D-048/D-049/D-057. The
+    mass lookup above ran on the *class* ``I`` (valid, and mass-correct since Ile and
+    Leu share a mass); the real-residue label is applied only here. **Idempotent** —
+    origin is recomputed from ``base`` regardless of its current value, so this is
+    safe to re-apply to an already-labelled file.
     """
     return localized.with_columns(
-        pl.col("origin").replace({"I": "I/L"}),
+        pl.col("base").str.slice(pl.col("mistranslated_pos"), 1).alias("origin"),
         pl.col("destination").replace({"I": "I/L"}),
     )
 

@@ -1245,3 +1245,30 @@ So "it's a feature" does not survive line 31 — you do not write a rename to un
 - Guard (`check_library_spectrum`) now pins: no `L` as origin/destination (the matrix lookup *cannot* catch this — `matrix["L"]` does not exist, so `.get("L", {})` returns `{}` and a stray `L` sails through); `A->I` == 0; `I->V` > 0 (zero the moment anyone reintroduces the reference's skip); plus D-061's `T->S` and D-062's `F->M`.
 
 **Lesson (the transferable one).** An isobaric ambiguity is *plumbing, not science*. Collapse it to one symbol at the boundary, compute on the symbol, and label it honestly on the way out. Never let a display label into a lookup key.
+
+## D-065: I/L — origin is KNOWN (I or L), only the destination is I/L
+**Date:** 2026-07-15
+**Supersedes:** the ORIGIN half of D-064. The destination half of D-064 stands.
+
+**Context.** Slava corrected D-064. D-064 collapsed BOTH ends of the isobaric pair onto `I` and relabelled both to `I/L`. The two ends are not equally ambiguous:
+
+- **origin** — the residue *before* misincorporation. It comes from the base peptide, which maps to the reference proteome, whose sequence is fixed by the **genome codon** (I = ATT/ATC/ATA, L = CTN/TTA/TTG). So the origin is **known**: it is literally `base[mistranslated_pos]`, a definite `I` or `L`.
+- **destination** — the *misincorporated* residue, seen only by MS mass (113.08406 Da). Ile and Leu are isobaric and a misincorporation is not on the genome to look up, so the destination is genuinely `I/L`.
+
+Slava: *"we do know if it's I or from L with the origin, because it matches back to the genome; but we don't know with the destination."*
+
+**Decision.**
+- `_label_isobaric_il` (step 11, the pipeline's last act) now sets `origin = base[mistranslated_pos]` (real residue) and keeps only `destination: I -> I/L`.
+- The mass lookup at `step11:222` is UNTOUCHED — it still reads subs.ipc's origin, which is the class `I` (a valid `SUBSTITUTION_SHIFTS` key, and mass-correct since Ile and Leu share a mass). The real-residue origin is a **display** concern applied only at the end. This keeps the D-064 principle intact: *never let a display label into a lookup key*. `L` never has to reach the lookup.
+- step 12 `_AA_ORDER` restores `I` and `L` as separate entries alongside `I/L`: the origin axis shows real I/L, the destination axis shows I/L.
+
+**No rerun needed.** The search space is identical (step 3b, the library, `_residue_class` matching, the destination merge, and the FASTA headers are all unchanged), so every FDR threshold and every count is identical — only the origin *label* changes. And the origin was recoverable from the intact `base` column of every existing output. Verified read-only across all four completed runs: `base[mistranslated_pos] == origin` for **every non-I/L row** (0 mismatches, no off-by-one), and the I/L-origin rows split cleanly into real I and L with 0 unresolved:
+  - trial 39 I/L -> I=15, L=24
+  - alaggcpar 56 -> I=30, L=26
+  - orly 61 -> I=30, L=31
+  - hoMS 0 -> 0
+So the four existing outputs were relabelled **in place** by re-applying the fixed function (idempotent: origin recomputed from `base` regardless of its current value) and regenerating step 12 — no LSF, no `tarsus run`.
+
+**The codon heatmap already realised this model.** The 61x19 figure's rows are *codons* (origin at codon resolution — strictly more specific than I vs L, and genome-derived) and its columns are the 19 destination classes with `I/L` merged. It never read the amino-acid `origin` column, so it needed no change: it was already exactly Slava's model.
+
+**Lesson.** "Isobaric" is a property of the *measurement*, not of the *position*. The mass is ambiguous; the genome is not. When one end of a comparison is measured and the other is looked up in a reference, do not apply the measurement's ambiguity to the reference end. Related: [[il-is-plumbing-not-science]].
