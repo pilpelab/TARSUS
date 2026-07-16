@@ -1334,6 +1334,20 @@ spectra, identical first pass (symlinked), identical parameters** — the ONLY v
 **Result: REFUTED.** An 80x smaller library moved the final answer by **one substitution**.
 Step 7 even fell (167 -> 158).
 
+**And the two result sets are nearly the same set, not merely the same size** — the strongest
+form of the result:
+
+| | |
+|---|---|
+| shared spectra | **38** |
+| found only by the proteome-wide run | **0** |
+| found only by the GAPDH-only run | 1 |
+| Jaccard | **0.97** |
+
+The GAPDH-only run recovered **every** substitution the proteome-wide run found, plus one. So
+the 80x larger search space lost **nothing**. This is a direct measurement of robustness, not an
+inference from matching totals.
+
 **What is true.** The FDR mechanism is real **at the search stage**: 80x fewer candidates -> 53%
 more second-pass PSMs, with FDR still controlled (0 decoy PSMs accepted in both). It is
 **inert downstream** — the extra 4,765 PSMs die at PepQuery, whose confident count is
