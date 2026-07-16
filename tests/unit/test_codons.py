@@ -114,26 +114,39 @@ class TestLoadCds:
 
 
 class TestSixtyTwentyMatrix:
-    """The 61x19 matrix and its two masks must stay aligned.
+    """The 64x19 matrix and its two masks must stay aligned.
 
-    A misaligned mask silently greys out the wrong cells — the figure still renders,
-    and it is wrong in a way no exception reports.
+    All 64 codons (61 sense + 3 stops) x 19 destination classes — the full genetic
+    table, drawn complete so every pipeline's heatmap is the same fixed grid. A
+    misaligned mask silently greys the wrong cells: the figure renders and is wrong
+    in a way no exception reports.
     """
+
+    def test_matrix_is_the_full_64_codons(self) -> None:
+        from src.tarsus.codons import ALL_CODONS_64, STOP_CODONS
+        assert len(ALL_CODONS_64) == 64
+        assert set(ALL_CODONS) < set(ALL_CODONS_64)
+        assert all(s in ALL_CODONS_64 for s in STOP_CODONS)
+        assert all(GENCODE[s] == "_" for s in STOP_CODONS)
 
     def test_cognate_cells_are_all_masked_and_rows_align(self) -> None:
         import pandas as pd
-        from src.tarsus.codons import NECE_MASK_CSV, SIXTY_TWENTY_MASK_CSV
+        from src.tarsus.codons import ALL_CODONS_64, NECE_MASK_CSV, SIXTY_TWENTY_MASK_CSV
         from src.tarsus.steps.step12_visualize import _load_masks, _multiindex_codon_aa
 
-        mat = pd.DataFrame(0.0, index=ALL_CODONS, columns=ALL_AA)
+        mat = pd.DataFrame(0.0, index=ALL_CODONS_64, columns=ALL_AA)
         mi = _multiindex_codon_aa(mat)
+        assert mi.shape[0] == 64, "the heatmap is the full 64-codon grid"
         grey, nece_cells = _load_masks(mi.index, mi.columns)
 
         assert list(grey.index) == list(mi.index), "mask rows must match the matrix"
         assert list(grey.columns) == list(mi.columns)
 
-        # Every codon's own amino acid (its cognate cell) must be greyed out.
+        # Every SENSE codon's cognate cell must be greyed. Stops (aa "*") have no
+        # amino-acid column and no cognate cell — they are shown but unmasked.
         for codon, aa in mi.index:
+            if aa == "*":
+                continue
             col = "I/L" if aa in ("I", "L") else aa
             assert bool(grey.loc[(codon, aa), col]), f"{codon} cognate cell not masked"
 

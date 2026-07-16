@@ -27,7 +27,7 @@ from matplotlib.patches import Rectangle
 
 from ..codons import (
     ALL_AA,
-    ALL_CODONS,
+    ALL_CODONS_64,
     ALL_ORIGIN_AA,
     GENCODE,
     NECE_MASK_CSV,
@@ -305,12 +305,18 @@ def _plot_protein_burden(df: pl.DataFrame, out: Path, top_n: int = 20) -> None:
 def build_sixty_twenty(
     df: pl.DataFrame, cds_fasta: Path,
 ) -> tuple[pd.DataFrame, int]:
-    """Build the 61 codon x 19 amino-acid substitution matrix.
+    """Build the **64 codon x 19 amino-acid** substitution matrix.
 
     Mistranslation happens in **codon** space, not amino-acid space: an engineered
     tRNA reads one specific codon. `AlaGGC` inserts Ala at **GGC** — and Gly has four
     codons, so an amino-acid-level ``G->A`` count smears the signal across three codons
     the tRNA never touches. This is the resolution the experiment actually happens at.
+
+    The grid is the full genetic-code table: **all 64 codons** (the 61 sense codons
+    plus the 3 stops) down, **19 destination classes** (Ile/Leu merged) across. Stop
+    codons never carry a substitution in a translated peptide, so their rows are
+    empty — but they are drawn, not dropped, so every pipeline yields the same fixed
+    64 x 19 grid.
 
     Returns:
         ``(matrix, n_unresolved)``. The caller **must** surface *n_unresolved* — a
@@ -327,7 +333,7 @@ def build_sixty_twenty(
 
     counts, unresolved = codon_counts(rows, cds)
 
-    mat = pd.DataFrame(0.0, index=ALL_CODONS, columns=ALL_AA)
+    mat = pd.DataFrame(0.0, index=ALL_CODONS_64, columns=ALL_AA)
     for (codon, dest), n in counts.items():
         if codon in mat.index and dest in mat.columns:
             mat.loc[codon, dest] = float(n)
@@ -335,9 +341,14 @@ def build_sixty_twenty(
 
 
 def _multiindex_codon_aa(mat: pd.DataFrame) -> pd.DataFrame:
-    """Index rows by (codon, its amino acid), sorted by amino acid — the lab's layout."""
+    """Index rows by (codon, its amino acid), sorted by amino acid — the lab's layout.
+
+    Stop codons (``GENCODE`` maps them to ``_``) are relabelled ``*`` so the y-axis
+    group reads clearly; they sort together at the end.
+    """
     idx = pd.MultiIndex.from_tuples(
-        [(c, GENCODE[c]) for c in mat.index], names=["codons", "amino acid"],
+        [(c, "*" if GENCODE[c] == "_" else GENCODE[c]) for c in mat.index],
+        names=["codons", "amino acid"],
     )
     return mat.set_index(idx).sort_index(level=1)
 
@@ -463,22 +474,22 @@ def step12_visualize(
         print(
             f"[step12] {unresolved} of {df.height} substitutions had no unambiguous "
             f"codon (peptide absent from the CDS, or mapping to proteins that "
-            f"disagree) and are EXCLUDED from the 61x19 heatmap."
+            f"disagree) and are EXCLUDED from the 64x19 heatmap."
         )
 
     sns.set_context("poster", font_scale=0.7)
     mat_mi = _multiindex_codon_aa(mat)
     mat_mi.to_csv(viz_dir / "sixty_twenty.csv")
     _plot_sixty_twenty(mat_mi, viz_dir / "sixty_twenty.png",
-                       "Substitutions per codon", dpi)
+                       "Substitutions per codon (64 x 19)", dpi)
 
     log_mi = pd.DataFrame(
         np.log2(mat_mi.values + 1), index=mat_mi.index, columns=mat_mi.columns,
     )
     _plot_sixty_twenty(log_mi, viz_dir / "sixty_twenty_log.png",
-                       "Substitutions per codon (log2 + 1)", dpi)
+                       "Substitutions per codon (64 x 19, log2 + 1)", dpi)
     sns.set_context("talk", font_scale=0.9)
 
     total = int(mat.values.sum())
-    print(f"[step12] 61x19 codon heatmap: {total:,} substitutions placed on codons")
+    print(f"[step12] 64x19 codon heatmap: {total:,} substitutions on {mat.shape[0]} codons")
     return viz_dir

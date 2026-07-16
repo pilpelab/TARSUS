@@ -77,6 +77,15 @@ ALL_CODONS: list[str] = [
     "TGG",
 ]
 
+#: The three stop codons (``GENCODE`` maps them to ``_``).
+STOP_CODONS: list[str] = ["TAA", "TAG", "TGA"]
+
+#: All **64** codons — the 61 sense codons plus the 3 stops. The heatmap draws the
+#: complete table: a stop codon carries no substitution in a translated peptide, so
+#: its row is always empty, but it is shown (never dropped) so every pipeline's codon
+#: heatmap is the same fixed 64 x 19 grid and is comparable cell-for-cell.
+ALL_CODONS_64: list[str] = ALL_CODONS + STOP_CODONS
+
 #: The 19 **destination** classes — Ile and Leu merged (`I/L`), exactly as Step 11
 #: emits them. A misincorporated residue is seen only by mass, so I and L are one.
 ALL_AA: list[str] = [
