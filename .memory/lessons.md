@@ -283,3 +283,40 @@ mistranslation. See D-053.
 - **Config not externalized.** 9 steps hardcode `queue="gsla-cpu"`; `--queue` reaches only the master
   job. `.agents/project.md` promises per-lab overridability; the repo does not deliver it. This is the
   real blocker for the stated cross-lab goal.
+
+## polars `read_ipc` mmaps by default — writing back to the same path destroys the file
+
+**Date:** 2026-07-16 (during D-065)
+
+`pl.read_ipc(path)` **memory-maps** the file. String columns keep pointing into that
+mapping. `write_ipc(path)` to the **same path** then truncates the file *while the
+mapping is live*, so the write reads freed pages → **SIGBUS/SIGSEGV, and the file is
+left at 0 bytes.**
+
+This destroyed `output/trial/07_analyze/subs.ipc` (2,940 rows → 0 bytes), and it is
+the real cause of two earlier crashes I misdiagnosed:
+- exit 139 during the D-065 relabel loop — I blamed **matplotlib**. It was this.
+- `hoMS/11_localized/subs_localized.csv` at 0 bytes — I blamed the same phantom
+  matplotlib segfault. It was the `.csv` write that followed the `.ipc` write-back.
+
+It does **not** reproduce on a small synthetic frame (polars materialises those), so a
+quick repro will lie to you. It bites on real files.
+
+**The rule for any read-modify-write of an `.ipc`:**
+
+```python
+d = pl.read_ipc(p, memory_map=False)   # do not mmap the file we are about to clobber
+out = d.with_columns(...)
+tmp = p.with_suffix(".ipc.tmp")
+out.write_ipc(tmp)                     # write elsewhere...
+os.replace(tmp, p)                     # ...then replace atomically
+```
+
+`memory_map=False` removes the hazard; the temp+`os.replace` makes the write atomic, so
+a crash leaves the **old** file intact instead of a 0-byte stub.
+
+**Transferable lesson.** In-place rewrite of a memory-mapped file is not an edit, it is
+a use-after-free with a filename. And when a crash and a truncated file appear together,
+suspect *the writer*, not whatever library happened to run next — I blamed matplotlib
+twice because it was the noisiest thing in the traceback's neighbourhood, and it was
+innocent both times.
