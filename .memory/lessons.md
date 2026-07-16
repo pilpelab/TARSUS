@@ -320,3 +320,38 @@ a use-after-free with a filename. And when a crash and a truncated file appear t
 suspect *the writer*, not whatever library happened to run next — I blamed matplotlib
 twice because it was the noisiest thing in the traceback's neighbourhood, and it was
 innocent both times.
+
+## A bigger search library makes you LESS sensitive, not more
+
+**Date:** 2026-07-16
+
+Step 3b mutagenizes **every peptide the first pass identified**. That is the whole search space,
+and nobody chooses it explicitly — it falls out of how many peptides you happened to identify.
+
+FragPipe holds FDR by counting **decoys**, and every candidate gets a decoy twin. More
+candidates → more decoys scoring well by chance → MSFragger **raises the score threshold** to
+keep FDR at 1%. **The same spectrum, same evidence, same parameters, passes in a small search
+and fails in a large one.**
+
+Measured (hoMS/GAPDH, identical raw data and parameters):
+
+| | library base peptides | forward candidates | second-pass PSMs |
+|---|---|---|---|
+| GAPDH-focused (reference) | 79 | 23,280 | **16,341** |
+| proteome-wide (ours) | 4,667 | 941,020 | **8,979** |
+
+A **40x larger library gave 1.8x FEWER PSMs**, and that gap propagates untouched: PepQuery
+tested 7,113 vs 4,814 spectra → output 233 vs 167. For a long time I read this as "he is more
+sensitive" and hunted for a defect in our filtering. **There was no defect.** He was searching a
+smaller haystack.
+
+**How to tell which situation you are in:** look at `protein_burden.png`. If one protein carries
+almost everything (hoMS: 43 of 44 rows on GAPDH), you are paying a huge FDR penalty to search
+thousands of peptides you will report nothing from — restrict the library to the target protein.
+If the substitutions are spread across the proteome (E. coli tRNA panel: 84–174 proteins),
+proteome-wide is correct.
+
+**Transferable lesson.** In FDR-controlled search, *the size of the question changes the answer*.
+Comparing yields between two runs is meaningless unless their search spaces are the same size —
+this is the same class of error as D-053 (comparing across FragPipe versions). Before concluding
+"they found more than us," check **what each one searched**.

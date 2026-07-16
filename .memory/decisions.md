@@ -1272,3 +1272,42 @@ So the four existing outputs were relabelled **in place** by re-applying the fix
 **The codon heatmap already realised this model.** The 61x19 figure's rows are *codons* (origin at codon resolution — strictly more specific than I vs L, and genome-derived) and its columns are the 19 destination classes with `I/L` merged. It never read the amino-acid `origin` column, so it needed no change: it was already exactly Slava's model.
 
 **Lesson.** "Isobaric" is a property of the *measurement*, not of the *position*. The mass is ambiguous; the genome is not. When one end of a comparison is measured and the other is looked up in a reference, do not apply the measurement's ambiguity to the reference end. Related: [[il-is-plumbing-not-science]].
+
+## D-066: search-space scope is an experiment-design decision, not a default
+**Date:** 2026-07-16
+
+**Context.** The reference's hoMS/GAPDH run reported 233 output spectra to our 167. I spent
+considerable effort hunting for a filtering defect on our side. There was none — and both
+pipelines apply the *same* `confident | single-SAV` union (his `analyze_outputs.py:123`, our
+`step07:222`) and identical second-pass parameters (precursor ±20, fragment 10, nocleavage, 2
+missed cleavages). The `subs_exclude.csv` files are byte-identical.
+
+**Root cause.** Library scope. Step 3b mutagenizes every first-pass peptide:
+- his library: **79** base peptides (GAPDH-only, verified 79/79 inside ENSP00000229239.5) → 23,280 candidates
+- our library: **4,667** base peptides (proteome-wide) → 941,020 candidates
+
+A ~40x larger database means ~40x more decoys, so MSFragger raises the score threshold to hold
+FDR → **fewer** PSMs survive. Measured: 8,979 vs his 16,341 second-pass PSMs; the gap then
+propagates mechanically (PepQuery tested 4,814 vs 7,113 → output 167 vs 233).
+
+**Evidence that ours is not less capable:** despite testing **1.48x FEWER** spectra, our PepQuery
+produced **MORE** confident validations (**165 vs 151**). Output composition is near-identical
+(his 17% confident, ours 20%). His extra 118 spectra are 104 non-confident / 14 confident.
+
+**Decision.** Library scope is an explicit experiment-design choice, documented in the README:
+- **unknown target protein** (E. coli tRNA panel; substitutions spread over 84–174 proteins) →
+  proteome-wide.
+- **purified/overexpressed single protein** (hoMS = GAPDH; 43 of 44 rows on one gene) →
+  restrict `03a_first_pass/peptide.tsv` to the target before Step 3b.
+
+`protein_burden.png` (Step 12) is the diagnostic that tells you which case you are in.
+
+**Retracted:** my earlier hypothesis that the FragPipe 23.1-vs-24.0 gap drove this. Both searched
+the same human proteome at first pass and **he found MORE peptides there** (5,820 vs 4,854) — the
+version gap is not the driver. (D-053 remains retracted for the same class of error.)
+
+**Also found:** his GAPDH library (2025-09-07) predates his `make_peptides.py`/`subs_exclude.csv`
+(2026-01-15) by four months and violates his own current matrix in 11 classes / 861 candidates
+(`A->I` 137, `T->E` 87, `D->E` 80, `F->M`, …). That is the D-057 stale-artifact pattern in his
+pipeline; his GAPDH numbers are not governed by his current rules. Relevant to *any* head-to-head
+using that dataset.

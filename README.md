@@ -41,6 +41,63 @@ tarsus convert  Step 1 only: convert .raw → .mzML
 - `--input` / `-i` — raw MS files (repeatable)
 - `--output-dir` / `-o` — output directory (auto-structured)
 
+Optional:
+- `--cds` — CDS (nucleotide) FASTA. Enables Step 12's **64×19 codon heatmap**. Mistranslation
+  happens in *codon* space — an engineered tRNA reads ONE codon — so without this the
+  amino-acid-level counts smear the signal across synonymous codons. Absent → that figure is
+  skipped **loudly**, never silently.
+- `--allow-dirty` — run despite uncommitted changes (results become unattributable; see
+  *Provenance* below).
+
+## ⚠️ Read this before interpreting results
+
+### Your search space is set by the first pass — and it costs you sensitivity
+
+Step 3b mutagenizes **every peptide your first pass identified**. Identify 4,854 peptides →
+~941,000 variant candidates. Identify 42 → ~8,000.
+
+FragPipe controls FDR by counting **decoys**, and every candidate gets a decoy twin. A bigger
+library means more decoys scoring well by chance, so to hold FDR at 1% MSFragger must **raise
+the score threshold**. *The same spectrum, with the same evidence and identical parameters, can
+pass in a small search and fail in a large one.*
+
+**So a proteome-wide library is not "more thorough" — it is strictly less sensitive per
+protein.** Measured on the hoMS/GAPDH data: a 40× larger library produced **1.8× fewer**
+second-pass PSMs (8,979 vs 16,341).
+
+**Rule of thumb:**
+- **Don't know which protein?** (e.g. the E. coli tRNA panel) → proteome-wide is right.
+- **Purified / overexpressed single protein?** (e.g. hoMS = GAPDH) → **restrict the library to
+  that protein.** Filter `03a_first_pass/peptide.tsv` to the target before Step 3b. Otherwise
+  you pay a large FDR penalty to search thousands of peptides you will report nothing from.
+
+Check `12_visualize/protein_burden.png` — if one protein carries most of your substitutions,
+you are in the second case.
+
+### Ile / Leu
+
+Ile and Leu are isobaric (113.08406 Da), but the two ends of a substitution are **not**
+equally knowable:
+
+| | source | knowable? | reported as |
+|---|---|---|---|
+| **origin** | the base peptide → reference proteome → **genome codon** | **yes** | a definite `I` or `L` |
+| **destination** | MS **mass** only | **no** | **`I/L`** |
+
+There is no such thing as an `I/L` **origin**. Internally the pipeline collapses the pair to a
+single letter `I` for matching and mass lookups, and only labels `I/L` at the last write — the
+`/` must never reach a lookup key. See `docs/IL-AMBIGUITY.md` and decisions D-064 / D-065.
+
+### Provenance
+
+`tarsus run` **refuses to start from a dirty git tree** and records `git_sha` in
+`provenance.json`. This is not pedantry: twice (D-057, D-061) a Step 3b library built by
+since-fixed code silently invalidated every result, and nothing recorded which code produced
+it. It also warns about any `.done` artifact older than the code that produced it.
+
+**Do not edit `src/` while a run is in flight.** Orchestration imports step modules *lazily*, so
+a mid-run edit is executed by the live job at an arbitrary future step.
+
 ## Output
 
 ```
@@ -58,9 +115,34 @@ output/my-run/
 ├── 09_pepquery_base/      PepQuery base rescoring
 ├── 10_aggregated_base/    Aggregated base results
 ├── 11_localized/          subs_localized.ipc + .csv  ← FINAL
+├── 12_visualize/          plots (see below)
+├── provenance.json        git_sha + args that produced this run
 ├── master.py              Generated orchestration script
 └── master.log             Step-by-step progress log
 ```
+
+**Step 12 figures** (`12_visualize/`):
+
+| file | what |
+|---|---|
+| `sixty_twenty.png` / `_log.png` | **64×19 codon heatmap** — all 64 codons × 19 destination classes. Needs `--cds`. |
+| `substitution_heatmap.png` | fixed **20×19** grid: 20 origin AAs (I/L separate) × 19 destinations (`I/L` merged) |
+| `protein_burden.png` | which proteins carry the substitutions — **check this first** (see the search-space note above) |
+| `origin_frequencies.png`, `top_substitutions.png`, `dpbp_distribution.png` | supporting |
+| `sixty_twenty.csv` | the codon matrix as data |
+
+Both heatmaps are **fixed grids**: an origin/destination/codon that does not occur is drawn as
+an empty cell, never dropped, so runs are comparable cell-for-cell.
+
+## Docs
+
+| file | what |
+|---|---|
+| `docs/IL-AMBIGUITY.md` | the I/L problem and how it is handled (D-064, D-065) |
+| `docs/PIPELINE-COMPARISON.md` | this pipeline vs the `elizabev/TARSUS` reference — every difference, verified |
+| `docs/QUESTIONS-FOR-SCIENTISTS.md` | open questions blocking interpretation |
+| `.memory/decisions.md` | every decision (D-001…D-065) with evidence |
+| `.memory/lessons.md` | failure modes worth not repeating |
 
 ## Architecture
 
