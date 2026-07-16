@@ -323,10 +323,21 @@ def analyze_outputs(
         .cast(pl.Int64).alias("mistranslated_pos"),
     ).filter(pl.col("mistranslated_pos") > 0)
 
-    # 11. Extract origin, destination, protein position
+    # 11. Extract origin, destination, protein position.
+    #
+    # ORIGIN is read from `base`, NOT from the candidate header. The header carries
+    # the collapsed class letter `I` for the whole isobaric pair (Step 3b), so taking
+    # origin from it would mislabel every LEUCINE origin as `I`. But the origin is
+    # known: it is the reference residue at the substituted position, and the genome
+    # codon spells out I vs L. `base[mistranslated_pos]` is authoritative — there is
+    # no such thing as an ambiguous `I/L` origin (D-065).
+    #
+    # DESTINATION stays the header's class letter `I` here; it is the misincorporated
+    # residue, seen only by mass, so it is genuinely ambiguous. Step 11 relabels it
+    # `I/L` as its last act — the `/` must not enter the mass lookup before then.
     sub_pattern = r"_(\w)(\d+)(\w)"
     joined = joined.with_columns([
-        pl.col("Protein").str.extract(sub_pattern, 1).alias("origin"),
+        pl.col("base").str.slice(pl.col("mistranslated_pos"), 1).alias("origin"),
         pl.col("Protein").str.extract(sub_pattern, 3).alias("destination"),
         (
             pl.col("Protein Start_first") + pl.col("mistranslated_pos") - 1

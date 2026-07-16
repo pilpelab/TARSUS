@@ -63,7 +63,18 @@ def test_step07_filter_single_sav_psms():
 
 
 def test_step07_analyze_end_to_end(tmp_path):
-    """Full analyze_outputs end-to-end with coherent FragPipe/PepQuery fixtures."""
+    """Full analyze_outputs end-to-end with coherent FragPipe/PepQuery fixtures.
+
+    The fixture is `PEPAIDE` with the candidate header `PEPAIDE_A3R`, i.e. A->R at
+    0-based position 3 — and `PEPAIDE[3] == "A"`. That agreement is the point: Step 3b
+    reads the residue *out of* the peptide when it writes the header, so in real data
+    the header's origin letter and `base[pos]` always agree (verified: 0 mismatches on
+    every non-I/L row across all four runs).
+
+    It previously used `PEPTIDE` with the same `_A3R` header — but `PEPTIDE[3]` is
+    `"T"`, not `"A"`. That incoherence was invisible while origin was taken from the
+    header; it surfaced the moment origin started coming from `base` (D-065).
+    """
     output_ipc = tmp_path / "subs.ipc"
     result = analyze_outputs(
         first_psm_path=FIXTURES / "first_psm.tsv",
@@ -76,6 +87,11 @@ def test_step07_analyze_end_to_end(tmp_path):
     assert output_ipc.is_file()
     assert len(result) == 1
     assert result["dependent"][0] == "VARIANT"
-    assert result["base"][0] == "PEPTIDE"
+    assert result["base"][0] == "PEPAIDE"
+    # ORIGIN comes from `base[mistranslated_pos]`, NOT the candidate header — the
+    # header carries the collapsed class `I` for the isobaric pair and would mislabel
+    # every Leu origin as `I`. The origin is genome-known (D-065).
+    pos = result["mistranslated_pos"][0]
+    assert result["base"][0][pos] == "A"
     assert result["origin"][0] == "A"
     assert result["destination"][0] == "R"
