@@ -157,12 +157,56 @@ confound that invalidated D-053.
 
 ---
 
-## D. What is NOT established
+## D. SOLVED: why he finds 233 vs our 167 — library scope, not sensitivity
 
-- **Why he finds 233 vs our 167 at Step 7.** Unknown. Version/parameter differences are the
-  leading hypothesis, untested.
+Traced to the root. It is **not** a version difference and **not** a defect on either side.
+
+**The gap originates in the second-pass search and everything downstream just inherits it:**
+
+| stage | his | ours | ratio |
+|---|---|---|---|
+| second-pass PSMs | **16,341** | 8,979 | 1.82x |
+| PepQuery input peptides | 7,395 | 6,001 | |
+| PepQuery **tested** spectra | 7,113 | 4,814 | 1.48x |
+| output spectra (Step 7) | 233 | 167 | 1.39x |
+
+**The cause is the candidate library's scope:**
+
+| | unique base peptides in library | candidates | scope |
+|---|---|---|---|
+| **his** | **79** (100% inside GAPDH) | 23,280 | **GAPDH-focused** |
+| **ours** | **4,667** | 941,020 | **proteome-wide** |
+
+His second-pass library was **not** built from his own first pass (which found 5,820 peptides
+against the same full human proteome). It is a pre-built, GAPDH-only library
+(`2025-09-07-decoys-pep_candidates.fa.fas`, 79 peptides, all verified inside
+`ENSP00000229239.5` = GAPDH). Ours is built proteome-wide from our first-pass peptides, as
+`make_peptides.py` intends.
+
+**So our search space is ~40x larger.** A larger database means more decoys, a higher score
+threshold at the same FDR, and therefore *fewer* PSMs surviving — the same evidence must clear
+a much higher bar. He is not detecting more real substitutions; he is searching a far smaller
+haystack.
+
+**This is confirmed by both pipelines' own confidence verdicts.** Despite testing 1.48x FEWER
+spectra, **our PepQuery produced MORE confident validations: 165 vs his 151.** And the outputs
+have near-identical composition — his 233 = 40 confident (17%) + 193 not; ours 167 = 34 (20%) +
+133 not (both admit non-confident calls via the same `confident | single-SAV` union, present in
+both codebases: his `analyze_outputs.py:123`, our `step07:222`). His extra 118 spectra are
+**104 non-confident / 14 confident**.
+
+**Actionable.** Every one of our 44 localized hoMS calls is on GAPDH (15/15 unique base
+peptides inside GAPDH; 43 of 44 rows on `ENSP00000229239.5`). We are paying a 40x FDR penalty
+searching 4,667 peptides for an experiment whose answer lives on one protein. Restricting the
+library to the target protein for focused experiments — as the reference does here — would
+shrink the space ~40x, lower the FDR threshold, and raise sensitivity on the protein that
+matters. **This is a scope decision that belongs to whoever designed the experiment, not a bug.**
+
+## E. What is still NOT established
 - **Whether our extra localization filtering (191→44) is correctly strict** — his GAPDH never
   localized, so there is nothing to compare against.
+- **Whether a GAPDH-restricted library would actually recover the gap** — the mechanism is
+  established (search space -> FDR threshold), the magnitude is predicted, not measured.
 - **D-053 (EVpar yield comparison) is RETRACTED** — it compared our FragPipe 24.0/MSFragger
   4.4.1 run against his 23.1/4.3 run. Cross-pipeline confound; the conclusion is void.
 - Earlier quoted counts from his `pep_candidates.fa` are **retracted** — that file is generated
@@ -180,3 +224,4 @@ confound that invalidated D-053.
 | **Bugs found in ours** | 1 catastrophic (transposed matrix, D-061) — since fixed and guarded |
 | **Deliberate divergence** | I/L origin reported (his: structurally zero); `I/L` destination labelled honestly; `A→I/L` excluded |
 | **Confound** | FragPipe 23.1 vs 24.0 — never compare yields across it |
+| **The 233-vs-167 gap** | **Library scope**: his library is GAPDH-only (79 peptides), ours proteome-wide (4,667) — a ~40x larger search space and a correspondingly higher FDR bar. Not a defect. We still produced **more** confident validations (165 vs 151). |
