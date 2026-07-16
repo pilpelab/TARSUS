@@ -202,6 +202,30 @@ library to the target protein for focused experiments — as the reference does 
 shrink the space ~40x, lower the FDR threshold, and raise sensitivity on the protein that
 matters. **This is a scope decision that belongs to whoever designed the experiment, not a bug.**
 
+### The reference's own library is 4 months stale (D-057, in his pipeline)
+
+His GAPDH second-pass library **violates his own current exclusion matrix**:
+
+| file | date |
+|---|---|
+| `2025-09-07-decoys-pep_candidates.fa.fas` (the library his GAPDH run searched) | **2025-09-07** |
+| `make_peptides.py` + `subs_exclude.csv` (the code/matrix that governs it) | **2026-01-15** |
+
+The library predates its own rules by **four months**. Measured: **11 substitution classes /
+861 candidates that his current matrix forbids are present in the library** — `A->I` (137),
+`T->E` (87), `D->E` (80), `N->D` (80), `N->Q` (80), `S->D`/`S->E`/`S->T` (74 each), and more.
+`F->M` is in there too.
+
+His `subs_exclude.csv` is **byte-identical to ours**, and his own indexing
+(`subs_allowed[origin][dest]`) resolves `A->I` and `F->M` to **excluded** — so this is not a
+matrix disagreement. The library was simply built by superseded code and never rebuilt.
+
+**This is exactly the D-057 pattern that voided two weeks of our results**: an artifact
+preserved across a code change, with nothing comparing the artifact's age to the age of the
+code that produced it. Our `provenance.stale_artifacts()` guard exists precisely to make this
+loud. Consequence: **his hoMS/GAPDH numbers are not governed by his current matrix** — a
+caveat on any head-to-head with that dataset.
+
 ## E. What is still NOT established
 - **Whether our extra localization filtering (191→44) is correctly strict** — his GAPDH never
   localized, so there is nothing to compare against.
