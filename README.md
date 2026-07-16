@@ -51,28 +51,34 @@ Optional:
 
 ## ⚠️ Read this before interpreting results
 
-### Your search space is set by the first pass — and it costs you sensitivity
+### Your search space is set by the first pass — but the result is robust to it
 
 Step 3b mutagenizes **every peptide your first pass identified**. Identify 4,854 peptides →
-~941,000 variant candidates. Identify 42 → ~8,000.
+~941,000 variant candidates; identify 42 → ~12,000. Nobody picks this; it falls out of the
+first pass.
 
-FragPipe controls FDR by counting **decoys**, and every candidate gets a decoy twin. A bigger
-library means more decoys scoring well by chance, so to hold FDR at 1% MSFragger must **raise
-the score threshold**. *The same spectrum, with the same evidence and identical parameters, can
-pass in a small search and fail in a large one.*
+Search-space size **does** move the FragPipe search: more candidates → more decoys → a higher
+score threshold at the same FDR. **Measured** on hoMS/GAPDH (identical spectra and parameters,
+only the library scope changed):
 
-**So a proteome-wide library is not "more thorough" — it is strictly less sensitive per
-protein.** Measured on the hoMS/GAPDH data: a 40× larger library produced **1.8× fewer**
-second-pass PSMs (8,979 vs 16,341).
+| library | candidates | 2nd-pass PSMs | PepQuery confident | **localized (final)** |
+|---|---|---|---|---|
+| proteome-wide | 941,020 | 8,979 | 165 | **44** |
+| GAPDH-only | 11,732 | **13,744** (+53%) | 160 | **45** |
 
-**Rule of thumb:**
-- **Don't know which protein?** (e.g. the E. coli tRNA panel) → proteome-wide is right.
-- **Purified / overexpressed single protein?** (e.g. hoMS = GAPDH) → **restrict the library to
-  that protein.** Filter `03a_first_pass/peptide.tsv` to the target before Step 3b. Otherwise
-  you pay a large FDR penalty to search thousands of peptides you will report nothing from.
+**An 80× smaller library gave 53% more second-pass PSMs and changed the final answer by one
+substitution.** The gain dies at PepQuery — the extra PSMs are ones it declines to confirm, and
+the confident count is essentially invariant (165 vs 160).
 
-Check `12_visualize/protein_burden.png` — if one protein carries most of your substitutions,
-you are in the second case.
+**So: do not restrict the library hoping for sensitivity — it does not work.** The output is
+robust to scope, which also means a proteome-wide search is *not* suppressing your results via
+FDR. Restricting the library is only worth it for **runtime/cost** (an 80× smaller second-pass
+search is far cheaper), never for yield.
+
+Still check `12_visualize/protein_burden.png` to know what you are looking at: hoMS puts 43 of
+44 substitutions on GAPDH (a purified reporter), while the E. coli tRNA runs spread across
+84–174 proteins (a proteome-wide survey). That changes interpretation — it does not change how
+you should search.
 
 ### Ile / Leu
 

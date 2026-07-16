@@ -157,9 +157,24 @@ confound that invalidated D-053.
 
 ---
 
-## D. SOLVED: why he finds 233 vs our 167 — library scope, not sensitivity
+## D. ~~SOLVED~~ **REFUTED BY EXPERIMENT**: library scope does NOT explain 233 vs 167
 
-Traced to the root. It is **not** a version difference and **not** a defect on either side.
+> **⚠️ RETRACTED 2026-07-16.** The hypothesis below (library scope drives the gap) was **tested
+> directly and refuted.** Rebuilding hoMS with a GAPDH-only library (11,732 candidates vs
+> 941,020 — 80x smaller, identical spectra and parameters) produced **+53% second-pass PSMs
+> (13,744 vs 8,979) but the SAME final answer: 45 localized vs 44.** Step 7 output even fell
+> slightly (158 vs 167 spectra). The FDR mechanism described below is real at the *search*
+> stage and **inert downstream** — the extra PSMs die at PepQuery, whose confident count is
+> invariant (165 -> 160; his 151) across an 80x library range and two pipelines.
+>
+> **Library scope is therefore NOT the explanation for his 233 vs our 167.** The gap remains
+> unexplained. Leading suspect now: his GAPDH library holds **79 base peptides to our 42** —
+> a *first-pass* difference, not a search-space one.
+>
+> What survives: our output is **robust to search-space scope** (44 vs 45 across 80x), so a
+> proteome-wide search is not suppressing results via FDR.
+
+The (refuted) reasoning as originally written:
 
 **The gap originates in the second-pass search and everything downstream just inherits it:**
 
