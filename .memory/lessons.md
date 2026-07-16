@@ -355,3 +355,22 @@ proteome-wide is correct.
 Comparing yields between two runs is meaningless unless their search spaces are the same size —
 this is the same class of error as D-053 (comparing across FragPipe versions). Before concluding
 "they found more than us," check **what each one searched**.
+
+### CORRECTION (2026-07-16): the above lesson's conclusion was refuted — see D-067
+
+The mechanism above (bigger library -> more decoys -> higher FDR threshold -> fewer PSMs) is
+**real and measured**: an 80x smaller hoMS library gave **+53% second-pass PSMs** (8,979 ->
+13,744).
+
+But I then concluded "so restrict the library to gain sensitivity" and wrote it into the README.
+**I tested it. It is false.** The final answer moved **44 -> 45**. The gain dies at PepQuery,
+whose confident count is invariant across an 80x library range and two pipelines (165/160/151).
+
+**The real lesson is the one I nearly missed: a mechanism being real does not make it matter.**
+I measured a true effect at one stage, extrapolated it to the output, and documented a
+recommendation — all before testing whether it survived the next step. The cheap experiment
+(one filtered `peptide.tsv`, ~1h on LSF) refuted in an afternoon what I had already written down
+as guidance.
+
+**Do not document a causal claim until you have measured it at the stage you care about.**
+Intermediate metrics (PSM counts) are not the deliverable (localized substitutions).

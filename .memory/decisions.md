@@ -1311,3 +1311,44 @@ version gap is not the driver. (D-053 remains retracted for the same class of er
 (`A->I` 137, `T->E` 87, `D->E` 80, `F->M`, …). That is the D-057 stale-artifact pattern in his
 pipeline; his GAPDH numbers are not governed by his current rules. Relevant to *any* head-to-head
 using that dataset.
+
+## D-067: D-066 is REFUTED by experiment — search-space scope does not change the answer
+**Date:** 2026-07-16
+**Supersedes:** D-066's conclusion. Its *mechanism* survives; its *consequence* does not.
+
+**What I claimed (D-066).** That the reference's higher hoMS yield (233 vs our 167 spectra) was
+caused by library scope — his GAPDH-only library (79 base peptides / 23,280 candidates) vs our
+proteome-wide one (4,667 / 941,020) — via the FDR-threshold effect, and that restricting our
+library would raise sensitivity. I wrote that into the README as a rule of thumb.
+
+**The test.** Rebuilt hoMS with a GAPDH-restricted library. **Identical raw data, identical
+spectra, identical first pass (symlinked), identical parameters** — the ONLY variable was
+`03a_first_pass/peptide.tsv` filtered from 4,854 peptides to the 42 GAPDH ones.
+(`output/hoMS_24814_gapdh`, job 555126.)
+
+| | candidates | 2nd-pass PSMs | PepQuery tested | confident | Step 7 spectra | **localized** |
+|---|---|---|---|---|---|---|
+| proteome-wide | 941,020 | 8,979 | 4,814 | 165 | 167 | **44** |
+| GAPDH-only | 11,732 (**80x smaller**) | **13,744 (+53%)** | 5,758 | 160 | 158 | **45** |
+
+**Result: REFUTED.** An 80x smaller library moved the final answer by **one substitution**.
+Step 7 even fell (167 -> 158).
+
+**What is true.** The FDR mechanism is real **at the search stage**: 80x fewer candidates -> 53%
+more second-pass PSMs, with FDR still controlled (0 decoy PSMs accepted in both). It is
+**inert downstream** — the extra 4,765 PSMs die at PepQuery, whose confident count is
+*invariant* across an 80x library range and across two independent pipelines:
+**165 (ours proteome) / 160 (ours GAPDH) / 151 (his GAPDH)**.
+
+**What this positively establishes — more valuable than the hypothesis it killed:**
+**our output is ROBUST to search-space scope.** A proteome-wide search is *not* suppressing
+results via an inflated FDR threshold. The 44 substitutions are what is in the data. My "we pay
+a 40x FDR penalty" framing was wrong: we pay nothing but runtime.
+
+**Practical consequence.** Do **not** restrict the library for yield — it does not work.
+Restrict only for runtime/cost (an 80x smaller second-pass search is far cheaper).
+
+**The 233-vs-167 gap is therefore UNEXPLAINED.** Both FragPipe-version (D-053-class) and
+library-scope (D-066) hypotheses are now retracted. New leading suspect: even with both
+libraries GAPDH-only, his holds **79 base peptides to our 42** — a **first-pass** difference.
+Untested.
