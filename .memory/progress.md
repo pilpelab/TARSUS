@@ -1,5 +1,36 @@
 # Progress Log
 
+## OPEN — deferred, handle later (2026-07-19)
+
+Small residuals left deliberately unresolved after the hoMS/GAPDH comparison. None blocks
+anything; all are "nice to close," not "must fix." Full context in D-068 (`.memory/decisions.md`)
+and `docs/PIPELINE-COMPARISON.md`.
+
+1. **Confident-core difference: his 40 vs our 34 spectra** (hoMS/GAPDH, Step-7 stage). The
+   *confident* PepQuery calls — the reliable half — differ by ~6 spectra. The non-confident tail
+   is fully explained (D-068: his stale 79-peptide library); this small confident residual is not.
+   Leading suspect: FragPipe **23.1** (his) vs **24.0** (ours). To test: re-run one condition on
+   23.1, or diff the two first-pass `psm.tsv` on the shared spectra to see if MSFragger scores
+   them differently. **Same class of confound as D-053 — do not compare yields across the version
+   without controlling for it.**
+
+2. **His 4 first-pass GAPDH peptides we never identify.** `AGAHLQGGAKR`, `IGRLVTR`,
+   `KVVKQASEGPLK`, `LTGMAFRVPTANVSVVDLTCR` — all **missed-cleavage** peptides (internal K/R). His
+   first pass finds 46 GAPDH peptides, ours 42 (ours a strict subset). Likely a missed-cleavage /
+   search-stringency or version difference. To test: check our first-pass `fragger.params`
+   `allowed_missed_cleavage` vs his, and whether these peptides' spectra were even scanned.
+
+3. **AlaGGC biology — needs the bench, not code.** `GGC→A = 0/26` at the engineered codon, and
+   `G→A` is mass-degenerate with methylation (+14.01565 exactly), so "no misincorporation" and
+   "method can't see it" are not separable. Blocked on: **is GGC the codon or the anticodon?**
+   (question 1 in `docs/QUESTIONS-FOR-SCIENTISTS.md`). Also open: the control run pools
+   `AlaGGCpar-LS` + `AlaGCCpar-HS` (two different codons) — question 6 there.
+
+4. **P2 (never started): externalise LSF config.** 9 steps hardcode `queue="gsla-cpu"`; `--queue`
+   reaches only the master job. From the original approved plan.
+
+---
+
 ## STATE — 2026-07-14: D-064 (I/L) landed; both E. coli conditions rerunning
 
 **Commits:** `3803c96` feat(D-064) · `36221a5` chore(deps). Tree clean, 278 tests pass, mypy+ruff clean.
