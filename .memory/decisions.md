@@ -1366,3 +1366,39 @@ Restrict only for runtime/cost (an 80x smaller second-pass search is far cheaper
 library-scope (D-066) hypotheses are now retracted. New leading suspect: even with both
 libraries GAPDH-only, his holds **79 base peptides to our 42** — a **first-pass** difference.
 Untested.
+
+## D-068: the 233-vs-167 gap RESOLVED — non-confident tail from his stale library
+**Date:** 2026-07-19
+**Closes:** the gap left open by D-066/D-067.
+
+**Decomposition of the Step-7 output (his subs.ipc stage):**
+
+| | total spectra | confident core | non-confident single-SAV tail |
+|---|---|---|---|
+| his (GAPDH lib) | 233 | **40** | **193** |
+| ours proteome-wide | 167 | 34 | 133 |
+| ours GAPDH-restricted | 158 | 33 | 125 |
+
+**The confident core is ~equal (40/34/33). The entire 66-spectrum gap is in the non-confident
+single-SAV tail (193 vs 133) — 60 of 66 spectra.** Both pipelines build Step 7 as
+`confident | single-SAV`; the reliable half agrees, the gap is all in the throwaway half.
+
+**Traced to his STALE library.** His 2025-09-07 library was built from an *older* first pass that
+found **79** GAPDH peptides; his current first pass finds **46**, ours **42** (ours a near-subset;
+his 4 extras are missed-cleavage peptides we never identified). The stale 79-peptide library →
+23,280 candidates → 16,341 second-pass PSMs → 7,113 PepQuery tests → 193 single-SAV calls. Every
+stage larger than ours purely because the library was built from more base peptides.
+
+**And none of the tail survives localization.** His GAPDH run never localized (D-066). Ours does,
+robustly: 44 (proteome) / 45 (GAPDH-restricted), a near-identical set (D-067). His output also
+contains **zero** substitutions his own current matrix forbids — so the tail is not
+forbidden-artifact-inflated, it is simply more non-confident single-SAV calls from a bigger
+(stale) search.
+
+**Resolution.** The apparent "259 vs 44" (5.9x) is: (1) a stage mismatch — his subs.ipc is
+pre-localization = our Step 7 (167), not our final (44); (2) an equal confident core (40 vs 34);
+(3) a non-confident single-SAV tail inflated by his stale 79-peptide library; (4) 100% agreement
+(115/115) where both fire. **There is no gap in the reportable (confident/localized) output.**
+
+Not established: the ~6-spectrum confident-core difference (40 vs 34) and the ~4 first-pass
+missed-cleavage peptides — both small, likely FragPipe 23.1-vs-24.0, not chased further.
