@@ -307,12 +307,20 @@ def analyze_outputs(
         if c not in second_psms.columns:
             pass
 
+    # Slava's reference schema carries these scores from the second-pass
+    # FragPipe psm.tsv. FragPipe 24.0 does not emit them in our current
+    # outputs, so keep the schema stable with null placeholders when absent.
+    for score_col in ["SpectralSim", "RTScore"]:
+        if score_col not in second_psms.columns:
+            second_psms = second_psms.with_columns(
+                pl.lit(None, dtype=pl.Float64).alias(score_col),
+            )
+
     first_sub = first_psms.select([
         "Spectrum", "base", "Prev AA", "Next AA", "Protein",
         "first_intensity", "Retention", "Charge", "Protein Start",
         "Protein End", "Mapped Proteins", "Hyperscore",
         "Extended Peptide", "Number of Missed Cleavages", "Is Unique",
-        "SpectralSim", "RTScore",  # Add missing columns for reference schema
     ])
 
     joined = second_psms.join(first_sub, on=join_cols, suffix="_first")

@@ -12,9 +12,10 @@ HUMAN_CDS=/home/labs/pilpel/barc/TARSUS_BC/data/human_cds.fasta
 
 mkdir -p "$OUT_ROOT"
 
-# Preflight
+# Preflight. Do not run validation tests here: they submit their own LSF jobs
+# and can block or interfere with the full dataset rerun. Unit tests are local.
 make test-tools
-pytest tests/unit tests/validation
+pytest tests/unit
 
 # Local project runs
 tarsus run \
