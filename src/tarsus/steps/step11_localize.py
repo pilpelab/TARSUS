@@ -322,6 +322,16 @@ def localize(
     """
     subs = pl.read_ipc(subs_ipc)
 
+    # Validate that required columns are present
+    required_cols = ["SpectralSim", "RTScore"]
+    missing_cols = [c for c in required_cols if c not in subs.columns]
+    if missing_cols:
+        raise ValueError(
+            f"Step 7 output is missing required columns: {missing_cols}. "
+            f"subs.ipc should have {len(subs.columns)} columns but is missing "
+            f"SpectralSim and RTScore. Check step07_analyze_outputs.py."
+        )
+
     deps = _read_psmrank(psmrankall_path)
     base = _read_psmrank(psmrankall_base_path)
 

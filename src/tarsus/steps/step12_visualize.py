@@ -409,7 +409,7 @@ def step12_visualize(
     output_dir: Path,
     *,
     dpi: int = 150,
-    cds_fasta: Path | None = None,
+    cds_fasta: Path,
 ) -> Path:
     """Generate SAAV visualizations from localized results.
 
@@ -417,9 +417,8 @@ def step12_visualize(
         localized_ipc: Path to subs_localized.ipc from Step 11.
         output_dir: Directory where 12_visualize/ will be created.
         dpi: Output resolution.
-        cds_fasta: CDS (nucleotide) FASTA for the organism. Required for the 61x19
-            codon heatmap — without it that figure is **skipped with a loud warning**,
-            never silently.
+        cds_fasta: CDS (nucleotide) FASTA for the organism. Required to build the
+            64x19 codon heatmap.
 
     Returns:
         Path to the visualize output directory.
@@ -458,16 +457,9 @@ def step12_visualize(
         f"proteins | {n_groups} group(s) (fractions merged)"
     )
 
-    # The 61x19 codon heatmap. Needs a CDS FASTA; say so out loud when absent.
-    if cds_fasta is None or not Path(cds_fasta).is_file():
-        print(
-            f"[step12] SKIPPING the 61x19 codon heatmap: no CDS FASTA "
-            f"({cds_fasta or 'not supplied'}). Mistranslation happens in codon space "
-            f"— an engineered tRNA reads ONE codon — so without this the "
-            f"amino-acid-level counts smear the signal across synonymous codons. "
-            f"Pass --cds <cds.fasta> to produce it."
-        )
-        return viz_dir
+    # The 64x19 codon heatmap is canonical and always required.
+    if not Path(cds_fasta).is_file():
+        raise FileNotFoundError(f"CDS FASTA not found: {cds_fasta}")
 
     mat, unresolved = build_sixty_twenty(df, Path(cds_fasta))
     if unresolved:

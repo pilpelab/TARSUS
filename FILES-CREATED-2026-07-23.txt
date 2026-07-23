@@ -1,0 +1,190 @@
+=============================================================================
+SESSION 2026-07-23: FILES CREATED FOR NEXT AGENT
+=============================================================================
+
+QUICK START (READ FIRST)
+────────────────────────────────────────────────────────────────────────────
+📄 HANDOFF-SPECTRAL-SIM.md (5 min read)
+   └─ Quick summary: what's wrong, what to do, how to verify
+   └─ Start here if you have 5 minutes
+   └─ Includes: verification checklist, rollback instructions
+
+📄 SESSION-2026-07-23-SUMMARY.md (10 min read)
+   └─ What was done in this session
+   └─ Deliverables overview
+   └─ Work completed checklist
+   └─ Next agent's checklist
+
+IMPLEMENTATION GUIDE (READ BEFORE CODING)
+────────────────────────────────────────────────────────────────────────────
+📋 docs/SPEC-MISSING-SPECTRAL-SIM.md (20 KB, comprehensive spec)
+   └─ Complete implementation specification
+   └─ Pseudocode for all 3 files to modify
+   └─ Acceptance criteria (before/after)
+   └─ Risk assessment + rollback plan
+   └─ Appendix: PDV investigation commands
+   └─ Appendix: Full column reference (69 columns expected)
+   └─ READ THIS before writing code
+
+BACKGROUND/CONTEXT (READ IF CURIOUS)
+────────────────────────────────────────────────────────────────────────────
+📚 docs/BUG-MISSING-SPECTRAL-SIM.md (6 KB, bug report)
+   └─ Evidence: column-by-column comparison
+   └─ Root cause: where columns are lost
+   └─ Why they matter
+
+📚 docs/CODE-LEVEL-COMPARISON.md (30 KB, architecture analysis)
+   └─ Full code-level comparison (reference vs ours)
+   └─ Step-by-step breakdown of all 11 pipeline steps
+   └─ Critical data transformations explained
+   └─ Good for understanding the whole pipeline
+
+📚 docs/SLAVA-REFERENCE.md (11 KB, context)
+   └─ Who is Slava (original author)
+   └─ What reference data exists and where
+   └─ How to use the reference for validation
+
+=============================================================================
+THE ISSUE IN ONE SENTENCE
+=============================================================================
+
+Our Step 11 output (subs_localized.csv) is missing 2 columns that the reference
+has: SpectralSim and RTScore (columns 18-19).
+
+Reference: 69 columns
+Ours:      67 columns
+
+=============================================================================
+THE FIX IN ONE SENTENCE
+=============================================================================
+
+Modify Step 6-7 to extract SpectralSim/RTScore from PDV output and preserve
+them in the join operation (don't drop them on join).
+
+=============================================================================
+FILES TO MODIFY (ONLY 3 FILES)
+=============================================================================
+
+1. src/tarsus/steps/step06_aggregate_query.py
+   └─ Add: PDV text report extraction
+   └─ Extract SpectralSim, RTScore columns
+   └─ Save to CSV for Step 7 to read
+
+2. src/tarsus/steps/step07_analyze_outputs.py
+   └─ Change: join operation from INNER to LEFT
+   └─ Read metrics CSV from Step 6
+   └─ Preserve all PepQuery columns
+
+3. src/tarsus/steps/step11_localize.py
+   └─ Add: validation that columns exist
+   └─ Raise error if SpectralSim or RTScore missing
+   └─ (early detection instead of silent failure)
+
+=============================================================================
+ESTIMATED EFFORT
+=============================================================================
+
+Investigation (verify PDV has text report):  15 min
+Implementation (modify 3 files):             45 min
+Re-running Steps 6-11:                       30 min
+Verification (check output):                 15 min
+────────────────────────────────────────────────────────────────────────────
+TOTAL:                                       ~90 min
+
+=============================================================================
+WHAT NOT TO DO
+=============================================================================
+
+❌ Do NOT regenerate Steps 1-5 (expensive, already computed)
+❌ Do NOT make other code changes while working on this
+❌ Do NOT ignore the spec (it's your implementation roadmap)
+❌ Do NOT skip the verification checklist
+
+=============================================================================
+WHAT TO DO FIRST
+=============================================================================
+
+1. Read: HANDOFF-SPECTRAL-SIM.md (5 minutes)
+2. Read: docs/SPEC-MISSING-SPECTRAL-SIM.md section "Solution Design" (5 min)
+3. Check: Verify PDV has -ft report mode (use commands in Appendix A)
+4. Implement: Follow pseudocode in spec (45 min)
+5. Verify: Run verification checklist (15 min)
+
+=============================================================================
+SUCCESS CRITERIA (HOW TO KNOW IT WORKED)
+=============================================================================
+
+After re-running Steps 6-11:
+
+✅ subs_localized.csv exists
+✅ Column count is 69 (not 67)
+✅ Column 18 is SpectralSim
+✅ Column 19 is RTScore
+✅ Both columns have numeric values
+✅ Row count same as before (no data loss)
+✅ No errors in master.log
+
+Quick check:
+  head -1 output/trial/11_localized/subs_localized.csv | tr ',' '\n' | nl | sed -n '17,20p'
+
+Expected output:
+     17  Delta Mass
+     18  SpectralSim
+     19  RTScore
+     20  Expectation
+
+=============================================================================
+WHEN TO ASK FOR HELP
+=============================================================================
+
+If PDV doesn't have -ft report mode:
+  → See spec, Section "Alternative Approaches"
+
+If data loss on join:
+  → Check: LEFT join is set correctly
+  → Check: join keys match (spectrum_title)
+  → See: spec, Section "Risk Assessment"
+
+If columns still missing:
+  → Check: Columns written to subs.ipc (Step 7)
+  → Check: Columns read from subs.ipc (Step 11)
+  → See: spec, Section "Pseudocode / Implementation Sketch"
+
+=============================================================================
+QUICK REFERENCE: COMMANDS
+=============================================================================
+
+Check PDV has text report mode:
+  java -jar tools/PDV-2.1.2/PDV-2.1.2.jar -h | grep -A 2 "\-ft"
+
+Reset to re-run Steps 6-11:
+  rm -rf output/trial/{06,07,08,09,10,11}_*/.done
+
+Re-run pipeline:
+  bsub -q gsla-cpu -oo output/trial/master_rerun.log \
+    python -m tarsus.orchestration output/trial
+
+Monitor:
+  tail -f output/trial/master.log
+
+Verify columns:
+  head -1 output/trial/11_localized/subs_localized.csv | tr ',' '\n' | wc -l
+  (should be 69)
+
+=============================================================================
+SESSION METADATA
+=============================================================================
+
+Date:        2026-07-23
+Status:      READY FOR HANDOFF
+Complexity:  Medium (3 files, ~200 lines)
+Estimated effort: 90 minutes
+Blocking:    NO (does not block other work)
+Urgent:      NO (nice-to-have fix, not critical)
+Testing:     Included in spec
+
+=============================================================================
+END OF QUICK REFERENCE
+=============================================================================
+
+👉 NEXT STEP: Read HANDOFF-SPECTRAL-SIM.md (5 minutes)

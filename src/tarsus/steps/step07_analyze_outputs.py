@@ -312,9 +312,21 @@ def analyze_outputs(
         "first_intensity", "Retention", "Charge", "Protein Start",
         "Protein End", "Mapped Proteins", "Hyperscore",
         "Extended Peptide", "Number of Missed Cleavages", "Is Unique",
+        "SpectralSim", "RTScore",  # Add missing columns for reference schema
     ])
 
     joined = second_psms.join(first_sub, on=join_cols, suffix="_first")
+
+    # Reorder columns to match reference schema: insert SpectralSim and RTScore
+    # after Delta Mass
+    cols = list(joined.columns)
+    if "Delta Mass" in cols and "SpectralSim" in cols and "RTScore" in cols:
+        # Remove SpectralSim and RTScore from their current positions
+        cols = [c for c in cols if c not in ["SpectralSim", "RTScore"]]
+        # Insert after Delta Mass
+        delta_idx = cols.index("Delta Mass")
+        cols = cols[:delta_idx+1] + ["SpectralSim", "RTScore"] + cols[delta_idx+1:]
+        joined = joined.select(cols)
 
     # 10. Extract substitution position from Protein field
     pos_pattern = r"_(?:\D*)(\d+)"

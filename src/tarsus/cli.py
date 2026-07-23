@@ -84,16 +84,15 @@ def convert(inputs: tuple[str, ...], output_dir: str, queue: str,
               help="LSF queue for all jobs")
 @click.option("--memory", default=32000, type=int, show_default=True,
               help="Memory for the master orchestration job in MB")
-@click.option("--cds", default=None, type=click.Path(exists=True, dir_okay=False),
-              help="CDS (nucleotide) FASTA — enables Step 12's 61x19 codon heatmap. "
+@click.option("--cds", required=True, type=click.Path(exists=True, dir_okay=False),
+              help="CDS (nucleotide) FASTA — required for the 64x19 codon heatmap. "
                    "Mistranslation happens in codon space: an engineered tRNA reads ONE "
-                   "codon, so amino-acid-level counts smear the signal across synonymous "
-                   "codons. Without this the heatmap is skipped (loudly).")
+                   "codon, so amino-acid-level counts smear the signal across synonymous codons.")
 @click.option("--allow-dirty", is_flag=True,
               help="Run despite uncommitted changes (results become unattributable)")
 def run(
     fasta: str, inputs: tuple[str, ...], output_dir: str, queue: str, memory: int,
-    cds: str | None, allow_dirty: bool,
+    cds: str, allow_dirty: bool,
 ) -> None:
     """Run the full TARSUS pipeline on LSF.
 
@@ -126,7 +125,7 @@ def run(
     for warning in stale_artifacts(outdir):
         click.echo(f"WARNING: {warning}", err=True)
 
-    cds_path = Path(cds).resolve() if cds else None
+    cds_path = Path(cds).resolve()
 
     prov = write_provenance(outdir, {
         "fasta": str(fasta_path),
@@ -144,7 +143,7 @@ def run(
     tool_env = ToolEnvironment.from_env()
     log_path = outdir / "master.log"
 
-    cds_args = ["--cds", str(cds_path)] if cds_path else []
+    cds_args = ["--cds", str(cds_path)]
     jid = submit_bsub(
         cmd=[python_bin, "-m", "tarsus.orchestration", *cds_args,
              str(outdir), str(fasta_path),
