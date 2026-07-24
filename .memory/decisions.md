@@ -1,6 +1,59 @@
 # Decisions Log
 
-## D-2026-07-23: Source of SpectralSim & RTScore Columns
+## D-069 (2026-07-24): SpectralSim/RTScore come from MSBooster — SUPERSEDES D-2026-07-23
+
+**Issue:** `SpectralSim`/`RTScore` present in `subs.ipc` but null in every row (191/191),
+against 0/259 null in Slava GAPDH. Also 69 cols vs GAPDH's 72.
+
+**Method:** Ran the reference rather than grepping for it. Read
+`elizabev/TARSUS/analyze_outputs.py` — the file our Step 7 recapitulates — and
+confirmed it **never computes these columns**. It reads the second-pass `psm.tsv`
+and keeps *all* of its columns. Verified both canonical `second/psm.tsv` files
+(Slava GAPDH, elizabev EVpar) carry `SpectralSim` at col 18 and `RTScore` at col 19,
+directly after `Delta Mass`.
+
+**Root cause:** These are **FragPipe columns, written only when MSBooster runs.**
+Commit `cfd4886` disabled MSBooster on the second pass to avoid "redundant
+calibration PNGs that waste time and compute" — an *efficiency tidy-up, not a
+correctness fix*, exactly the deviation `lessons.md` warns against. No MSBooster
+→ no columns in `psm.tsv` → Step 7 null-filled them.
+
+**Falsified along the way:** they are NOT the raw MSBooster `.pin` features.
+Correlating Slava's `subs.ipc` against his `_edited.pin` gave r=0.16 for
+`SpectralSim` vs `unweighted_spectral_entropy` and r=-0.08 for `RTScore` vs
+`delta_RT_loess`. The psm.tsv values are post-rescoring, not the pin features.
+**Do not "fix" this by reading the pin.**
+
+**`ions`/`ion_mz`/`ion_int`:** a separate, unrelated source — PDV's
+`PDVExportResult.txt` (`ions`/`ions_mz`/`ions_int`), stored as raw bracketed
+Strings after `Traced Scans`. GAPDH-only; Slava himself `.drop()`s them
+(`reviews.ipynb:1580`). Cosmetic annotation for mirror plots, not science.
+
+**Solution:**
+1. Stop patching MSBooster off in Steps 3a and 3c. Our `generic.workflow` template
+   already matches the reference (`run-msbooster=true`, `predict-rt/spectra=true`,
+   `find-best-*-model=false`, local DIA-NN models — no Koina/internet needed), so
+   the patch chain must simply leave that block alone.
+2. Step 7 needs **no** logic change for the scores — psm.tsv columns already flow
+   through the join. Replaced the null-placeholder with a **loud failure**: their
+   absence means MSBooster was off, and silently defaulting is what hid this for a
+   whole session.
+3. Step 7 joins the PDV trio on `(spectrum_title, dependent)`, deduped, left join.
+
+**Expected side effect:** MSBooster rescoring should also raise sensitivity
+(ours 191 vs Slava 259) — percolator gains the spectral/RT features.
+
+**Status:** code + tests landed (310 pass). Awaiting clean end-to-end rerun.
+
+---
+
+## D-2026-07-23: Source of SpectralSim & RTScore Columns — ❌ WRONG, see D-069
+
+> **This entry was wrong and its "COMPLETE" status was false.** It correctly named
+> `psm.tsv` as the source but concluded Step 7's column *selection* was the bug and
+> declared the fix verified. It was not: the columns were absent from `psm.tsv`
+> altogether because MSBooster was disabled upstream, so the "fix" produced 69
+> correctly-positioned columns full of nulls. Kept for the record — do not act on it.
 
 **Issue:** Missing `SpectralSim` and `RTScore` columns in Step 11 output (67 vs 69 columns)
 

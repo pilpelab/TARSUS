@@ -128,16 +128,24 @@ def step03a_first_pass(
     # 1. Generate target-decoy FASTA (FragPipe requires decoys in the FASTA)
     decoy_fasta = _make_decoy_fasta(fasta_path, output_dir)
 
-    # 2. Patch workflow template: decoy FASTA path + disable MSBooster
+    # 2. Patch workflow template: decoy FASTA path.
+    #
+    # MSBooster is deliberately NOT disabled here. It used to be, purely to skip
+    # "redundant calibration PNGs" (cfd4886) — an efficiency tidy-up, not a
+    # correctness fix. That deviation silently emptied `SpectralSim`/`RTScore`:
+    # FragPipe writes those two psm.tsv columns (18-19, right after `Delta Mass`)
+    # only when MSBooster runs, and Step 7 carries psm.tsv columns through
+    # verbatim. The reference workflows (EVpar `fragpipe.workflow` and
+    # `fragpipe-second-pass.workflow`) both ship `run-msbooster=true` with
+    # `predict-rt`/`predict-spectra=true` and local DIA-NN models, and our
+    # `generic.workflow` template already matches them — so leave the template's
+    # MSBooster block alone. See D-069.
     first_workflow = output_dir / "first.workflow"
     with workflow_template.open("r") as f:
         content = f.read()
     db_line = f"database.db-path={decoy_fasta.resolve()}"
     patches: list[tuple[str, str]] = [
         (r"^database\.db-path=.*$", db_line),
-        (r"^msbooster\.run-msbooster=.*$", "msbooster.run-msbooster=false"),
-        (r"^msbooster\.predict-rt=.*$", "msbooster.predict-rt=false"),
-        (r"^msbooster\.predict-spectra=.*$", "msbooster.predict-spectra=false"),
     ]
     for pattern, replacement in patches:
         content = re.sub(pattern, replacement, content, count=1, flags=re.MULTILINE)

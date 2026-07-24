@@ -162,7 +162,13 @@ tarsus run --fasta data/protein.fasta \
 | master | orchestration | gsla-cpu | 4000 MB | 1 |
 
 Note: Steps 3a and 3c generate inline target-decoy FASTA (`protein_decoy.fasta`).
-Step 3c has MSBooster fully disabled (`run-msbooster=false`, `predict-rt=false`, `predict-spectra=false`).
+
+Steps 3a and 3c run **with MSBooster enabled**, matching the reference workflows.
+FragPipe writes the `SpectralSim` and `RTScore` psm.tsv columns (18-19, straight
+after `Delta Mass`) only when MSBooster runs, and Step 7 carries psm.tsv columns
+through verbatim — so disabling it silently empties both columns (D-069). It was
+disabled between `cfd4886` and 2026-07-24; do not re-disable it as an optimization.
+Models are local DIA-NN, so no Koina/internet access is required.
 
 ## Output Directory Convention
 

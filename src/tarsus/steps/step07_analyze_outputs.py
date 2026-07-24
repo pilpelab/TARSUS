@@ -222,13 +222,19 @@ def analyze_outputs(
     first = first.filter(pl.col("confident") == "Yes")
     first_set: set[str] = set(first["spectrum_title"].to_list())
 
-    # 3. PDV ion export: build {peptide: {spectrum_title: [ions]}}
+    # 3. PDV ion export: build {peptide: {spectrum_title: [ions]}} for the
+    #    two-fragment filter, and keep the raw annotation columns for the table.
+    #
+    #    PDV writes `ions`/`ions_mz`/`ions_int` as bracketed strings; Slava's
+    #    GAPDH subs.ipc carries them verbatim (String dtype) under the names
+    #    `ions`/`ion_mz`/`ion_int`, sitting right after `Traced Scans`.
     pdv_export: dict[str, dict[str, list[str]]] = {}
+    pdv_ions: pl.DataFrame | None = None
     try:
         pdv_df = pl.read_csv(
             pdv_path,
             separator="\t",
-            columns=["Spectrum_Title", "peptide", "ions"],
+            columns=["Spectrum_Title", "peptide", "ions", "ions_mz", "ions_int"],
         )
         for row in pdv_df.iter_rows(named=True):
             pep_key = str(row.get("peptide", ""))
@@ -236,6 +242,15 @@ def analyze_outputs(
             ions = extract_pdv_ions(str(row.get("ions", "")))
             if isinstance(ions, list):
                 pdv_export.setdefault(pep_key, {})[spec_key] = ions
+
+        # One annotation row per (spectrum, peptide) — PDV can repeat a pair, and
+        # a duplicated right side would multiply rows in the join below.
+        pdv_ions = pdv_df.rename({
+            "Spectrum_Title": "spectrum_title",
+            "peptide": "dependent",
+            "ions_mz": "ion_mz",
+            "ions_int": "ion_int",
+        }).unique(subset=["spectrum_title", "dependent"], keep="first")
     except Exception:
         pass
 
@@ -300,6 +315,18 @@ def analyze_outputs(
         pl.col("second_intensity") == pl.col("intensity_max"),
     ).drop("intensity_max")
 
+    # 8b. Attach the PDV fragment annotation (`ions`/`ion_mz`/`ion_int`).
+    #
+    # Left join: every surviving row already passed the two-fragment filter, so a
+    # PDV row exists for it — but a left join keeps the substitution table intact
+    # if PDV is ever incomplete, rather than silently dropping detections.
+    if pdv_ions is not None:
+        second_psms = second_psms.join(
+            pdv_ions.select(["spectrum_title", "dependent", "ions", "ion_mz", "ion_int"]),
+            on=["spectrum_title", "dependent"],
+            how="left",
+        )
+
     # 9. Join first and second pass
     join_cols = ["base", "Charge"]
     # Ensure both have needed columns
@@ -307,14 +334,23 @@ def analyze_outputs(
         if c not in second_psms.columns:
             pass
 
-    # Slava's reference schema carries these scores from the second-pass
-    # FragPipe psm.tsv. FragPipe 24.0 does not emit them in our current
-    # outputs, so keep the schema stable with null placeholders when absent.
-    for score_col in ["SpectralSim", "RTScore"]:
-        if score_col not in second_psms.columns:
-            second_psms = second_psms.with_columns(
-                pl.lit(None, dtype=pl.Float64).alias(score_col),
-            )
+    # `SpectralSim` and `RTScore` are FragPipe columns, carried verbatim out of
+    # the second-pass psm.tsv (positions 18-19, right after `Delta Mass`) exactly
+    # as the reference `analyze_outputs.py` does — it never computes them itself.
+    #
+    # FragPipe only writes them when MSBooster runs. Their absence therefore means
+    # the second pass ran with MSBooster off, and the run is NOT reference-faithful.
+    # This used to be papered over with null placeholders, which kept the schema
+    # looking correct while every value was null for an entire session (D-069).
+    # Fail loudly instead — a silent default over missing data is what hid the bug.
+    missing_scores = [c for c in ("SpectralSim", "RTScore") if c not in second_psms.columns]
+    if missing_scores:
+        raise ValueError(
+            f"Second-pass psm.tsv is missing {missing_scores}. FragPipe emits these "
+            f"only when MSBooster runs; check that Step 3c did not disable it "
+            f"(msbooster.run-msbooster / predict-rt / predict-spectra must be true). "
+            f"Source: {second_psm_path}",
+        )
 
     first_sub = first_psms.select([
         "Spectrum", "base", "Prev AA", "Next AA", "Protein",
@@ -325,16 +361,19 @@ def analyze_outputs(
 
     joined = second_psms.join(first_sub, on=join_cols, suffix="_first")
 
-    # Reorder columns to match reference schema: insert SpectralSim and RTScore
-    # after Delta Mass
-    cols = list(joined.columns)
-    if "Delta Mass" in cols and "SpectralSim" in cols and "RTScore" in cols:
-        # Remove SpectralSim and RTScore from their current positions
-        cols = [c for c in cols if c not in ["SpectralSim", "RTScore"]]
-        # Insert after Delta Mass
-        delta_idx = cols.index("Delta Mass")
-        cols = cols[:delta_idx+1] + ["SpectralSim", "RTScore"] + cols[delta_idx+1:]
-        joined = joined.select(cols)
+    # Reorder to match the reference schema. `SpectralSim`/`RTScore` sit straight
+    # after `Delta Mass`; the PDV annotation trio sits straight after
+    # `Traced Scans` (the last psm.tsv column), as in Slava's GAPDH subs.ipc.
+    def _move_after(frame: pl.DataFrame, anchor: str, group: list[str]) -> pl.DataFrame:
+        cols = list(frame.columns)
+        if anchor not in cols or not all(c in cols for c in group):
+            return frame
+        cols = [c for c in cols if c not in group]
+        idx = cols.index(anchor)
+        return frame.select(cols[: idx + 1] + group + cols[idx + 1 :])
+
+    joined = _move_after(joined, "Delta Mass", ["SpectralSim", "RTScore"])
+    joined = _move_after(joined, "Traced Scans", ["ions", "ion_mz", "ion_int"])
 
     # 10. Extract substitution position from Protein field
     pos_pattern = r"_(?:\D*)(\d+)"

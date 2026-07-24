@@ -1,6 +1,9 @@
 """Step 7 validation: SAV filtering against synthetic data."""
 
 from pathlib import Path
+
+import pytest
+
 from src.tarsus.steps.step07_analyze_outputs import (
     load_ptm_details,
     filter_single_sav_psms,
@@ -95,3 +98,51 @@ def test_step07_analyze_end_to_end(tmp_path):
     assert result["base"][0][pos] == "A"
     assert result["origin"][0] == "A"
     assert result["destination"][0] == "R"
+
+    # SpectralSim/RTScore are carried verbatim out of the second-pass psm.tsv,
+    # where FragPipe writes them when MSBooster runs — never recomputed, never
+    # null-filled (D-069). They must land straight after `Delta Mass`.
+    assert result["SpectralSim"][0] == 0.9789
+    assert result["RTScore"][0] == 2.2396
+    cols = result.columns
+    assert cols[cols.index("Delta Mass") + 1] == "SpectralSim"
+    assert cols[cols.index("Delta Mass") + 2] == "RTScore"
+
+    # PDV fragment annotation, kept as PDV's raw bracketed strings under Slava's
+    # names, positioned right after `Traced Scans` as in his GAPDH subs.ipc.
+    assert result["ions"][0] == "[b4, b5]"
+    assert result["ion_mz"][0] == "[404.2248, 517.3089]"
+    assert result["ion_int"][0] == "[4588.39, 13457.61]"
+    assert cols[cols.index("Traced Scans") + 1 : cols.index("Traced Scans") + 4] == [
+        "ions", "ion_mz", "ion_int",
+    ]
+
+
+def test_step07_raises_when_msbooster_scores_absent(tmp_path):
+    """A second-pass psm.tsv without the score columns means MSBooster was off.
+
+    That run is not reference-faithful. Step 7 used to null-fill the columns,
+    which kept the schema looking right while every value was null for an entire
+    session (D-069) — so it must now fail loudly instead.
+    """
+    stripped = tmp_path / "second_psm_no_scores.tsv"
+    src = (FIXTURES / "second_psm.tsv").read_text().splitlines()
+    header = src[0].split("\t")
+    drop = {header.index("SpectralSim"), header.index("RTScore")}
+    stripped.write_text(
+        "\n".join(
+            "\t".join(f for i, f in enumerate(line.split("\t")) if i not in drop)
+            for line in src
+        )
+        + "\n",
+    )
+
+    with pytest.raises(ValueError, match="MSBooster"):
+        analyze_outputs(
+            first_psm_path=FIXTURES / "first_psm.tsv",
+            second_psm_path=stripped,
+            ptmall_path=FIXTURES / "ptmall.txt",
+            psmrankall_path=FIXTURES / "psmrankall.txt",
+            pdv_path=FIXTURES / "pdv_export.txt",
+            output_ipc=tmp_path / "subs.ipc",
+        )

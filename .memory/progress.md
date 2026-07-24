@@ -1,84 +1,45 @@
-# Progress: Missing SpectralSim and RTScore Columns
+# Progress: SpectralSim/RTScore nulls + GAPDH 72-col parity
 
-**Last Updated:** 2026-07-23  
-**Status:** Implementation Phase Complete (50%)
+**Last Updated:** 2026-07-24
+**Status:** Root cause found and fixed in code; clean rerun pending.
 
-## Completed
+## Resolved
 
-### Investigation Phase (✅ Done)
-- Identified exact problem: 2 missing columns (SpectralSim, RTScore)
-- Located reference data: `/home/labs/pilpel/elizabev/tRNA/EVpar/tarsus_analysis/subs.ipc`
-- Confirmed reference has 69 columns with these fields at positions 18-19
-- Investigated data flow through all pipeline steps
-- Analyzed PDV, PepQuery, FragPipe outputs (no source found in existing outputs)
-- Reviewed reference code and documentation
+Root cause of the null `SpectralSim`/`RTScore` is **MSBooster being disabled**
+(`cfd4886`), not a Step 7 column-selection bug. Full reasoning in **D-069**
+(which supersedes the incorrect D-2026-07-23). Verified by reading the reference
+generator `elizabev/TARSUS/analyze_outputs.py` and both canonical `second/psm.tsv`
+files, and by falsifying the "scores come from the `.pin`" hypothesis empirically.
 
-### Implementation Phase (✅ Done)
-- ✅ Modified `step07_analyze_outputs.py`:
-  - Added placeholder columns for SpectralSim and RTScore
-  - Implemented column reordering to place them in correct positions (18-19)
-  - Columns currently populated with NaN (awaiting actual data source)
+### Code changes landed (310 tests pass)
+- `step03a_first_pass.py` / `step03c_second_pass.py` — stopped patching MSBooster
+  off. Template already carries the reference settings; the patch chain now leaves
+  that block alone. `find-best-rt-model=false` stays pinned (reference sets it false).
+- `step07_analyze_outputs.py` — null placeholders replaced by a **loud failure**
+  when the score columns are absent; PDV `ions`/`ion_mz`/`ion_int` joined on
+  `(spectrum_title, dependent)` and positioned after `Traced Scans`.
+- Fixtures updated to MSBooster-on reality; new tests assert score pass-through,
+  ion columns, column positions, and the fail-loud path.
 
-- ✅ Modified `step11_localize.py`:
-  - Added validation to ensure required columns are present
-  - Will fail fast with clear error message if columns missing
+### Project cleanup
+Root cleared (7 stale docs → `docs/archive/`, ~924 MB of pathological `rev_rev_`
+double-decoy FASTAs deleted). `output/` emptied of all ~2.1 TB of prior runs; QC
+report and `hoMS_24814/RESULTS.md` preserved under `docs/qc-history/`.
 
-- ✅ Code compilation verified for both files
-- ✅ Column addition logic tested and working
+## Next
 
-## In Progress / Blocked
+1. **Clean rerun** of `hoMS_24814_gapdh` end-to-end (single run, sequential).
+2. **QC compare** vs `slavat/.../GAPDH/2d/fragpipe_fullpipeline/subs.ipc`:
+   - 72 columns, `SpectralSim`/`RTScore` non-null
+   - `ions`/`ion_mz`/`ion_int` populated
+   - substitution + position agreement (was 100% / 98.5% on shared rows)
+   - detection count vs Slava's 259 — expect a rise from 191 now that MSBooster
+     rescoring feeds percolator.
 
-### Data Population (⚠️ Needs Action)
-- Columns exist but are empty (NaN)
-- Need to discover where SpectralSim and RTScore actually come from
-- Likely source: PDV text report mode (already configured but not parsed)
-- Alternative sources: MSBooster, IonQuant
+## Watch for
 
-### Full Pipeline Test (⚠️ Needs Full Data)
-- End-to-end test not completed due to partial data availability
-- Ready to test once someone runs with complete input data (Steps 1-6)
-
-## Next Steps (Priority Order)
-
-1. **[CRITICAL] Populate actual values**
-   - Investigate PDV text report mode output format
-   - Modify Step 6 to extract and save metrics
-   - Modify Step 7 to read and merge metrics
-   - Test that output values are sensible
-
-2. **Validate with reference**
-   - Compare output column-by-column with reference
-   - Verify row-by-row agreement on shared spectra
-   - Check statistical properties of scores
-
-3. **Full pipeline test**
-   - Run steps 6-11 with complete input data
-   - Verify 69 columns in output
-   - Spot-check some rows against reference
-
-## Risks & Unknowns
-
-- ⚠️ Source of SpectralSim/RTScore columns unclear
-- ⚠️ PDV text report format unknown (never executed successfully)
-- ⚠️ Placeholder NaN values might break downstream steps
-- ⚠️ Alternative implementations might be needed if PDV doesn't provide scores
-
-## Files Modified
-
-- `src/tarsus/steps/step07_analyze_outputs.py` - Added column infrastructure
-- `src/tarsus/steps/step11_localize.py` - Added validation
-
-## Time Spent
-
-- Investigation: ~2 hours (traced all data sources)
-- Implementation: ~30 minutes (code changes + testing)
-- Documentation: ~30 minutes
-
-## Acceptance Criteria
-
-- [ ] 69 columns in subs.ipc (not 67)
-- [ ] Columns 18-19 are SpectralSim and RTScore
-- [ ] Both columns have numeric values (not mostly NaN)
-- [ ] Step 11 validation passes
-- [ ] Full pipeline completes without errors
-- [ ] Output matches reference schema on head-to-head comparison
+- Do **not** source the scores from `_edited.pin` — empirically falsified (D-069).
+- Do **not** delete real detections to make a count match the reference.
+- MSBooster uses local DIA-NN models, so the rerun needs no internet. If it stalls
+  on Koina, check `msbooster.rt-model`/`spectra-model` are still `DIA-NN`.
+- Confirm no `*-decoys-*.fas` reappears at the repo root during the rerun.

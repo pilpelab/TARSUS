@@ -1,2 +1,2 @@
-peptide	Spectrum_Title	ions
-VARIANT	dev:1:2	[b4, b5]
+peptide	Spectrum_Title	ions	ions_mz	ions_int
+VARIANT	dev:1:2	[b4, b5]	[404.2248, 517.3089]	[4588.39, 13457.61]

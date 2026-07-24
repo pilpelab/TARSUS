@@ -1,2 +1,2 @@
-Spectrum	Peptide	Intensity	Protein	Charge	Protein Start
-dev_sub.1.1.2	VARIANT	80000.0	PEPAIDE_A3R	2	1
+Spectrum	Peptide	Intensity	Protein	Charge	Protein Start	Delta Mass	SpectralSim	RTScore	Traced Scans
+dev_sub.1.1.2	VARIANT	80000.0	PEPAIDE_A3R	2	1	0.0012	0.9789	2.2396	1

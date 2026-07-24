@@ -102,10 +102,24 @@ class TestPatchWorkflow:
         assert _value(out, "msfragger.search_enzyme_cut_1") == "@"
         assert _value(out, "msfragger.search_enzyme_name_1") == "nocleavage"
         assert _value(out, "msfragger.search_enzyme_nocut_1") == "@"
+        # `find-best-rt-model` stays pinned false (the reference sets it false);
+        # it picks the RT model and does not gate MSBooster itself.
         assert _value(out, "msbooster.find-best-rt-model") == "false"
-        assert _value(out, "msbooster.run-msbooster") == "false"
-        assert _value(out, "msbooster.predict-rt") == "false"
-        assert _value(out, "msbooster.predict-spectra") == "false"
+
+    def test_leaves_msbooster_running(self, tmp_path: Path) -> None:
+        """MSBooster must survive the patch chain — it produces the score columns.
+
+        FragPipe writes `SpectralSim`/`RTScore` into the second-pass psm.tsv only
+        when MSBooster runs, and Step 7 carries psm.tsv columns through verbatim.
+        Disabling it (as cfd4886 did, to skip redundant calibration PNGs) left
+        both columns null in every rerun (D-069). The reference workflows ship
+        these as true, so the patch chain must not touch them.
+        """
+        generated = _fake_generated_workflow(tmp_path / "03a_first_pass")
+        out = _patch_workflow(generated.read_text(), Path("/db/decoy.fasta"))
+        assert _value(out, "msbooster.run-msbooster") == "true"
+        assert _value(out, "msbooster.predict-rt") == "true"
+        assert _value(out, "msbooster.predict-spectra") == "true"
 
     def test_forces_remove_precursor_peak_off_unconditionally(self) -> None:
         """The reference mandates remove_precursor_peak=0 for the second pass.

@@ -63,10 +63,13 @@ def _patch_workflow(content: str, decoy_fasta: Path) -> str:
          "msfragger.search_enzyme_name_1=nocleavage"),
         (r"^msfragger\.search_enzyme_nocut_1=.*$",
          "msfragger.search_enzyme_nocut_1=@"),
+        # MSBooster must RUN on the second pass: FragPipe emits the `SpectralSim`
+        # and `RTScore` psm.tsv columns (18-19, straight after `Delta Mass`) only
+        # when it does, and Step 7 passes psm.tsv columns through untouched — so
+        # disabling it is what left both columns null in every rerun (D-069).
+        # `find-best-rt-model=false` is kept because the reference sets it false
+        # too; it selects the RT model, it does not gate MSBooster itself.
         (r"^msbooster\.find-best-rt-model=.*$", "msbooster.find-best-rt-model=false"),
-        (r"^msbooster\.run-msbooster=.*$", "msbooster.run-msbooster=false"),
-        (r"^msbooster\.predict-rt=.*$", "msbooster.predict-rt=false"),
-        (r"^msbooster\.predict-spectra=.*$", "msbooster.predict-spectra=false"),
     ]
     for pattern, replacement in patches:
         content = re.sub(pattern, replacement, content, count=1, flags=re.MULTILINE)
