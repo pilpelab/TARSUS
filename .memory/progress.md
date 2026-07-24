@@ -1,7 +1,19 @@
 # Progress: SpectralSim/RTScore nulls + GAPDH 72-col parity
 
 **Last Updated:** 2026-07-24
-**Status:** Root cause found and fixed in code; clean rerun pending.
+**Status:** DONE. Clean rerun completed and QC'd against Slava GAPDH — recapitulated.
+
+## Rerun result (job 300453, commit d3d43ff)
+
+All 12 steps clean in ~2h23m. `output/homs_24814/`. Full QC in
+`docs/qc-history/QC-HOMS-SLAVA-COMPARISON-2026-07-24.md`. Headlines:
+
+- **262 rows / 233 unique spectra** vs Slava's 259 / **233** (was 191 / 167).
+- **73 cols, 0 nulls** in SpectralSim/RTScore/ions/ion_mz/ion_int/sample.
+- **100% substitution + position agreement** on all 166 shared spectra.
+- 67/67 complementary spectra each way (genuine FDR-membership difference, the
+  legitimate place for the FragPipe version change to show — not I/L, not values).
+- Cys/Met-origin rows 0 → 34 (13%, vs Slava 17%); D-070 bias gone.
 
 ## Resolved
 
