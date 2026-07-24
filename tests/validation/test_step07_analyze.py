@@ -51,7 +51,7 @@ def test_step07_load_ptm_details():
     assert len(ptm) == 1
     assert ptm["origin"][0] == "A"  # Ala (1-letter)
     assert ptm["dest"][0] == "R"    # Arg (1-letter)
-    assert ptm["mistranslated_pos"][0] == 2  # position - 1
+    assert ptm["mistranslatedPos"][0] == 2  # position - 1
     assert ptm["spectrum_title"][0] == "dev:1:2"
 
 
@@ -91,10 +91,10 @@ def test_step07_analyze_end_to_end(tmp_path):
     assert len(result) == 1
     assert result["dependent"][0] == "VARIANT"
     assert result["base"][0] == "PEPAIDE"
-    # ORIGIN comes from `base[mistranslated_pos]`, NOT the candidate header — the
+    # ORIGIN comes from `base[mistranslatedPos]`, NOT the candidate header — the
     # header carries the collapsed class `I` for the isobaric pair and would mislabel
     # every Leu origin as `I`. The origin is genome-known (D-065).
-    pos = result["mistranslated_pos"][0]
+    pos = result["mistranslatedPos"][0]
     assert result["base"][0][pos] == "A"
     assert result["origin"][0] == "A"
     assert result["destination"][0] == "R"

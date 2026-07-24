@@ -41,6 +41,31 @@ class TestParseModification:
     def test_no_match(self) -> None:
         assert _parse_modification("nothing") is None
 
+    def test_substitution_preceded_by_another_modification(self) -> None:
+        """The substitution is rarely first — PepQuery lists fixed mods before it.
+
+        `re.match` anchors at position 0 and returned None for every one of these,
+        silently dropping essentially every Cys- and Met-containing PSM (D-070).
+        Parsing must be unanchored, as the reference's `str.extract` is.
+        """
+        result = _parse_modification(
+            "Carbamidomethylation of C@5[57.0215];Gly->Ala of G@3[14.0157]",
+        )
+        assert result is not None
+        assert result["origin"] == "G"
+        assert result["dest"] == "A"
+        assert result["position"] == 3
+
+    def test_oxidation_prefix_with_xle_destination(self) -> None:
+        """Same shape, Met-oxidation prefix, and an Xle destination (I/L class)."""
+        result = _parse_modification(
+            "Carbamidomethylation of C@11[57.0215];Asp->Xle of D@7[-1.9429]",
+        )
+        assert result is not None
+        assert result["origin"] == "D"
+        assert result["dest"] == "I"
+        assert result["position"] == 7
+
 
 class TestNormalizeIL:
     def test_no_il(self) -> None:
@@ -165,7 +190,7 @@ class TestFilterSingleSavPsms:
             "ptm_score": pl.Float64,
             "origin": pl.String,
             "dest": pl.String,
-            "mistranslated_pos": pl.Int64,
+            "mistranslatedPos": pl.Int64,
         })
         result = filter_single_sav_psms(empty)
         assert len(result) == 0
@@ -184,7 +209,7 @@ class TestLoadPtmDetails:
         assert len(result) > 0
         assert "origin" in result.columns
         assert "dest" in result.columns
-        assert "mistranslated_pos" in result.columns
+        assert "mistranslatedPos" in result.columns
         assert result["origin"][0] == "A"
         assert result["dest"][0] == "G"
-        assert result["mistranslated_pos"][0] == 0
+        assert result["mistranslatedPos"][0] == 0

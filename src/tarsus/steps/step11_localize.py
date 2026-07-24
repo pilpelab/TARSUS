@@ -134,14 +134,14 @@ def _parse_aux_mods(modification: Any) -> tuple[np.ndarray, np.ndarray]:
 def _expected_position(row: dict[str, Any]) -> int:
     """1-based peptide position of the substitution for *row*.
 
-    ``subs.ipc`` stores ``mistranslated_pos`` 0-based (Step 3b names candidates
+    ``subs.ipc`` stores ``mistranslatedPos`` 0-based (Step 3b names candidates
     ``<peptide>_<origin><0-based pos><dest>``), while PyAscore reports 1-based
     positions.  Raises ``KeyError`` if the column is absent rather than
     defaulting — a silent default of 0 makes ``expected_pos`` always 1, which
-    Step 7's ``mistranslated_pos > 0`` filter can never satisfy, so Step 11
+    Step 7's ``mistranslatedPos > 0`` filter can never satisfy, so Step 11
     would return zero rows on every run.
     """
-    return int(row["mistranslated_pos"]) + 1
+    return int(row["mistranslatedPos"]) + 1
 
 
 # Step 8 patches each fake spectrum's TITLE with a Met/Cys modification-state
@@ -205,7 +205,7 @@ def localize_shift(
 
     Args:
         candidates: DataFrame with columns 'spectrum_title', 'base', 'origin',
-            'destination', 'mistranslated_pos', 'modification'.
+            'destination', 'mistranslatedPos', 'modification'.
         spectra_path: Path to MGF file with spectra for localization.
         precursor_tol: Precursor m/z tolerance for PyAscore.
 
@@ -275,7 +275,7 @@ def _label_isobaric_il(localized: pl.DataFrame) -> pl.DataFrame:
     - **origin** is the residue *before* the error. It comes from the base peptide,
       which maps to the reference proteome, whose sequence is fixed by the genome
       codon (I = ATT/ATC/ATA, L = CTN/TTA/TTG). So the origin is **known** — it is
-      literally ``base[mistranslated_pos]``, a definite ``I`` or ``L``.
+      literally ``base[mistranslatedPos]``, a definite ``I`` or ``L``.
     - **destination** is the *misincorporated* residue, seen only by MS mass. That is
       genuinely ``I/L`` — the mass cannot tell Ile from Leu, and a misincorporation is
       not on the genome to look up.
@@ -301,7 +301,7 @@ def _label_isobaric_il(localized: pl.DataFrame) -> pl.DataFrame:
     safe to re-apply to an already-labelled file.
     """
     return localized.with_columns(
-        pl.col("base").str.slice(pl.col("mistranslated_pos"), 1).alias("origin"),
+        pl.col("base").str.slice(pl.col("mistranslatedPos"), 1).alias("origin"),
         pl.col("destination").replace({"I": "I/L"}),
     )
 

@@ -264,10 +264,10 @@ def _plot_protein_burden(df: pl.DataFrame, out: Path, top_n: int = 20) -> None:
     - **hoMS:** 44 substitutions on **one gene** (GAPDH, two isoform entries). The
       signature of a purified / overexpressed reporter, not a proteome survey.
 
-    Use ``Protein_first`` — the accession from the first-pass search. The ``Protein``
+    Use ``Protein_right`` — the accession from the first-pass search. The ``Protein``
     column holds the *candidate FASTA header* (``PEPTIDE_T5S``), not a real protein.
     """
-    col = "Protein_first" if "Protein_first" in df.columns else "Protein"
+    col = "Protein_right" if "Protein_right" in df.columns else "Protein"
     counts = (
         df.group_by(col).len().sort("len", descending=True)
         .rename({col: "protein", "len": "n"})
@@ -324,7 +324,7 @@ def build_sixty_twenty(
         silently-dropped row is the D-057 failure mode.
     """
     rows = [
-        (str(r["base"]), int(r["mistranslated_pos"]), str(r["destination"]))
+        (str(r["base"]), int(r["mistranslatedPos"]), str(r["destination"]))
         for r in df.iter_rows(named=True)
     ]
     cds = load_cds(cds_fasta)
@@ -453,7 +453,7 @@ def step12_visualize(
     n_groups = df["_group"].n_unique()
     print(
         f"[step12] {df.height} substitutions | "
-        f"{df['Protein_first'].n_unique() if 'Protein_first' in df.columns else '?'} "
+        f"{df['Protein_right'].n_unique() if 'Protein_right' in df.columns else '?'} "
         f"proteins | {n_groups} group(s) (fractions merged)"
     )
 

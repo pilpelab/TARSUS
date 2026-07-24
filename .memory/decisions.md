@@ -1,5 +1,47 @@
 # Decisions Log
 
+## D-070 (2026-07-24): `re.match` silently dropped every pre-modified substitution
+
+**Issue:** On byte-identical reference inputs, our Step 7 produced **3521 rows vs
+the reference's 3922** (−10%). Found while validating D-069, unrelated to it.
+
+**Method:** Dry-ran our real `analyze_outputs()` against the reference's own
+inputs (`elizabev/tRNA/EVpar/tarsus_analysis`), which holds `psm.tsv`,
+`ptmall.txt` and `psmrankall.txt` constant. That **controls for the tool-version
+upgrade**: with the search output fixed, any row gap is our code. All 197 missing
+(spectrum, peptide) keys were present in the raw `second/psm.tsv`. Staged the
+filters and found all 197 died at the PepQuery confident/saved filter; the
+reference's `save_singles` returned 2419 titles including all 197, ours 2158
+including none.
+
+**Root cause:** `_parse_modification` used `re.match`, which anchors at position
+0. PepQuery lists fixed/variable mods *before* the substitution::
+
+    'Carbamidomethylation of C@5[57.0215];Gly->Ala of G@3[14.0157]'
+
+`re.match` returns None for every such string; the reference's polars
+`str.extract` is unanchored and matches. On the affected rows: `re.match` 0/201,
+`re.search` 201/201.
+
+**Why it mattered more than 10%:** the loss was *chemically biased*, not random —
+it removed essentially every Cys-containing (carbamidomethyl) and Met-containing
+(oxidation) PSM. That skews the substitution spectrum itself, which is the
+paper's actual result, and plausibly explains why our top-substitution table
+diverged from Slava's in the 2026-07-23 QC.
+
+**Fix:** `re.search`, keeping the greedy `.*` so the trailing `@(\d+)[` binds to
+the last modification exactly as the reference regex does.
+
+**Verification:** dry run now returns **3922 rows — identical to the reference**,
+with `in REF not ours: 0` and `in OURS not ref: 0` on `(spectrum, peptide)` keys.
+Regression tests cover both prefixed-modification shapes.
+
+**Lesson:** `re.match` vs `re.search` is not a stylistic choice when transcribing
+polars `str.extract` — `str.extract` is unanchored. Check anchoring on every
+regex ported between the two.
+
+---
+
 ## D-069 (2026-07-24): SpectralSim/RTScore come from MSBooster — SUPERSEDES D-2026-07-23
 
 **Issue:** `SpectralSim`/`RTScore` present in `subs.ipc` but null in every row (191/191),

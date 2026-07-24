@@ -26,6 +26,26 @@ Root cleared (7 stale docs → `docs/archive/`, ~924 MB of pathological `rev_rev
 double-decoy FASTAs deleted). `output/` emptied of all ~2.1 TB of prior runs; QC
 report and `hoMS_24814/RESULTS.md` preserved under `docs/qc-history/`.
 
+### Second bug found and fixed (D-070)
+`_parse_modification` used `re.match` (anchored) where the reference uses polars
+`str.extract` (unanchored), silently dropping every substitution listed *after*
+another modification — i.e. essentially all Cys- and Met-containing PSMs, a
+chemically biased loss. Dry run against reference inputs went **3521 → 3922 rows,
+exactly matching the reference**, `in REF not ours: 0`, `in OURS not ref: 0`.
+
+### Schema is now 1:1 (+ documented)
+Renamed to the reference's exact spelling (`first Intensity`, `second Intensity`,
+`mistranslatedPos`, `_right` suffix) and added the missing `sample` column. Output
+is a strict superset of the reference: 73 = reference's 69 + `ions`/`ion_mz`/
+`ion_int` + our `spectrum_title` key. Every column is documented in
+**`docs/SUBS-SCHEMA.md`** — written so the table stays interpretable without Slava.
+
+### Test status
+305 unit + 7 Step 7 validation tests pass. The three heavyweight validation tests
+(`step01_convert`, `step02_index`, `step03a_first_pass`) are LSF/tool integration
+tests rooted at `output/trial/`, which the cleanup deleted — they now block on
+real tool invocation. Not a code regression; the rerun exercises those paths.
+
 ## Next
 
 1. **Clean rerun** of `hoMS_24814_gapdh` end-to-end (single run, sequential).

@@ -160,6 +160,7 @@ def run_pipeline(
             psmrankall_path=outdir / "06_aggregated" / "psmrankall.txt",
             pdv_path=outdir / "06_aggregated" / "pdv_spectra" / "PDVExportResult.txt",
             output_ipc=_07_out / "subs.ipc",
+            sample=outdir.name,
         )
         _s7.touch()
         _log("S07", f"Done → {_07_out / 'subs.ipc'}")

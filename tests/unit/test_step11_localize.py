@@ -103,17 +103,17 @@ class TestParseAuxMods:
 
 
 class TestExpectedPosition:
-    """subs.ipc stores a 0-based `mistranslated_pos`; PyAscore reports 1-based."""
+    """subs.ipc stores a 0-based `mistranslatedPos`; PyAscore reports 1-based."""
 
     def test_zero_based_to_one_based(self) -> None:
-        assert _expected_position({"mistranslated_pos": 20}) == 21
+        assert _expected_position({"mistranslatedPos": 20}) == 21
 
     def test_missing_column_raises_loudly(self) -> None:
         # Regression: a silent .get(..., 0) default made expected_pos always 1,
-        # which Step 7's `mistranslated_pos > 0` filter can never satisfy —
+        # which Step 7's `mistranslatedPos > 0` filter can never satisfy —
         # Step 11 then returned zero rows on every run.
         with pytest.raises(KeyError):
-            _expected_position({"mistranslatedPos": 20})
+            _expected_position({"some_other_column": 20})
 
 
 class TestNonBaseHits:
@@ -258,7 +258,7 @@ class TestIsobaricIlLabel:
 
     Ile and Leu share a mass, but the two ends of a substitution differ. The ORIGIN
     is the reference residue at the substituted position — fixed by the genome codon,
-    so it is a definite `I` or `L`, recovered from `base[mistranslated_pos]`. The
+    so it is a definite `I` or `L`, recovered from `base[mistranslatedPos]`. The
     DESTINATION is the misincorporated residue, seen only by mass, so it is genuinely
     `I/L`. (D-064 wrongly collapsed both; Slava corrected it.)
 
@@ -270,7 +270,7 @@ class TestIsobaricIlLabel:
             pos: list[int]) -> pl.DataFrame:
         return pl.DataFrame({
             "origin": origin, "destination": dest,
-            "base": base, "mistranslated_pos": pos,
+            "base": base, "mistranslatedPos": pos,
         })
 
     def test_origin_recovered_from_base_destination_becomes_IL(self) -> None:

@@ -42,8 +42,23 @@ def _parse_modification(mod: str) -> dict[str, Any] | None:
 
     'Ala->Gly@42[' -> {'origin': 'A', 'dest': 'G', 'position': 42}
     Returns None if the string does not match.
+
+    The search is UNANCHORED, matching the reference's polars ``str.extract``.
+    A substitution is rarely the first modification listed — PepQuery writes the
+    fixed/variable mods first::
+
+        'Carbamidomethylation of C@5[57.0215];Gly->Ala of G@3[14.0157]'
+
+    ``re.match`` anchors at position 0 and returns None for every one of those,
+    which silently dropped essentially every Cys- (carbamidomethyl) and Met-
+    (oxidation) containing PSM — 0/201 parsed on the affected rows, vs 201/201
+    once unanchored. That is a chemically biased loss, not a uniform one, and it
+    skewed the substitution spectrum against the reference (D-070).
+
+    ``.*`` stays greedy so the trailing ``@(\\d+)[`` binds to the last modification
+    on the line, exactly as the reference's regex does.
     """
-    m = re.match(r"([A-Za-z]{3})->([A-Za-z]{3}).*@(\d+)\[", mod)
+    m = re.search(r"([A-Za-z]{3})->([A-Za-z]{3}).*@(\d+)\[", mod)
     if not m:
         return None
     origin_3 = m.group(1)
@@ -84,7 +99,7 @@ def load_ptm_details(ptmall_path: Path) -> pl.DataFrame:
     ptm = ptm.with_columns([
         parsed.struct.field("origin").alias("origin"),
         parsed.struct.field("dest").alias("dest"),
-        (parsed.struct.field("position") - 1).alias("mistranslated_pos"),
+        (parsed.struct.field("position") - 1).alias("mistranslatedPos"),
     ])
     return ptm
 
@@ -108,15 +123,15 @@ def filter_single_sav_psms(ptm: pl.DataFrame) -> pl.DataFrame:
     )
 
     df_valid = ptm_subonly.filter(
-        (pl.col("mistranslated_pos") >= 0)
-        & (pl.col("mistranslated_pos") < pl.col("ptm_peptide").str.len_bytes()),
+        (pl.col("mistranslatedPos") >= 0)
+        & (pl.col("mistranslatedPos") < pl.col("ptm_peptide").str.len_bytes()),
     )
 
     df_valid = df_valid.with_columns(
         (
-            pl.col("ptm_peptide").str.slice(0, pl.col("mistranslated_pos"))
+            pl.col("ptm_peptide").str.slice(0, pl.col("mistranslatedPos"))
             + pl.col("dest")
-            + pl.col("ptm_peptide").str.slice(pl.col("mistranslated_pos") + 1)
+            + pl.col("ptm_peptide").str.slice(pl.col("mistranslatedPos") + 1)
         ).alias("modified_peptide"),
     )
 
@@ -199,12 +214,20 @@ def analyze_outputs(
     psmrankall_path: Path,
     pdv_path: Path,
     output_ipc: Path,
+    sample: str | None = None,
 ) -> pl.DataFrame:
     """Analyze PepQuery validation outputs and produce SAAV table.
 
     Reads PepQuery results and FragPipe search outputs, filters confident
     SAAV candidates, and produces the subs.ipc table with abundance ratios.
+
+    *sample* labels which run each row came from, so several runs can be
+    concatenated and still be told apart — the reference takes it from the run
+    directory name. Defaults to the run directory inferred from *output_ipc*
+    (``<run>/07_analyze/subs.ipc`` -> ``<run>``).
     """
+    if sample is None:
+        sample = output_ipc.parent.parent.name
     # 1. Load PTM details from PepQuery
     ptm = load_ptm_details(ptmall_path)
     saved_singles = filter_single_sav_psms(ptm)
@@ -256,22 +279,23 @@ def analyze_outputs(
 
     # 4. First-pass PSMs (reference search)
     first_psms = pl.read_csv(first_psm_path, separator="\t")
-    first_psms = first_psms.rename({"Intensity": "first_intensity"})
+    first_psms = first_psms.rename({"Intensity": "first Intensity"})
     first_psms = first_psms.rename({"Peptide": "base"})
-    first_psms = first_psms.filter(pl.col("first_intensity") > 0)
+    first_psms = first_psms.filter(pl.col("first Intensity") > 0)
     first_psms = first_psms.with_columns([
-        pl.max("first_intensity").over("base", "Charge").alias("intensity_max"),
+        pl.max("first Intensity").over("base", "Charge").alias("intensity_max"),
     ])
     first_psms = first_psms.filter(
-        pl.col("first_intensity") == pl.col("intensity_max"),
+        pl.col("first Intensity") == pl.col("intensity_max"),
     ).drop("intensity_max")
 
     # 5. Second-pass PSMs (variant search)
     second_all = pl.read_csv(second_psm_path, separator="\t")
-    second_all = second_all.rename({"Peptide": "dependent", "Intensity": "second_intensity"})
-    second_all = second_all.filter(pl.col("second_intensity") > 0)
+    second_all = second_all.rename({"Peptide": "dependent", "Intensity": "second Intensity"})
+    second_all = second_all.filter(pl.col("second Intensity") > 0)
     second_all = second_all.with_columns(
         pl.col("Protein").map_elements(_extract_base_name, return_dtype=pl.String).alias("base"),
+        pl.lit(sample).alias("sample"),
     )
 
     # Convert Spectrum to canonical title
@@ -309,10 +333,10 @@ def analyze_outputs(
 
     # 8. Max intensity per dependent+Charge
     second_psms = second_psms.with_columns([
-        pl.max("second_intensity").over("dependent", "Charge").alias("intensity_max"),
+        pl.max("second Intensity").over("dependent", "Charge").alias("intensity_max"),
     ])
     second_psms = second_psms.filter(
-        pl.col("second_intensity") == pl.col("intensity_max"),
+        pl.col("second Intensity") == pl.col("intensity_max"),
     ).drop("intensity_max")
 
     # 8b. Attach the PDV fragment annotation (`ions`/`ion_mz`/`ion_int`).
@@ -354,12 +378,12 @@ def analyze_outputs(
 
     first_sub = first_psms.select([
         "Spectrum", "base", "Prev AA", "Next AA", "Protein",
-        "first_intensity", "Retention", "Charge", "Protein Start",
+        "first Intensity", "Retention", "Charge", "Protein Start",
         "Protein End", "Mapped Proteins", "Hyperscore",
         "Extended Peptide", "Number of Missed Cleavages", "Is Unique",
     ])
 
-    joined = second_psms.join(first_sub, on=join_cols, suffix="_first")
+    joined = second_psms.join(first_sub, on=join_cols, suffix="_right")
 
     # Reorder to match the reference schema. `SpectralSim`/`RTScore` sit straight
     # after `Delta Mass`; the PDV annotation trio sits straight after
@@ -379,8 +403,8 @@ def analyze_outputs(
     pos_pattern = r"_(?:\D*)(\d+)"
     joined = joined.with_columns(
         pl.col("Protein").str.extract(pos_pattern, 1)
-        .cast(pl.Int64).alias("mistranslated_pos"),
-    ).filter(pl.col("mistranslated_pos") > 0)
+        .cast(pl.Int64).alias("mistranslatedPos"),
+    ).filter(pl.col("mistranslatedPos") > 0)
 
     # 11. Extract origin, destination, protein position.
     #
@@ -388,7 +412,7 @@ def analyze_outputs(
     # the collapsed class letter `I` for the whole isobaric pair (Step 3b), so taking
     # origin from it would mislabel every LEUCINE origin as `I`. But the origin is
     # known: it is the reference residue at the substituted position, and the genome
-    # codon spells out I vs L. `base[mistranslated_pos]` is authoritative — there is
+    # codon spells out I vs L. `base[mistranslatedPos]` is authoritative — there is
     # no such thing as an ambiguous `I/L` origin (D-065).
     #
     # DESTINATION stays the header's class letter `I` here; it is the misincorporated
@@ -396,18 +420,18 @@ def analyze_outputs(
     # `I/L` as its last act — the `/` must not enter the mass lookup before then.
     sub_pattern = r"_(\w)(\d+)(\w)"
     joined = joined.with_columns([
-        pl.col("base").str.slice(pl.col("mistranslated_pos"), 1).alias("origin"),
+        pl.col("base").str.slice(pl.col("mistranslatedPos"), 1).alias("origin"),
         pl.col("Protein").str.extract(sub_pattern, 3).alias("destination"),
         (
-            pl.col("Protein Start_first") + pl.col("mistranslated_pos") - 1
+            pl.col("Protein Start_right") + pl.col("mistranslatedPos") - 1
         ).alias("misProt"),
     ])
 
     # 12. Abundance ratio
     ratio = (
         np.log10(
-            joined["second_intensity"].to_numpy()
-            / joined["first_intensity"].to_numpy(),
+            joined["second Intensity"].to_numpy()
+            / joined["first Intensity"].to_numpy(),
         )
     )
     joined = joined.with_columns(pl.Series("dpbp", ratio))
