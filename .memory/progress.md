@@ -46,6 +46,24 @@ is a strict superset of the reference: 73 = reference's 69 + `ions`/`ion_mz`/
 tests rooted at `output/trial/`, which the cleanup deleted — they now block on
 real tool invocation. Not a code regression; the rerun exercises those paths.
 
+### Rerun LAUNCHED 2026-07-24 13:32
+LSF master job **300453**, output `output/homs_24814/`, provenance pinned to
+commit `d3d43ff`. Full human proteome (`slavat/tehilapaper/fasta/protein.fasta`,
+123,495 seqs) over the 15 `EX1_24814_Fraction-*_03092025.raw` fractions —
+the same configuration Slava's GAPDH `fragpipe_fullpipeline` used for its first
+pass. "GAPDH" in his directory name is the *experiment*, not a restricted
+database, so a separate `_gapdh` run is redundant (the old one used the full
+FASTA too, which is why both gave an identical 191 rows).
+
+Monitor: `bjobs 300453`, `tail -f output/homs_24814/master.log`.
+
+**Do not run `pytest tests/validation` while a run is live.** Those tests submit
+their own LSF jobs (ThermoRawFileParser conversions, PepQuery index) into
+`output/`, which both interferes with the run and recreates directories. This is
+already documented at the top of `docs/rerun_qc_20260723.sh`; it was hit anyway
+on 2026-07-24 and blocked the output purge for ~40 min. Unit tests are local and
+safe: `pytest tests/unit`.
+
 ## Next
 
 1. **Clean rerun** of `hoMS_24814_gapdh` end-to-end (single run, sequential).
