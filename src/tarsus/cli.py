@@ -7,6 +7,7 @@ Usage:
 
 import os
 import sys
+import tomllib
 from pathlib import Path
 
 import click
@@ -20,6 +21,52 @@ from .provenance import (
     stale_artifacts,
     write_provenance,
 )
+
+
+# ── CDS default resolution ───────────────────────────────────────────
+
+
+def _project_config_cds(start: Path) -> Path | None:
+    """Return ``[tool.tarsus].cds`` from the nearest ``pyproject.toml``.
+
+    Walks up from *start*; the first ``pyproject.toml`` carrying a
+    ``[tool.tarsus].cds`` value wins. A relative value is resolved against the
+    directory of the ``pyproject.toml`` that declared it, so a project can pin
+    ``cds = "data/human_cds.fasta"`` and have it work from any cwd. Returns
+    ``None`` when no project declares one — keeping the CDS optional.
+    """
+    for d in [start, *start.parents]:
+        pp = d / "pyproject.toml"
+        if not pp.is_file():
+            continue
+        try:
+            data = tomllib.loads(pp.read_text())
+        except tomllib.TOMLDecodeError:
+            continue
+        cds = data.get("tool", {}).get("tarsus", {}).get("cds")
+        if cds:
+            p = Path(cds)
+            return p if p.is_absolute() else (d / p)
+    return None
+
+
+def _resolve_cds(cds: str | None, cwd: Path) -> Path | None:
+    """Resolve the CDS FASTA: explicit flag > project config > env var > none.
+
+    Externalized per project rules — no hardcoded path. ``--cds`` overrides
+    everything; otherwise the nearest ``pyproject.toml``'s ``[tool.tarsus].cds``
+    is used; otherwise ``TARSUS_CDS_FASTA``; otherwise ``None`` (Step 12's codon
+    heatmap is skipped, as before).
+    """
+    if cds:
+        return Path(cds).resolve()
+    cfg = _project_config_cds(cwd)
+    if cfg:
+        return cfg.resolve()
+    env = os.environ.get("TARSUS_CDS_FASTA")
+    if env:
+        return Path(env).resolve()
+    return None
 
 
 # ── CLI group ────────────────────────────────────────────────────────
@@ -84,10 +131,12 @@ def convert(inputs: tuple[str, ...], output_dir: str, queue: str,
               help="LSF queue for all jobs")
 @click.option("--memory", default=32000, type=int, show_default=True,
               help="Memory for the master orchestration job in MB")
-@click.option("--cds", required=True, type=click.Path(exists=True, dir_okay=False),
-              help="CDS (nucleotide) FASTA — required for the 64x19 codon heatmap. "
-                   "Mistranslation happens in codon space: an engineered tRNA reads ONE "
-                   "codon, so amino-acid-level counts smear the signal across synonymous codons.")
+@click.option("--cds", default=None, type=click.Path(exists=True, dir_okay=False),
+              help="CDS (nucleotide) FASTA for the 64x19 codon heatmap. Optional: "
+                   "falls back to [tool.tarsus].cds in the nearest pyproject.toml, then "
+                   "the TARSUS_CDS_FASTA env var; if none resolve, the codon heatmap is "
+                   "skipped. Mistranslation happens in codon space (an engineered tRNA "
+                   "reads ONE codon), so this maps substitutions back to codons.")
 @click.option("--allow-dirty", is_flag=True,
               help="Run despite uncommitted changes (results become unattributable)")
 def run(
@@ -125,7 +174,15 @@ def run(
     for warning in stale_artifacts(outdir):
         click.echo(f"WARNING: {warning}", err=True)
 
-    cds_path = Path(cds).resolve()
+    cds_path = _resolve_cds(cds, Path.cwd())
+    if cds_path is not None and not cds_path.is_file():
+        raise click.ClickException(f"CDS FASTA not found: {cds_path}")
+    if cds_path is None:
+        click.echo(
+            "Note: no CDS resolved (no --cds, no [tool.tarsus].cds, no "
+            "TARSUS_CDS_FASTA) — Step 12's codon heatmap will be skipped.",
+            err=True,
+        )
 
     prov = write_provenance(outdir, {
         "fasta": str(fasta_path),
@@ -143,7 +200,7 @@ def run(
     tool_env = ToolEnvironment.from_env()
     log_path = outdir / "master.log"
 
-    cds_args = ["--cds", str(cds_path)]
+    cds_args = ["--cds", str(cds_path)] if cds_path else []
     jid = submit_bsub(
         cmd=[python_bin, "-m", "tarsus.orchestration", *cds_args,
              str(outdir), str(fasta_path),
