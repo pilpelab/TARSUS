@@ -101,7 +101,7 @@ td.s{font-weight:600;display:flex;align-items:center;gap:9px}
 <header class="hd">
   <p class="eyebrow">TARSUS_BC · pipeline recapitulation QC</p>
   <h1>Do our substitution tables match Slava's?</h1>
-  <p class="lede">Value-level comparison of the Step 7 substitution table (<code>subs.ipc</code>) our pipeline produced against Slava's reference, across 10 human tRNA samples. Every row below is one PSM supporting one amino-acid substitution; we compare the two pipelines on the spectra they both call.</p>
+  <p class="lede">Value-level comparison of the Step 7 substitution table (<code>subs.ipc</code>) our pipeline produced against Slava's reference, across 10 human samples (single proteins, cell lines and brain tissue). Every row below is one PSM supporting one amino-acid substitution; we compare the two pipelines on the spectra they both call.</p>
   <div class="verdict">
     <span class="chip good">Substitution identity 100%</span>
     <span class="chip good">Abundance ratio r 0.96–1.000</span>
@@ -129,6 +129,18 @@ td.s{font-weight:600;display:flex;align-items:center;gap:9px}
   </div>
 </section>
 
+<section class="read">
+  <h2>What this report shows, in plain terms</h2>
+  <ul>
+    <li><b>We re-implemented Slava's substitution-detection pipeline (TARSUS_BC) and ran it from scratch.</b> Starting from the same raw mass-spec files, our copy of the pipeline goes all the way to the Step 7 substitution table (<code>subs.ipc</code>) on its own - independent search, rescoring and quantification, not a re-use of his outputs.</li>
+    <li><b>Then we compared the actual numbers, sample by sample, against Slava's reference table.</b> Not just "did we find the same peptides", but "are the values the same": which residue is substituted and where (<b>identity</b>), how abundant the variant is (<b>substitution rate</b>, <code>dpbp</code>), the raw search values (Δ&nbsp;Mass, Hyperscore), and the MSBooster machine-learning features.</li>
+    <li><b>Every comparison is done only on spectra that <i>both</i> pipelines call</b> - the overlap. A "row" is one spectrum matched to one substituted peptide; the same spectrum can appear on more than one row (different charge / candidate), so we also count distinct spectra ("uniq").</li>
+    <li><b>The result: where we overlap, the biological call is identical (100%) and the abundance ratio tracks Slava's ≈1:1.</b> What residue changed, to what, at what position, at what rate - the paper's actual claims - reproduce across proteins, cell lines and tissue.</li>
+    <li><b>The only real divergence is in MSBooster's learned features</b> (<code>SpectralSim</code>, <code>RTScore</code>), and it is expected: a newer MSBooster recomputes those neural-net predictions, so they come out correlated but shifted. They feed rescoring; they are not the substitution call or its abundance.</li>
+    <li><b>Sample-to-sample the two pipelines cover slightly different spectra</b> (e.g. we call fewer on the cell lines, a few more on GAPDH). That is a <b>sensitivity</b> difference - which spectra clear the FDR cutoff, driven by the FragPipe/MSFragger version gap - not a disagreement: on the shared spectra they never contradict each other.</li>
+  </ul>
+</section>
+
 <section>
   <h2>Value agreement, pooled across all samples</h2>
   <p class="sub">Each point is one shared substitution: our value on x, Slava's on y. The dashed line is perfect agreement.</p>
@@ -154,6 +166,7 @@ td.s{font-weight:600;display:flex;align-items:center;gap:9px}
 
 <section>
   <h2>Per sample</h2>
+  <p class="sub"><b>ours / Slava</b> = substitution rows in each table · <b>uniq</b> = distinct spectra behind them · <b>shared</b> = spectra found in both · <b>identity</b> = of those shared spectra, the % where origin, destination and position all agree · <b>dpbp r</b> = correlation of the substitution rate · <b>SpecSim r</b> = correlation of the MSBooster spectral-similarity feature. Identity is measured on the overlap only, so 100% means "no disagreement where we both call", not "we found everything Slava found" - the differing counts are the coverage gap.</p>
   <div class="tw">
   <table>
     <thead><tr>
@@ -252,7 +265,7 @@ td.s{font-weight:600;display:flex;align-items:center;gap:9px}
   <ul>
     <li><b>Identity and quantity are recapitulated.</b> Which residue is substituted, where, and at what rate — the paper's actual claims — match Slava's reference across proteins, cell lines and tissue.</li>
     <li><b>The two ML-feature columns are the only real divergence,</b> and they diverge by design: <code>SpectralSim</code>/<code>RTScore</code> are MSBooster neural-net predictions, so a newer MSBooster gives correlated-but-shifted values. This is the "engine upgrade" surfacing exactly where it can — in learned features, never in identities or ratios.</li>
-    <li><b>Scope.</b> Compared on the Step 7 substitution table, the level at which a Slava reference exists. 10 human tRNA samples; the E. coli panel was still running at report time.</li>
+    <li><b>Scope.</b> Compared on the Step 7 substitution table, the level at which a Slava reference exists. 10 human samples (single proteins, cell lines, brain tissue); the E. coli tRNA panel was still running at report time.</li>
   </ul>
   <p class="prov">Provenance · commit <code>d79285d</code> · MSBooster + PTM-parsing fixes (D-069, D-070) · references under <code>slavat/tehilapaper/revisions</code></p>
 </section>
