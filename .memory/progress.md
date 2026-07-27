@@ -93,3 +93,57 @@ safe: `pytest tests/unit`.
 - MSBooster uses local DIA-NN models, so the rerun needs no internet. If it stalls
   on Koina, check `msbooster.rt-model`/`spectra-model` are still `DIA-NN`.
 - Confirm no `*-decoys-*.fas` reappears at the repo root during the rerun.
+
+---
+
+## 2026-07-27 — CODE-REPLICATION GOAL CLOSED
+
+**Verdict (user: "call it done"):** our pipeline reproduces Slava's TARSUS/FragPipe
+pipeline. Evidenced on both organisms with like-for-like TARSUS references:
+- **Human:** 10-sample panel, 100% substitution identity, dpbp r 0.96–1.000
+  (`docs/qc-history/qc-values-report.html`).
+- **E. coli:** EVpar TARSUS reference (`elizabev/tRNA/EVpar/tarsus_analysis/subs.ipc`,
+  3,922 rows) matched exactly by the D-070 fix (`in REF not ours: 0`,
+  `in OURS not ref: 0`).
+
+Remaining differences are tool-version effects (MSBooster ML features, which
+spectra clear FDR), not code-logic divergence. The only genuine output-level code
+gap is the `_rev` decoy leak (fix staged, below). The E. coli tRNA panel and Orly
+are **new-data production runs**, not replication tests — the tRNA samples' only
+Slava reference is MaxQuant (cross-method, not code-replication).
+
+## 2026-07-27 — panel done, Orly rerun launched, `_rev` fix pending
+
+### Recapitulation is CLOSED (human panel)
+The "does our pipeline match Slava's?" question is answered and holds: 10 human
+samples, 100% substitution identity on shared spectra, dpbp r 0.96–1.000, ΔMass
+exact; only MSBooster ML features (SpectralSim/RTScore) diverge, by version, as
+expected. See `docs/qc-history/qc-values-report.html`. No further runs are needed
+to support that conclusion.
+
+### E. coli tRNA panel — all 11 `subs.ipc` produced; references live in `elizabev/tRNA`
+All 11 coli samples (alaggc(+par), gluuuc(+par), ilexcau(+par), leuuag,
+procgg(+par), proggg(+par)) reached step07; SpectralSim null = 0 everywhere
+(MSBooster-on confirmed on E. coli too). **References DO exist** (I first wrongly
+said they didn't — see lessons 2026-07-27): `elizabev/tRNA/` holds the counterpart
+experiment. BUT distinguish the reference *method*:
+- `elizabev/tRNA/csvs_from_Slava/<tRNA>_subs_qdp_ratios.csv` — **MaxQuant**
+  dependent-peptide output. Comparing our FragPipe/TARSUS panel to these is
+  **method concordance (TARSUS vs MaxQuant)**, NOT code replication.
+- `elizabev/tRNA/EVpar/tarsus_analysis/subs.ipc` (3,922 rows, FragPipe schema) —
+  the **only like-for-like TARSUS reference** on E. coli; the 3,922 is what D-070
+  already matched. So the real E. coli code-replication check is **EV/EVpar**, not
+  the tRNA samples.
+
+### Orly (LIS1 #26227) rerun LAUNCHED 2026-07-26
+9 runs (L73a-d, WTa1-4, aggregated) on commit `e56070f`, clean tree, into
+`LIS1_.../output/2026-07-26-*`; old `2026-07-24-*` kept. CDS auto-resolves from
+`[tool.tarsus].cds` (A2). Started running 07-27 after the panel's S05 wave drained.
+Orly is NEW data (no Slava reference) — a produce-results goal, not recapitulation.
+
+### `_rev` decoy fix — DIAGNOSED + STAGED, not yet applied
+Fix (drop rows whose `Protein`/`Protein_right` starts with `rev_` after the
+step07 join) is written in `.claude/plans/i-want-us-to-cozy-kitten.md`, ready to
+apply. **Blocked**: Orly masters are live and will pass through step07. Apply +
+reprocess the 12 panel + 9 Orly `subs.ipc` (cheap, no LSF) once all masters clear.
+A2 (`--cds` default) is already landed + committed (`e56070f`).

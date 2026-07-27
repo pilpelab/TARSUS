@@ -374,3 +374,49 @@ as guidance.
 
 **Do not document a causal claim until you have measured it at the stage you care about.**
 Intermediate metrics (PSM counts) are not the deliverable (localized substitutions).
+
+---
+
+### 2026-07-27: reverse decoys (`rev_`) leak into `subs.ipc` — the reference's 0 was luck, not a filter
+
+**Symptom:** `subs.ipc` carries rows whose `Protein_right` (and sometimes
+`Mapped Proteins_right`) starts with `rev_` — reverse-decoy proteins, 1–8 rows in
+7/12 panel runs. Slava's reference `subs.ipc` has 0.
+
+**Root cause — NOT an FDR bug.** Decoys in the *first-pass* `psm.tsv` are normal:
+Slava's own first-pass `psm.tsv` has 26 `rev_` rows (0.15%); ours 65/246,816
+(0.03%) — our decoy rate is *lower*. The leak is that `step07`'s first/second
+join (`on=["base","Charge"]`) has **no decoy filter** — it faithfully mirrors the
+reference `analyze_outputs.py`, which also has none. A few decoy first-pass PSMs
+collide on `(base, Charge)` with a real variant candidate and drag their `rev_`
+protein (and a bogus `first Intensity` → bogus `dpbp` denominator) into the table.
+The reference got **0 collisions by luck**; we got 1–8.
+
+**Lesson:** matching the reference's *code* does not mean matching its *output* — a
+missing filter can be invisible in the reference because its inputs happened not to
+trigger it. When our output has junk the reference lacks, check whether the
+reference merely got lucky, then add the principled filter (drop `rev_`-prefixed
+protein rows — `rev_` never prefixes a real variant id, so it cannot drop a genuine
+detection). Fix staged in the plan file; apply only when no master is live.
+
+### 2026-07-27: I claimed "no E. coli reference" after searching ONE tree — wrong
+
+I told the user the tRNA panel had no Slava reference, having searched only
+`slavat/coli_trna/` (which indeed holds `subs.ipc` for EV controls only). The user
+said "I'm sure it's in slava or elizabev" — and was right. `elizabev/tRNA/` has the
+whole counterpart experiment, incl. `csvs_from_Slava/<tRNA>_subs_qdp_ratios.csv`
+for every tRNA sample and a full `EVpar/tarsus_analysis/subs.ipc`.
+
+**Two lessons:**
+1. **Verify ABSENCE as hard as presence.** "No reference exists" is a strong
+   negative claim — search every collaborator's tree (`slavat` AND `elizabev`, by
+   sample-name AND raw-file signature) before asserting it to a user. I asserted
+   absence from a one-directory search.
+2. **A reference in a different method is not a replication reference.** The
+   `csvs_from_Slava` tRNA tables are **MaxQuant dependent-peptide** output
+   (`DP …`, `dependentPeptides ratio`), not FragPipe/TARSUS. Comparing our TARSUS
+   output to them measures TARSUS-vs-MaxQuant **method concordance**, NOT "does my
+   code reproduce Slava's TARSUS code." The only like-for-like TARSUS reference on
+   E. coli is `elizabev/tRNA/EVpar/tarsus_analysis/subs.ipc` (3,922 rows — the
+   figure D-070 already matched). Check the reference's *tool/schema* before
+   calling any comparison a "recapitulation."
