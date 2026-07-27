@@ -10,6 +10,7 @@ from src.tarsus.steps.step07_analyze_outputs import (
     _compute_expected_ions,
     _spectrum_to_title,
     _extract_base_name,
+    _drop_decoy_rows,
     load_ptm_details,
 )
 
@@ -194,6 +195,40 @@ class TestFilterSingleSavPsms:
         })
         result = filter_single_sav_psms(empty)
         assert len(result) == 0
+
+
+class TestDropDecoyRows:
+    """`_drop_decoy_rows` strips reverse-decoy-anchored rows (rev_ prefix)."""
+
+    def test_drops_decoy_in_protein_right(self) -> None:
+        df = pl.DataFrame({
+            "Protein": ["PEPK_T6S", "AAAK_G3S", "CCCK_M1T"],
+            "Protein_right": ["sp|P1|A_ECOLI", "rev_sp|P2|B_ECOLI", "sp|P3|C_ECOLI"],
+            "dpbp": [0.1, 0.2, 0.3],
+        })
+        out = _drop_decoy_rows(df)
+        assert out.height == 2
+        assert "rev_sp|P2|B_ECOLI" not in out["Protein_right"].to_list()
+
+    def test_drops_decoy_in_protein(self) -> None:
+        df = pl.DataFrame({
+            "Protein": ["rev_PEPK_T6S", "AAAK_G3S"],
+            "Protein_right": ["sp|P1|A_ECOLI", "sp|P2|B_ECOLI"],
+        })
+        out = _drop_decoy_rows(df)
+        assert out.height == 1
+        assert out["Protein"].to_list() == ["AAAK_G3S"]
+
+    def test_keeps_all_when_no_decoys(self) -> None:
+        df = pl.DataFrame({
+            "Protein": ["AAAK_G3S", "BBBK_S2N"],
+            "Protein_right": ["sp|P1|A_ECOLI", "sp|P2|B_ECOLI"],
+        })
+        assert _drop_decoy_rows(df).height == 2
+
+    def test_no_protein_columns_returns_unchanged(self) -> None:
+        df = pl.DataFrame({"dpbp": [0.1, 0.2]})
+        assert _drop_decoy_rows(df).height == 2
 
 
 class TestLoadPtmDetails:

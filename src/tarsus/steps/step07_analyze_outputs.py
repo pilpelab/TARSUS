@@ -207,6 +207,25 @@ def _extract_base_name(protein: str) -> str:
     return protein.split("_")[0]
 
 
+def _drop_decoy_rows(df: pl.DataFrame) -> pl.DataFrame:
+    """Drop rows anchored on a reverse-decoy protein (``rev_`` prefix).
+
+    A first-pass PSM whose protein is a reverse decoy (``rev_`` prefix, generated
+    in step03a/step03c) is an FDR artifact, not a real reference peptide — its
+    ``first Intensity`` would be a bogus ``dpbp`` denominator. The reference
+    ``analyze_outputs.py`` omits this filter and got 0 decoys by luck; we get 1-8
+    per run (Slava's ``subs.ipc`` has 0). ``rev_`` never prefixes a real variant
+    id, so this cannot drop a genuine detection. See lessons 2026-07-27.
+    """
+    cols = [c for c in ("Protein", "Protein_right") if c in df.columns]
+    if not cols:
+        return df
+    is_decoy = pl.any_horizontal(
+        [pl.col(c).cast(pl.Utf8).str.starts_with("rev_") for c in cols]
+    )
+    return df.filter(~is_decoy)
+
+
 def analyze_outputs(
     first_psm_path: Path,
     second_psm_path: Path,
@@ -384,6 +403,7 @@ def analyze_outputs(
     ])
 
     joined = second_psms.join(first_sub, on=join_cols, suffix="_right")
+    joined = _drop_decoy_rows(joined)
 
     # Reorder to match the reference schema. `SpectralSim`/`RTScore` sit straight
     # after `Delta Mass`; the PDV annotation trio sits straight after
