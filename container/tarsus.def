@@ -27,8 +27,7 @@ From: rockylinux:9
     # to download. Public mode: fetch redistributable tools and consume the
     # builder-supplied license-gated files staged under tools/_downloads/.
     if [ -f tools/fragpipe-24.0/tools/MSFragger-4.4.1/MSFragger-4.4.1.jar ]; then
-        echo "internal mode: tools staged, verifying"
-        make verify
+        echo "internal mode: tools already staged"
     else
         echo "public mode: downloading redistributable tools + consuming BYO MSFragger/IonQuant"
         make setup \
@@ -51,11 +50,17 @@ From: rockylinux:9
     set -eux
     export TARSUS_TOOLS_DIR=/opt/tarsus/tools
     cd /opt/tarsus
-    # Every external tool must resolve.
+    # Every external tool must resolve. ToolEnvironment.verify() covers
+    # java/dotnet/fragpipe/pepquery/pdv/thermorawfileparser; assert the three it
+    # does not - MSFragger + IonQuant (the license-gated pair the build
+    # provisions) and the vendored Xvfb - so a build missing them fails here.
     .venv/bin/python -c "import sys; from tarsus.env import ToolEnvironment; \
 v = ToolEnvironment.from_env().verify(); \
 [print(k, ok, m) for k,(ok,m) in v.items()]; \
 sys.exit(0 if all(ok for ok,_ in v.values()) else 1)"
+    test -f tools/fragpipe-24.0/tools/MSFragger-4.4.1/MSFragger-4.4.1.jar
+    test -f tools/fragpipe-24.0/tools/IonQuant-1.11.20.jar
+    test -x tools/xvfb/bin/Xvfb
     # Fast, tool-free correctness gates.
     .venv/bin/python -m pytest tests/unit tests/eval -q
 
