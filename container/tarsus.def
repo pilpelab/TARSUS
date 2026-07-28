@@ -13,7 +13,7 @@ From: rockylinux:9
 
 %post
     set -eux
-    dnf -y install curl unzip tar gzip which procps-ng ca-certificates git \
+    dnf -y install curl unzip tar gzip bzip2 which procps-ng ca-certificates git \
         libgomp gcc gcc-c++ make
     dnf clean all
 

@@ -78,9 +78,12 @@ def git_sha(repo: Path | None = None) -> str | None:
     sha = _git("rev-parse", "HEAD", repo=repo or repo_root())
     if sha:
         return sha
-    env = os.environ.get("TARSUS_BUILD_COMMIT")
+    env = (os.environ.get("TARSUS_BUILD_COMMIT") or "").strip()
     if env:
-        return env.strip() or None
+        return env
+    # File fallback assumes the package is imported from its source tree (an
+    # editable install), so repo_root() is the image's /opt/tarsus. The env var
+    # above is the primary in-container path and does not depend on that.
     try:
         text = (repo_root() / "BUILD_COMMIT").read_text().strip()
     except OSError:
