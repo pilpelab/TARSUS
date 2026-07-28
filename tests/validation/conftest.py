@@ -46,10 +46,16 @@ MOCK_DATA_DIR = DATA_DIR / "test-mock"
 
 @pytest.fixture(scope="session")
 def mock_data() -> dict:
-    """Paths to mock test data (50 spectra, fast)."""
+    """Paths to mock test data (50 spectra, fast).
+
+    dev.mzML is not published (18 MB, validation-only); skip if it is absent.
+    """
+    mzml = MOCK_DATA_DIR / "dev.mzML"
+    if not mzml.exists():
+        pytest.skip(f"mock mzML not present at {mzml} (see data/README.md)")
     return {
         "fasta": DATA_DIR / "protein.fasta",
-        "mzml": MOCK_DATA_DIR / "dev.mzML",
+        "mzml": mzml,
     }
 
 

@@ -56,3 +56,13 @@ TARSUS_elizabev
 
 # Philosopher decoy DBs (regenerated; formerly double-decoyed, see D-062)
 *.fas
+
+# Container build artifacts
+*.sif
+container/build/
+
+# Validation-only mock spectra (18 MB, not published; fetch per data/README.md)
+data/test-mock/dev.mzML
+
+# Historical QC subs artifacts (evidence, not shipped)
+docs/qc-history/subs/*.ipc

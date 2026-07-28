@@ -13,3 +13,10 @@ The pipeline never auto-discovers files in this directory — all inputs must be
 
 Both raw files are from the same biological sample, acquired on an Orbitrap Astral in DDA mode.
 LS/HS refers to solubility fractionation during detergent-based phase separation chromatography.
+
+## Validation mock spectra (`test-mock/dev.mzML`)
+
+`dev.mzML` (50 spectra, ~18 MB) is used only by `tests/validation` and is **not**
+tracked in git or shipped in the container. The validation suite `pytest.skip`s
+cleanly when it is absent. To run validation locally, place a `dev.mzML` at
+`data/test-mock/dev.mzML` (any small mzML with a handful of MS2 spectra works).
