@@ -41,7 +41,8 @@ echo ">> assembling build context ($MODE)"
 # Repo minus heavy/irrelevant paths. tools/ handled per-mode below.
 tar -C "$REPO" \
     --exclude=./.git --exclude=./.venv --exclude=./data --exclude=./output \
-    --exclude=./tools --exclude=./container/build --exclude='*.sif' \
+    --exclude=./tools --exclude=./container/build --exclude=./.superpowers \
+    --exclude='*.sif' \
     -cf - . | tar -C "$CTX/opt-tarsus" -xf -
 
 # Vendored, redistributable, always-needed tool bits (small): Xvfb + PDV + README.
