@@ -13,8 +13,10 @@ From: rockylinux:9
 
 %post
     set -eux
-    dnf -y install curl unzip tar gzip bzip2 which procps-ng ca-certificates git \
-        libgomp gcc gcc-c++ make
+    # --allowerasing: rockylinux:9 ships curl-minimal, which conflicts with the
+    # full curl package; let dnf swap it rather than abort.
+    dnf -y install --allowerasing curl unzip tar gzip bzip2 which procps-ng \
+        ca-certificates git libgomp gcc gcc-c++ make
     dnf clean all
 
     # uv (pinned installer dir on PATH); uv fetches its own Python 3.11.
