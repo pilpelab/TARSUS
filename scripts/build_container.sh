@@ -10,7 +10,7 @@ set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 MODE="" OUT="$REPO/tarsus.sif" MSF="" IONQ=""
 
-usage() { sed -n '2,10p' "$0"; exit "${1:-1}"; }
+usage() { sed -n '2,7p' "$0"; exit "${1:-1}"; }
 while [ $# -gt 0 ]; do
   case "$1" in
     --internal) MODE=internal ;;
@@ -61,7 +61,7 @@ fi
 
 # Baked commit (mark dirty tree).
 SHA="$(git -C "$REPO" rev-parse HEAD 2>/dev/null || echo unknown)"
-git -C "$REPO" diff --quiet 2>/dev/null || SHA="${SHA}-dirty"
+[ -z "$(git -C "$REPO" status --porcelain --untracked-files=no 2>/dev/null)" ] || SHA="${SHA}-dirty"
 printf '%s\n' "$SHA" > "$CTX/BUILD_COMMIT"
 echo ">> baked commit: $SHA"
 
