@@ -205,3 +205,43 @@ data/           Test datasets (gitignored)
 .agents/        Agent operating instructions
 TARSUS_elizabev/ READ-ONLY reference implementation
 ```
+
+## Container (Apptainer/Singularity)
+
+TARSUS ships as a self-contained Apptainer image bundling all tools + runtimes +
+code. **Build only on `docker-gpu.wexac.weizmann.ac.il`** (the sole host with
+`--fakeroot` privileges); every other WEXAC node can run the `.sif`.
+
+Build (internal - bakes the already-validated `tools/` tree):
+
+```bash
+ssh docker-gpu.wexac.weizmann.ac.il
+cd /path/to/TARSUS_BC
+ml Singularity
+scripts/build_container.sh --internal --out tarsus.sif
+```
+
+Build (public/portable - you supply MSFragger + IonQuant under the nesvilab
+academic license; the rest download automatically):
+
+```bash
+scripts/build_container.sh --public \
+  --msfragger MSFragger-4.4.1.zip --ionquant IonQuant-1.11.20.jar --out tarsus.sif
+```
+
+Distribute: copy `tarsus.sif` to a shared `/home/labs/...` path (run it in place),
+or `scp tarsus.sif login1:~/`, or push to the internal `ops:5000` registry.
+
+Run on LSF today (CPU; bind the shared tree that holds inputs/outputs/references):
+
+```bash
+bsub -q gsla-cpu -R "rusage[mem=32GB]" -oo %J.out -eo %J.err \
+  'ml Singularity; singularity exec --bind /home/labs/pilpel:/home/labs/pilpel \
+     /home/labs/pilpel/<shared>/tarsus.sif tarsus run -i <raw> --fasta <fasta> -o <outdir>'
+```
+
+**Known limitation (deferred):** the master submits child `bsub` jobs whose tool
+paths exist only inside the image, so those child jobs must also run via
+`ml Singularity; singularity exec ... tarsus.sif`. Wiring that (or a no-LSF local
+backend) is a separate spec; this image is validated as a reproducible environment
+(tools resolve; `pytest tests/unit tests/eval` green inside it).
