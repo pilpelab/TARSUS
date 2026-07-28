@@ -168,3 +168,25 @@ on branch `eval/step07-11-regression`.
 - Both fixtures reproduce Slava exactly on their slices (identity 100%, dpbp r=1.0).
 
 317 unit + 25 eval tests pass; mypy + ruff clean. Not yet committed to master.
+
+---
+
+## 2026-07-28 — Containerization (Apptainer/Singularity) landed + build-validated
+
+Merged `container/singularity-image` -> master (11 commits, e00607c). Spec+plan in
+`docs/superpowers/{specs,plans}/2026-07-28-tarsus-singularity-container*`.
+
+- `container/tarsus.def` (rockylinux:9) + `scripts/build_container.sh` (internal/public
+  modes, `singularity build --fakeroot`). Provenance now falls back to a baked
+  `TARSUS_BUILD_COMMIT`/`BUILD_COMMIT` when git is absent (container).
+- Repo publish-readiness: MIT LICENSE; untracked data/test-mock/dev.mzML (18MB) +
+  docs/qc-history/subs/*.ipc (8MB); validation conftest skips when dev.mzML absent.
+- BUILD VALIDATED on login5 (apptainer 1.4.0 root-mapped namespace — docker-gpu NOT
+  required despite the wiki; login nodes can build). tarsus.sif = 2.9G, %test green
+  (344 passed/1 skipped, all tools resolve), `tarsus --help` runs, git_sha() returns
+  the baked commit with no git in-image.
+- Build debugging captured 3 recipe fixes: allowlist the context (was copying the
+  TARSUS_elizabev symlink tree), dnf `--allowerasing` (curl-minimal conflict), exclude
+  .superpowers. See WEXAC container workflow in auto-memory.
+- Execution model deferred (documented): the master's child bsub jobs must also run
+  `singularity exec`; separate spec. Image validated as a reproducible environment only.
