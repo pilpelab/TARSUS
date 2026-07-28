@@ -38,12 +38,14 @@ rm -rf "$REPO/container/build"
 mkdir -p "$CTX/opt-tarsus"
 
 echo ">> assembling build context ($MODE)"
-# Repo minus heavy/irrelevant paths. tools/ handled per-mode below.
-tar -C "$REPO" \
-    --exclude=./.git --exclude=./.venv --exclude=./data --exclude=./output \
-    --exclude=./tools --exclude=./container/build --exclude=./.superpowers \
-    --exclude='*.sif' \
-    -cf - . | tar -C "$CTX/opt-tarsus" -xf -
+# Copy only what the image needs - an allowlist. A denylist is unsafe here: the
+# repo root also holds a gitignored TARSUS_elizabev symlink into another user's
+# home (which must never be shipped, and whose dangling symlinks break the copy)
+# plus assorted caches and agent scratch. tools/ is handled per-mode below.
+for p in src tests pyproject.toml uv.lock Makefile README.md LICENSE; do
+    [ -e "$REPO/$p" ] || { echo "error: required repo path missing: $p" >&2; exit 1; }
+    cp -a "$REPO/$p" "$CTX/opt-tarsus/"
+done
 
 # Vendored, redistributable, always-needed tool bits (small): Xvfb + PDV + README.
 mkdir -p "$CTX/opt-tarsus/tools/_downloads"
