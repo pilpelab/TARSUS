@@ -147,3 +147,24 @@ step07 join) is written in `.claude/plans/i-want-us-to-cozy-kitten.md`, ready to
 apply. **Blocked**: Orly masters are live and will pass through step07. Apply +
 reprocess the 12 panel + 9 Orly `subs.ipc` (cheap, no LSF) once all masters clear.
 A2 (`--cds` default) is already landed + committed (`e56070f`).
+
+---
+
+## 2026-07-28 — Step-07/11 regression eval landed (D-071)
+
+Implemented the eval from `docs/superpowers/specs/2026-07-28-step07-11-regression-eval-design.md`
+on branch `eval/step07-11-regression`.
+
+- `tests/eval/eval_lib.py` — canonicalize (sort+round), named invariant guards,
+  `slava_compare`; `tests/eval/test_eval_lib.py` (15 unit tests, TDD).
+- `tests/eval/test_eval_step07_11.py` — snapshot + invariants, parametrized over
+  gapdh + evcoli (10 tests). `make eval` runs all 25 in ~1.3s, no cluster/tools.
+- `scripts/build_eval_fixtures.py` — slices both reference runs to lineage-coherent
+  ~100-spectrum fixtures (`tests/eval/fixtures/`, 5.5 MB total), builds goldens,
+  gates on non-empty + invariants + Slava match at build time. Deterministic
+  (identical golden checksums across rebuilds).
+- gapdh fixture injects one synthetic `rev_` decoy row so the `7502692` guard is
+  live; verified reverting the drop fails both the invariant and the snapshot.
+- Both fixtures reproduce Slava exactly on their slices (identity 100%, dpbp r=1.0).
+
+317 unit + 25 eval tests pass; mypy + ruff clean. Not yet committed to master.

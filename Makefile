@@ -122,7 +122,7 @@ PDV_TEST_OUT  := $(PDV_TEST_DIR)/pdv_output
         fragpipe msfragger ionquant pepquery pdv thermorawfileparser xvfb \
         test-tools test-java test-dotnet test-fragpipe test-msfragger test-ionquant \
         test-pepquery test-pdv test-pdv-full test-thermorawfileparser test-xvfb \
-        verify
+        verify eval
 
 setup: java dotnet fragpipe msfragger ionquant pepquery pdv thermorawfileparser xvfb
 	@echo ""
@@ -413,6 +413,14 @@ test-thermorawfileparser: $(TRFP_BIN)
 test-tools: test-java test-dotnet test-fragpipe test-msfragger test-ionquant test-pepquery test-pdv test-thermorawfileparser test-xvfb
 	@echo ""
 	@echo "All tool checks complete."
+
+# ── Regression eval ───────────────────────────────────────────────────
+
+# Fast, CI-style guard: re-runs steps 07 and 11 on frozen reference slices and
+# fails if a commit silently changes the output or breaks reproduction of Slava.
+# No cluster, no tools, no network; runs in seconds. See tests/eval/README.md.
+eval:
+	uv run pytest tests/eval -q
 
 # ── Utility ───────────────────────────────────────────────────────────
 

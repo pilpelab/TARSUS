@@ -123,3 +123,33 @@ Strings after `Traced Scans`. GAPDH-only; Slava himself `.drop()`s them
 **Verification:** Full pipeline run confirms 69 columns with SpectralSim/RTScore at correct positions
 
 **Status:** COMPLETE ✅
+
+---
+
+## D-071 (2026-07-28): Step-07/11 regression eval (`make eval`)
+
+**Context:** Every correctness bug this project hit lived in step 07 (D-069,
+D-070, the `rev_` decoy leak `7502692`) and was caught manually, late, by ad-hoc
+QC. `tests/unit` covers pure helpers; `tests/validation` needs LSF+tools. Nothing
+re-ran the analysis steps on known inputs and checked the output still matched.
+
+**Decision:** Added `tests/eval/` - a fast, committed, tool-free regression check
+that calls `analyze_outputs` and `localize` directly on frozen ~100-spectrum
+slices of two reference runs (gapdh, evcoli) and gates on a snapshot + named
+invariants (schema, no `rev_`, non-null MSBooster scores, finite dpbp,
+`slava_compare` identity==100% / dpbp r>=0.99). Runs in ~1.3s, no cluster.
+`scripts/build_eval_fixtures.py` (re)builds slices + goldens deterministically;
+`TARSUS_EVAL_UPDATE=1` re-blesses (reviewed commit). See
+`tests/eval/README.md` and the auto-memory lineage map.
+
+**Key build facts:** the universal slice key is `spectrum_title`=`file:scan:charge`
+(= Slava's `Spectrum` column; convert psm.tsv's `file_sub.scan.scan.charge` via
+`_spectrum_to_title`; strip `_M..C..` off psmrankall_base). First-pass slice keeps
+only the max-`Intensity` winner per (base,Charge) - result-identical to step 7's
+own max filter, and shrinks first_psm.tsv from ~11 MB to ~64 KB. Neither reference
+leaks a `rev_` row naturally, so gapdh injects one synthetic decoy row (ties the
+max) to make the `7502692` guard fire - verified: reverting the drop trips both the
+rev_ invariant and the snapshot.
+
+**Spec:** `docs/superpowers/specs/2026-07-28-step07-11-regression-eval-design.md`.
+**Status:** landed. 25 eval tests + 317 unit tests green; mypy/ruff clean.
