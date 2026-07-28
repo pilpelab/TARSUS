@@ -1,0 +1,73 @@
+Bootstrap: docker
+From: rockylinux:9
+
+# Build context is assembled by scripts/build_container.sh at
+# container/build/context/. Internal builds put the full validated tools/ tree
+# under opt-tarsus/tools/; public builds put only the redistributable tools plus
+# the builder-supplied MSFragger ZIP / IonQuant JAR under
+# opt-tarsus/tools/_downloads/, and %post downloads the rest via `make setup`.
+
+%files
+    container/build/context/opt-tarsus /opt/tarsus
+    container/build/context/BUILD_COMMIT /opt/tarsus/BUILD_COMMIT
+
+%post
+    set -eux
+    dnf -y install curl unzip tar gzip which procps-ng ca-certificates git \
+        libgomp gcc gcc-c++ make
+    dnf clean all
+
+    # uv (pinned installer dir on PATH); uv fetches its own Python 3.11.
+    curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
+
+    cd /opt/tarsus
+    export TARSUS_TOOLS_DIR=/opt/tarsus/tools
+
+    # Provision tools. Internal mode: FragPipe+MSFragger already staged -> nothing
+    # to download. Public mode: fetch redistributable tools and consume the
+    # builder-supplied license-gated files staged under tools/_downloads/.
+    if [ -f tools/fragpipe-24.0/tools/MSFragger-4.4.1/MSFragger-4.4.1.jar ]; then
+        echo "internal mode: tools staged, verifying"
+        make verify
+    else
+        echo "public mode: downloading redistributable tools + consuming BYO MSFragger/IonQuant"
+        make setup \
+            MF_SOURCE_ZIP=/opt/tarsus/tools/_downloads/MSFragger-4.4.1.zip \
+            IQ_SOURCE_JAR=/opt/tarsus/tools/_downloads/IonQuant-1.11.20.jar
+    fi
+
+    # Python environment (frozen lock -> reproducible).
+    uv sync --frozen
+
+    # Sanity: the console script exists.
+    test -x /opt/tarsus/.venv/bin/tarsus
+
+%environment
+    export TARSUS_TOOLS_DIR=/opt/tarsus/tools
+    export PATH=/opt/tarsus/.venv/bin:$PATH
+    export TARSUS_BUILD_COMMIT="$(cat /opt/tarsus/BUILD_COMMIT 2>/dev/null || echo unknown)"
+
+%test
+    set -eux
+    export TARSUS_TOOLS_DIR=/opt/tarsus/tools
+    cd /opt/tarsus
+    # Every external tool must resolve.
+    .venv/bin/python -c "import sys; from tarsus.env import ToolEnvironment; \
+v = ToolEnvironment.from_env().verify(); \
+[print(k, ok, m) for k,(ok,m) in v.items()]; \
+sys.exit(0 if all(ok for ok,_ in v.values()) else 1)"
+    # Fast, tool-free correctness gates.
+    .venv/bin/python -m pytest tests/unit tests/eval -q
+
+%runscript
+    exec tarsus "$@"
+
+%labels
+    org.tarsus.name TARSUS_BC
+    org.tarsus.version 0.1.0
+
+%help
+    TARSUS substitution pipeline - self-contained environment image.
+    Run:  singularity run tarsus.sif run -i <raw> --fasta <fasta> -o <outdir>
+    Tools live at /opt/tarsus/tools (TARSUS_TOOLS_DIR); commit is in /opt/tarsus/BUILD_COMMIT.
+    Build only on docker-gpu.wexac.weizmann.ac.il (see scripts/build_container.sh).
