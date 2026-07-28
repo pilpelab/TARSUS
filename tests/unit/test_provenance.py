@@ -104,3 +104,28 @@ class TestStaleArtifacts:
     def test_absent_step_is_not_flagged(self, tmp_path: Path) -> None:
         r = _repo(tmp_path)
         assert stale_artifacts(tmp_path / "out", repo=r) == []
+
+
+def test_git_sha_falls_back_to_env(monkeypatch, tmp_path):
+    """With no git repo, git_sha() uses TARSUS_BUILD_COMMIT (the baked commit)."""
+    from tarsus import provenance
+    # tmp_path is not a git repo -> _git returns None
+    monkeypatch.setenv("TARSUS_BUILD_COMMIT", "abc1234deadbeef")
+    assert provenance.git_sha(repo=tmp_path) == "abc1234deadbeef"
+
+
+def test_git_sha_falls_back_to_build_commit_file(monkeypatch, tmp_path):
+    """With no git and no env var, git_sha() reads repo_root()/BUILD_COMMIT."""
+    from tarsus import provenance
+    monkeypatch.delenv("TARSUS_BUILD_COMMIT", raising=False)
+    monkeypatch.setattr(provenance, "repo_root", lambda: tmp_path)
+    (tmp_path / "BUILD_COMMIT").write_text("feedface99\n")
+    assert provenance.git_sha(repo=tmp_path) == "feedface99"
+
+
+def test_git_sha_none_when_no_source(monkeypatch, tmp_path):
+    """No git, no env, no file -> None (unchanged behaviour)."""
+    from tarsus import provenance
+    monkeypatch.delenv("TARSUS_BUILD_COMMIT", raising=False)
+    monkeypatch.setattr(provenance, "repo_root", lambda: tmp_path)
+    assert provenance.git_sha(repo=tmp_path) is None

@@ -21,6 +21,7 @@ several commits. Refusing to start on a dirty tree makes that impossible.
 """
 
 import json
+import os
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -66,7 +67,25 @@ def repo_root() -> Path:
 
 
 def git_sha(repo: Path | None = None) -> str | None:
-    return _git("rev-parse", "HEAD", repo=repo or repo_root())
+    """Commit that produced this code.
+
+    In a working tree this is ``git rev-parse HEAD``. In a container there is no
+    git repo, so fall back to the commit baked at build time: the
+    ``TARSUS_BUILD_COMMIT`` env var (set by the image's ``%environment``), then a
+    ``BUILD_COMMIT`` file written next to the package. Returns ``None`` only when
+    none of the three is available.
+    """
+    sha = _git("rev-parse", "HEAD", repo=repo or repo_root())
+    if sha:
+        return sha
+    env = os.environ.get("TARSUS_BUILD_COMMIT")
+    if env:
+        return env.strip() or None
+    try:
+        text = (repo_root() / "BUILD_COMMIT").read_text().strip()
+    except OSError:
+        return None
+    return text or None
 
 
 def is_dirty(repo: Path | None = None) -> bool:
