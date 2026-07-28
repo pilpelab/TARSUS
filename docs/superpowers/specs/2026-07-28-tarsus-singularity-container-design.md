@@ -91,8 +91,12 @@ The institute cluster (WEXAC, RHEL9, IBM Spectrum LSF) constrains the workflow:
   ```
   Apptainer auto-mounts `$HOME`, `/tmp`, cwd; the shared `/home/labs/...` tree
   (inputs, references, output) is bound explicitly.
-- **Distribution**: either `scp tarsus.sif login1:~/`, or push to the internal
-  registry `ops:5000` and `singularity pull tarsus.sif docker://ops:5000/tarsus`.
+- **Distribution (decided default: shared filesystem).** Copy the built `.sif` to a
+  cluster-wide `/home/labs/...` location; institute labs run
+  `singularity exec /home/labs/.../tarsus.sif ...` directly - no pull, no registry.
+  `scp tarsus.sif login1:~/` is the per-user fallback. Publishing to the internal
+  `ops:5000` registry (`singularity pull docker://ops:5000/tarsus`) is **optional**
+  and left as a `--push` flag, not the primary path.
 - **"edocker" = LSF native-docker path** (`-app docker-cpu` / `nvidia-gpu`,
   `-env LSB_CONTAINER_IMAGE=ops:5000/...`). Portable route for a self-built,
   self-contained tool is Singularity `.sif`; the docker path is noted as an
@@ -171,9 +175,15 @@ Covered by a unit test that monkeypatches the env var and asserts the fallback.
 
 - **`.gitignore`**: add `*.sif`, `container/build/`, and any wrapper staging dir.
 - **Untrack non-essential artifacts** (keep on disk, remove from the published
-  tree): `docs/qc-history/subs/*.ipc` (~8 MB of historical QC evidence). Decide
-  `data/test-mock/dev.mzML` (18 MB): keep only if a tracked test needs it, else move
-  behind a fetch step. List each removal in the plan with its justification.
+  tree): `docs/qc-history/subs/*.ipc` (~8 MB of historical QC evidence) and
+  `data/test-mock/dev.mzML` (18 MB, **decided: remove**). `dev.mzML` is referenced
+  only by `tests/validation/conftest.py` (LSF+tool validation, never run in-image
+  or in CI), so untrack it, gitignore it, document the fetch in `data/README.md`,
+  and make the validation conftest `pytest.skip` cleanly when it is absent. List
+  each removal in the plan with its justification.
+- **The image never contains `data/`** - `%files` copies only source, tests, assets,
+  and build metadata. `dev.mzML` is therefore absent from the `.sif` by construction,
+  and `%test` (unit + eval only) does not need it.
 - **`LICENSE`**: add MIT for the TARSUS code. A `NOTICE`/README section makes clear
   the bundled third-party tools retain their own licenses and are not covered by MIT.
 - **README**: add a "Container" section - build on `docker-gpu` (both modes),
