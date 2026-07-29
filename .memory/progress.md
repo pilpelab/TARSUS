@@ -190,3 +190,25 @@ Merged `container/singularity-image` -> master (11 commits, e00607c). Spec+plan 
   .superpowers. See WEXAC container workflow in auto-memory.
 - Execution model deferred (documented): the master's child bsub jobs must also run
   `singularity exec`; separate spec. Image validated as a reproducible environment only.
+
+---
+
+## 2026-07-29 — Built container image: persistent location
+
+The validated Apptainer image lives at:
+
+    /home/labs/pilpel/barc/TARSUS_BC/tarsus.sif   (2.9 GB, commit e00607c)
+
+Gitignored (`*.sif`), so it is never committed/pushed. Built on login5 (apptainer
+1.4.0 root-mapped namespace; docker-gpu NOT required). Contains all tools+runtimes
+(TARSUS_TOOLS_DIR=/opt/tarsus/tools) + the tarsus package; %test was green at build.
+
+Use:
+- `apptainer exec /home/labs/pilpel/barc/TARSUS_BC/tarsus.sif tarsus --help`
+- LSF: `bsub -q gsla-cpu -R "rusage[mem=32GB]" 'ml Singularity; singularity exec \
+    --bind /home/labs/pilpel:/home/labs/pilpel \
+    /home/labs/pilpel/barc/TARSUS_BC/tarsus.sif tarsus run -i <raw> --fasta <fa> -o <out>'`
+
+Rebuild/re-bless anytime (~4 min): `scripts/build_container.sh --internal --out <path>`
+(public/portable: add `--public --msfragger <zip> --ionquant <jar>`). Recipe:
+`container/tarsus.def`; see [[wexac-container-workflow]] and D-071-adjacent notes.
