@@ -1,4 +1,4 @@
-# TARSUS_BC — Tool Setup
+# TARSUS — Tool Setup
 # Run `make setup` to download and verify all external tools.
 # Versions are pinned — update intentionally.
 

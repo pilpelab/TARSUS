@@ -1,4 +1,4 @@
-# TARSUS_BC
+# TARSUS
 
 **TArgeted SUbstitution Search** — proteomics pipeline for detecting validated single amino acid substitutions (SAAVs) from mass spectrometry data.
 
@@ -219,7 +219,7 @@ apptainer 1.4.0 root-mapped namespace; docker-gpu NOT required).
 Build (internal - bakes the already-validated `tools/` tree):
 
 ```bash
-cd /path/to/TARSUS_BC
+cd /path/to/TARSUS
 ml apptainer
 scripts/build_container.sh --internal --out tarsus.sif
 ```

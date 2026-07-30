@@ -70,7 +70,7 @@ sys.exit(0 if all(ok for ok,_ in v.values()) else 1)"
     exec tarsus "$@"
 
 %labels
-    org.tarsus.name TARSUS_BC
+    org.tarsus.name TARSUS
     org.tarsus.version 0.1.0
 
 %help

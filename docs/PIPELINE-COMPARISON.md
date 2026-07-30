@@ -1,4 +1,4 @@
-# TARSUS_BC vs the reference (`elizabev/TARSUS`) — what differs and why
+# TARSUS vs the reference pipeline — what differs and why
 
 Every claim here was verified by reading or **executing** the reference's own code, or by
 measuring both pipelines on the same data. Where a number could not be sourced, it is

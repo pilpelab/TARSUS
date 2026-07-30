@@ -1,5 +1,5 @@
 [project]
-name = "TARSUS_BC"
+name = "tarsus"
 version = "0.1.0"
 description = "TARSUS pipeline for detecting single amino acid substitutions from MS data"
 readme = "README.md"

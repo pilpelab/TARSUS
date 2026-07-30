@@ -279,7 +279,7 @@ mistranslation. See D-053.
 - **No provenance recording.** `tarsus run` should stamp `git rev-parse HEAD` + a dirty flag into the
   output dir and **refuse to run on a dirty tree**. Direct fix for D-057 (stale artifact) *and* the
   shared-mutable-source hazard. **Highest-value engineering item remaining.**
-- **Other projects share TARSUS_BC's mutable source tree.** Pin source per run, or snapshot per run.
+- **Other projects share TARSUS's mutable source tree.** Pin source per run, or snapshot per run.
 - **Config not externalized.** 9 steps hardcode `queue="gsla-cpu"`; `--queue` reaches only the master
   job. `.agents/project.md` promises per-lab overridability; the repo does not deliver it. This is the
   real blocker for the stated cross-lab goal.

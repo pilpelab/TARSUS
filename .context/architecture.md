@@ -250,7 +250,7 @@ Step 2 therefore depends only on Step 1 and runs in parallel with Step 3a.
 ## Directory Structure
 
 ```
-TARSUS_BC/
+TARSUS/
 |-- src/tarsus/              # Python package (11 pipeline steps, CLI, env, LSF)
 |   |-- assets/              #   bundled ref. assets (generic.workflow, subs_exclude.csv)
 |   |-- steps/               #   step01_convert through step11_localize
