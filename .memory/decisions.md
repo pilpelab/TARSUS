@@ -6,7 +6,7 @@
 the reference's 3922** (−10%). Found while validating D-069, unrelated to it.
 
 **Method:** Dry-ran our real `analyze_outputs()` against the reference's own
-inputs (`elizabev/tRNA/EVpar/tarsus_analysis`), which holds `psm.tsv`,
+inputs (the reference pipeline's EVpar run), which holds `psm.tsv`,
 `ptmall.txt` and `psmrankall.txt` constant. That **controls for the tool-version
 upgrade**: with the search output fixed, any row gap is our code. All 197 missing
 (spectrum, peptide) keys were present in the raw `second/psm.tsv`. Staged the
@@ -48,10 +48,10 @@ regex ported between the two.
 against 0/259 null in Slava GAPDH. Also 69 cols vs GAPDH's 72.
 
 **Method:** Ran the reference rather than grepping for it. Read
-`elizabev/TARSUS/analyze_outputs.py` — the file our Step 7 recapitulates — and
+the reference's `analyze_outputs.py` — the file our Step 7 recapitulates — and
 confirmed it **never computes these columns**. It reads the second-pass `psm.tsv`
 and keeps *all* of its columns. Verified both canonical `second/psm.tsv` files
-(Slava GAPDH, elizabev EVpar) carry `SpectralSim` at col 18 and `RTScore` at col 19,
+(reference GAPDH and EVpar runs) carry `SpectralSim` at col 18 and `RTScore` at col 19,
 directly after `Delta Mass`.
 
 **Root cause:** These are **FragPipe columns, written only when MSBooster runs.**

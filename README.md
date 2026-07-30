@@ -4,7 +4,12 @@
 
 Configurable, shareable implementation based on: Tretyachenko et al. (2025). *bioRxiv*. https://www.biorxiv.org/content/10.1101/2025.02.17.638604v1
 
-Reference implementation: `TARSUS_elizabev/` (read-only — see `.context/reference-pipeline.md`)
+Reference implementation: `TARSUS_elizabev/` (read-only symlink to the original pipeline — see `.context/reference-pipeline.md`)
+
+**Status: code-replication goal closed.** Our pipeline reproduces the reference on both organisms:
+- **Human (10-sample panel):** 100% substitution identity on shared spectra, dpbp r=0.96–1.000
+- **E. coli (EVpar):** output identical — `in REF not ours: 0`, `in OURS not ref: 0`
+- Remaining differences are tool-version effects (FragPipe MSBooster ML features), not code logic
 
 ---
 
@@ -159,15 +164,12 @@ title every spectrum `file:scan:charge` with no `_sub` suffix. Steps 4 and 7 bot
 that FragPipe writes into its `Spectrum` column. Breaking this contract silently zeroes Step 7 —
 see D-047 in `.memory/decisions.md` before changing what Step 2 indexes.
 
-> **Status: runs end-to-end.** On the 2-file Orbitrap Astral DDA trial dataset the full 11-step
-> pipeline completes with `DONE: Pipeline complete.`, producing 2,888 candidate SAAVs and 293
-> localized substitutions.
+> **Status: runs end-to-end, validated against reference.** The pipeline completes all 11 steps
+> and has been verified against the reference implementation on two organisms:
+> - **Human (GAPDH):** 100% substitution identity on shared spectra, 73/72 columns matched
+> - **E. coli (EVpar):** 3,922 rows exactly reproduced (`in REF not ours: 0`, vice versa)
 >
-> **Not yet proven equivalent to the reference implementation.** The reference has only ever been
-> run on a *different* sample (`EVpar`), whose original `.mzML`/`.raw` inputs no longer exist on
-> disk — so no back-to-back comparison on identical input has been made. What matches is the output
-> *schema* (69 columns, identical semantics) and the order of magnitude (ours 2,888 → 293; reference
-> 3,922 → 697). One deliberate deviation changes results: see D-048, defect 4.
+> See `docs/PIPELINE-COMPARISON.md` for the full diff and `docs/qc-history/` for QC reports.
 
 See `.context/architecture.md` for full details.
 
@@ -184,40 +186,41 @@ make test-tools   # verify everything works
 ## Tests
 
 ```bash
-uv run pytest -m "not lsf"                         # 203 tests, ~60s — the normal dev loop
-uv run pytest                                      # 206 tests; the 3 extra are @pytest.mark.lsf
-                                                   # real-tool tests (FragPipe/PepQuery) that take
-                                                   # many minutes and need cluster + `make setup`
-uv run mypy src/tarsus                              # type checking
-make test-tools                                    # tool integrity (8 tools including IonQuant)
-make test-pdv-full                                 # PDV + Xvfb integration
+uv run pytest tests/unit tests/eval    # 345 tests, ~10s — normal dev loop (no cluster needed)
+uv run pytest                          # +3 @pytest.mark.lsf (real-tool tests, cluster + make setup)
+uv run ruff check src/tarsus/          # lint
+uv run mypy src/tarsus/                # type checking
+make test-tools                        # tool integrity (8 tools including IonQuant)
+make test-pdv-full                     # PDV + Xvfb integration
 ```
 
 ## Project Structure
 
 ```
 src/tarsus/     Python package (steps, CLI, env, LSF helpers)
-tests/          pytest tests (206; 3 marked `lsf` need the cluster)
+tests/          pytest tests (345: 317 unit + 25 eval + 3 lsf)
 tools/          External tools (downloaded via make setup)
 data/           Test datasets (gitignored)
+docs/           Documentation (pipeline comparison, schema, specs)
+container/      Apptainer recipe
+scripts/        Utility scripts (build container, build test fixtures)
 .context/       Architecture and reference docs
 .memory/        Project memory, decisions, progress
 .agents/        Agent operating instructions
-TARSUS_elizabev/ READ-ONLY reference implementation
+TARSUS_elizabev/ READ-ONLY reference implementation (symlink)
 ```
 
 ## Container (Apptainer/Singularity)
 
 TARSUS ships as a self-contained Apptainer image bundling all tools + runtimes +
-code. **Build only on `docker-gpu.wexac.weizmann.ac.il`** (the sole host with
-`--fakeroot` privileges); every other WEXAC node can run the `.sif`.
+code. Builds with `apptainer build --fakeroot` (tested on WEXAC login nodes with
+apptainer 1.4.0 root-mapped namespace; docker-gpu NOT required).
 
 Build (internal - bakes the already-validated `tools/` tree):
 
 ```bash
-ssh docker-gpu.wexac.weizmann.ac.il
 cd /path/to/TARSUS_BC
-ml Singularity
+ml apptainer
 scripts/build_container.sh --internal --out tarsus.sif
 ```
 

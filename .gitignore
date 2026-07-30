@@ -29,8 +29,6 @@ data/*
 # Tools — downloaded binaries, not tracked
 tools/**
 !tools/README.md
-!tools/PDV-2.1.2/
-!tools/PDV-2.1.2/PDV-2.1.2.jar
 !tools/xvfb/
 !tools/xvfb/bin/
 !tools/xvfb/bin/Xvfb
@@ -50,6 +48,17 @@ TARSUS_elizabev
 .meta/
 *-decoys-*.fas
 *.mzBIN
+
+# Agent workspace (session continuity, not for publishing)
+.agents/
+.memory/progress.md
+
+# Agent/IDE work notes (not for publishing)
+.superpowers/
+.claude/
+
+# Internal reference docs (contains cluster-internal paths)
+.context/reference-pipeline.md
 
 # macOS
 .DS_Store

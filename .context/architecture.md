@@ -216,7 +216,7 @@ silently shifted the whole title namespace. Everything after it was a downstream
   by the `-varMod 2,33` added to compensate. The reference passes no `-varMod` and hits neither.
 
 **Ground truth.** The colleagues' completed run at
-`/home/labs/pilpel/elizabev/tRNA/EVpar/tarsus_analysis/` uses *exact targeted* PepQuery validation on
+the reference's completed EVpar run uses *exact targeted* PepQuery validation on
 the same Orbitrap Astral DDA instrument family and yields a 3,922-row `subs.ipc`. Its index titles
 carry no `_sub` (`TITLE=...-EVpar-LS-3:121018:2`).
 

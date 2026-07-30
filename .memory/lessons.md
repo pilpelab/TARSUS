@@ -49,7 +49,7 @@ the spectrum-title invariant — read it.
 
 We spent a week theorizing about why targeted PepQuery "couldn't work" (D-045, D-046), and wrote a
 959-line plan (Option C) to work around it. Then we found the colleagues' completed run at
-`/home/labs/pilpel/elizabev/tRNA/EVpar/tarsus_analysis/` — it used exact targeted validation, worked
+the reference pipeline's EVpar run — it used exact targeted validation, worked
 fine, and its index titles answered the whole question in one `grep`. Option C's premise was false;
 we cancelled it unimplemented.
 
@@ -151,7 +151,7 @@ absent categories, or effects far larger than the biology permits: suspect the p
 
 ## Do not edit source that a running job is importing
 
-Both `TARSUS_BC` and `~/LIS1_mutant_organoids__Orly_Reiner` execute **one shared, editable source
+Both `TARSUS_BC` and another project (`LIS1`) execute **one shared, editable source
 tree**. `orchestration.py` imports each step module **lazily**, when the master reaches it — so a
 master running for hours picks up whatever is on disk at that moment. A live edit is executed by a
 live pipeline; a briefly-broken file kills a run hours in; and a changed signature meets an `lsf`
@@ -234,7 +234,7 @@ On the FMIndex crash I produced **three** explanations, and the first two were w
 ## Pre-flight checklist for any pipeline change
 
 1. **Contract:** what does this step consume/produce? Who downstream reads it? (`architecture.md`)
-2. **Reference:** what does `TARSUS_elizabev/` — and the real run under `elizabev/` — actually do?
+2. **Reference:** what does `TARSUS_elizabev/` — and the reference's real completed run — actually do?
 3. **Missing data:** does every new read raise on absence, or does it default? Remove the defaults.
 4. **Resume:** does this still work when upstream steps are skipped via `.done`? (D-051's trap)
 5. **Silent no-ops:** any `re.sub`/`.get`/join that does nothing when its key is absent? Pin it.
@@ -279,7 +279,7 @@ mistranslation. See D-053.
 - **No provenance recording.** `tarsus run` should stamp `git rev-parse HEAD` + a dirty flag into the
   output dir and **refuse to run on a dirty tree**. Direct fix for D-057 (stale artifact) *and* the
   shared-mutable-source hazard. **Highest-value engineering item remaining.**
-- **LIS1 shares TARSUS_BC's mutable source tree.** Pin it, or snapshot source per run.
+- **Other projects share TARSUS_BC's mutable source tree.** Pin source per run, or snapshot per run.
 - **Config not externalized.** 9 steps hardcode `queue="gsla-cpu"`; `--queue` reaches only the master
   job. `.agents/project.md` promises per-lab overridability; the repo does not deliver it. This is the
   real blocker for the stated cross-lab goal.
@@ -402,21 +402,20 @@ detection). Fix staged in the plan file; apply only when no master is live.
 ### 2026-07-27: I claimed "no E. coli reference" after searching ONE tree — wrong
 
 I told the user the tRNA panel had no Slava reference, having searched only
-`slavat/coli_trna/` (which indeed holds `subs.ipc` for EV controls only). The user
-said "I'm sure it's in slava or elizabev" — and was right. `elizabev/tRNA/` has the
-whole counterpart experiment, incl. `csvs_from_Slava/<tRNA>_subs_qdp_ratios.csv`
-for every tRNA sample and a full `EVpar/tarsus_analysis/subs.ipc`.
+a colleague's directory (which indeed holds `subs.ipc` for EV controls only). The user
+was right — the colleague's tree has the whole counterpart experiment, incl.
+`csvs_from_Slava/<tRNA>_subs_qdp_ratios.csv` for every tRNA sample and a full
+`EVpar/tarsus_analysis/subs.ipc`.
 
 **Two lessons:**
 1. **Verify ABSENCE as hard as presence.** "No reference exists" is a strong
-   negative claim — search every collaborator's tree (`slavat` AND `elizabev`, by
-   sample-name AND raw-file signature) before asserting it to a user. I asserted
-   absence from a one-directory search.
+   negative claim — search every collaborator's tree (by sample-name AND raw-file
+   signature) before asserting it to a user. I asserted absence from a one-directory search.
 2. **A reference in a different method is not a replication reference.** The
    `csvs_from_Slava` tRNA tables are **MaxQuant dependent-peptide** output
    (`DP …`, `dependentPeptides ratio`), not FragPipe/TARSUS. Comparing our TARSUS
    output to them measures TARSUS-vs-MaxQuant **method concordance**, NOT "does my
    code reproduce Slava's TARSUS code." The only like-for-like TARSUS reference on
-   E. coli is `elizabev/tRNA/EVpar/tarsus_analysis/subs.ipc` (3,922 rows — the
+   E. coli is the reference's `EVpar/tarsus_analysis/subs.ipc` (3,922 rows — the
    figure D-070 already matched). Check the reference's *tool/schema* before
    calling any comparison a "recapitulation."
