@@ -153,3 +153,21 @@ rev_ invariant and the snapshot.
 
 **Spec:** `docs/superpowers/specs/2026-07-28-step07-11-regression-eval-design.md`.
 **Status:** landed. 25 eval tests + 317 unit tests green; mypy/ruff clean.
+
+---
+
+## D-073 (2026-11-05): Match Slava's published settings for Step 11 tolerance and MSBooster model selection
+
+**Context:** ingesting the Nature paper (`.context/paper-methods-vs-tarsus.md` rows 1, 3) showed two result-changing settings where we followed `TARSUS_elizabev/` but the paper, the published `treko90/tarsus` code, and Slava's GAPDH reference run do otherwise. User directive: make the tolerance a parameter defaulting to Slava's value, and let the pipeline pick the best MSBooster model as Slava's runs did.
+
+**Decision:**
+1. Step 11 PyAscore fragment tolerance (`mz_error`) is `DEFAULT_LOCALIZE_TOL_DA = 0.01` (was 0.05), overridable with `tarsus run --localize-tol` (paper: 0.6 for ion-trap MS2). Effective value printed in `master.log`; CLI value recorded in `provenance.json`.
+2. `src/tarsus/assets/generic.workflow` restored to the published file byte-for-byte (`find-best-rt-model=true`, `find-best-spectra-model=true`), so MSBooster selects the best Koina model in Step 3a and FragPipe writes the chosen models into `fragpipe-second-pass.workflow`, which Step 3c inherits. `tarsus run --msbooster-models dia-nn` is the offline fallback (pins local DIA-NN, find-best off; every patched key must exist or Step 3a raises).
+
+**Evidence:** paper Methods ("pyAscore ... precision 0.01 Da (Orbitrap)"); public `localize.py` passes 0.01; Slava's `hoMS/GAPDH/2d/fragpipe_fullpipeline/fragpipe.workflow` has find-best true and its `fragpipe-second-pass.workflow` ran `AlphaPept_rt_generic`/`AlphaPept_ms2_generic`. Koina reachable from gsla-cpu node cn449 (LSF probe 2026-11-05: model endpoint returned `AlphaPept_ms2_generic` metadata; the bare `/v2/models/` listing timed out at 30 s, so Koina can be slow; hence the fallback).
+
+**Measured effect of (1)** on the eval slices: gapdh localized 28 -> 19 rows (0.02 gives 26), evcoli 62 -> 58. Step 11 goldens re-blessed (`TARSUS_EVAL_UPDATE=1`); all invariants unchanged. Effect of (2) not yet measured: needs a real run.
+
+**Sentinels for existing outputs:** (1) clear `11_localized/.done` and `12_visualize/.done`. (2) clear `03a_first_pass/.done` and every downstream `.done` (03b to 12): the first-pass PSMs, the candidate library, and everything after can change. `stale_artifacts` warns because both step files changed.
+
+**Caveat recorded, not acted on:** 0.01 Da is tighter than the 20 ppm fragment tolerance of the MSFragger search for fragments above m/z 500, so some true site-determining fragments may be missed. We match Slava by choice.

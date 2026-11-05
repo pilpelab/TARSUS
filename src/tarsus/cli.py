@@ -137,11 +137,22 @@ def convert(inputs: tuple[str, ...], output_dir: str, queue: str,
                    "the TARSUS_CDS_FASTA env var; if none resolve, the codon heatmap is "
                    "skipped. Mistranslation happens in codon space (an engineered tRNA "
                    "reads ONE codon), so this maps substitutions back to codons.")
+@click.option("--localize-tol", default=None,
+              type=click.FloatRange(min=0, min_open=True),
+              help="Step 11 PyAscore fragment tolerance in Da. Default 0.01 "
+                   "(Slava's published value, Orbitrap MS2); the paper uses 0.6 "
+                   "for ion-trap MS2.")
+@click.option("--msbooster-models", type=click.Choice(["best", "dia-nn"]),
+              default="best", show_default=True,
+              help="MSBooster RT/MS2 model selection. 'best' lets MSBooster pick "
+                   "the best Koina model (Slava's setting; compute nodes need "
+                   "internet to koina.wilhelmlab.org). 'dia-nn' pins the local "
+                   "DIA-NN models, offline.")
 @click.option("--allow-dirty", is_flag=True,
               help="Run despite uncommitted changes (results become unattributable)")
 def run(
     fasta: str, inputs: tuple[str, ...], output_dir: str, queue: str, memory: int,
-    cds: str, allow_dirty: bool,
+    cds: str, localize_tol: float | None, msbooster_models: str, allow_dirty: bool,
 ) -> None:
     """Run the full TARSUS pipeline on LSF.
 
@@ -189,6 +200,8 @@ def run(
         "inputs": [str(f) for f in raw_files],
         "output_dir": str(outdir),
         "cds": str(cds_path) if cds_path else None,
+        "localize_tol_da": localize_tol,  # None = step11 DEFAULT_LOCALIZE_TOL_DA
+        "msbooster_models": msbooster_models,
         "queue": queue,
         "memory_mb": memory,
         "allow_dirty": allow_dirty,
@@ -201,8 +214,10 @@ def run(
     log_path = outdir / "master.log"
 
     cds_args = ["--cds", str(cds_path)] if cds_path else []
+    tol_args = ["--localize-tol", repr(localize_tol)] if localize_tol is not None else []
     jid = submit_bsub(
-        cmd=[python_bin, "-m", "tarsus.orchestration", *cds_args,
+        cmd=[python_bin, "-m", "tarsus.orchestration", *cds_args, *tol_args,
+             "--msbooster-models", msbooster_models,
              str(outdir), str(fasta_path),
              *[str(f) for f in raw_files]],
         job_name="tarsus_master",

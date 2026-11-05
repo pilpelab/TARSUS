@@ -34,6 +34,14 @@ SUBSTITUTION_SHIFTS: dict[str, dict[str, float]] = {
 
 _MODIFIABLE = "ACDEFGHIKLMNPQRSTVWY"
 
+#: PyAscore fragment m/z tolerance in Da (its ``mz_error``). 0.01 is what the
+#: paper states ("precision 0.01 Da (Orbitrap), 0.6 Da (ion trap)") and what the
+#: published ``treko90/tarsus`` ``localize.py`` passes. ``TARSUS_elizabev/`` passes
+#: 0.05, which we followed until 2026-11-05: a 5x wider window lets noise peaks count
+#: as site-determining evidence. Override per run with ``tarsus run --localize-tol``
+#: (e.g. 0.6 for ion-trap MS2). See D-073.
+DEFAULT_LOCALIZE_TOL_DA = 0.01
+
 
 def mz_diff(peptide: str, observed_mz: float, charge: int) -> tuple[float, float, float, float]:
     """Compare theoretical monoisotopic m/z with observed m/z.
@@ -199,7 +207,7 @@ def _nonbase_hits(deps: pl.DataFrame, base: pl.DataFrame) -> pl.DataFrame:
 def localize_shift(
     candidates: pl.DataFrame,
     spectra_path: Path,
-    precursor_tol: float = 0.05,
+    precursor_tol: float = DEFAULT_LOCALIZE_TOL_DA,
 ) -> list[str]:
     """Run PyAscore localization and return the confidently localized titles.
 
@@ -207,11 +215,17 @@ def localize_shift(
         candidates: DataFrame with columns 'spectrum_title', 'base', 'origin',
             'destination', 'mistranslatedPos', 'modification'.
         spectra_path: Path to MGF file with spectra for localization.
-        precursor_tol: Precursor m/z tolerance for PyAscore.
+        precursor_tol: PyAscore ``mz_error`` in Da. Despite the name (kept from
+            the reference's ``prec``), PyAscore uses it to match *fragment* peaks.
 
     Returns:
         Spectrum titles whose substitution localized to the expected position.
+
+    Raises:
+        ValueError: ``precursor_tol`` is not positive.
     """
+    if not precursor_tol > 0:
+        raise ValueError(f"PyAscore tolerance must be > 0 Da, got {precursor_tol!r}")
     spectra = mgf.IndexedMGF(str(spectra_path))
     sure_spectra: list[str] = []
 
@@ -313,13 +327,17 @@ def localize(
     spectra_mgf: Path,
     output_ipc: Path,
     output_csv: Path | None = None,
-    precursor_tol: float = 0.05,
+    precursor_tol: float = DEFAULT_LOCALIZE_TOL_DA,
 ) -> pl.DataFrame:
     """Run full Step 11: filter candidates and localize substitutions.
 
     Reads subs.ipc (Step 7 output), filters on PepQuery delta_score > 0,
     runs PyAscore localization, and writes the final table.
+
+    ``precursor_tol`` is the PyAscore fragment tolerance in Da; see
+    :data:`DEFAULT_LOCALIZE_TOL_DA`.
     """
+    print(f"[step11] PyAscore fragment tolerance: {precursor_tol} Da", flush=True)
     subs = pl.read_ipc(subs_ipc)
 
     # Validate that required columns are present

@@ -2,7 +2,7 @@
 
 **TArgeted SUbstitution Search** — proteomics pipeline for detecting validated single amino acid substitutions (SAAVs) from mass spectrometry data.
 
-Configurable, shareable implementation based on: Tretyachenko et al. (2025). *bioRxiv*. https://www.biorxiv.org/content/10.1101/2025.02.17.638604v1
+Configurable, shareable implementation based on: Tretyachenko et al. (2026). Encoded and non-genetic protein variants expand the human functional proteome. *Nature*. https://doi.org/10.1038/s41586-026-11124-z (preprint: https://www.biorxiv.org/content/10.1101/2025.02.17.638604). Paper digest and its differences from this implementation: `.context/paper-*.md`.
 
 Reference implementation: `TARSUS_elizabev/` (read-only symlink to the original pipeline — see `.context/reference-pipeline.md`)
 
@@ -152,6 +152,9 @@ an empty cell, never dropped, so runs are comparable cell-for-cell.
 | `docs/IL-AMBIGUITY.md` | the I/L problem and how it is handled (D-064, D-065) |
 | `docs/PIPELINE-COMPARISON.md` | this pipeline vs the `elizabev/TARSUS` reference — every difference, verified |
 | `docs/QUESTIONS-FOR-SCIENTISTS.md` | open questions blocking interpretation |
+| `.context/paper-digest.md` | the Nature 2026 paper: claims, definitions, artifact classes, caveats, claims removed in review |
+| `.context/paper-methods-vs-tarsus.md` | paper vs public code vs reference vs this pipeline, setting by setting |
+| `.context/paper-supplementary-tables.md` | the 18 supplementary tables: contents, gotchas; fetch with `uv run python scripts/fetch_paper_supplements.py` |
 | `.memory/decisions.md` | every decision (D-001…D-065) with evidence |
 | `.memory/lessons.md` | failure modes worth not repeating |
 

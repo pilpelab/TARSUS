@@ -150,3 +150,45 @@ class TestNoRedundantPhilosopherDatabaseCall:
     def test_step03c_runner_does_not_invoke_philosopher_database(self) -> None:
         src = Path("src/tarsus/steps/step03c_second_pass.py").read_text()
         assert self.INVOCATION not in src
+
+
+class TestMsboosterModels:
+    """D-073: MSBooster picks the best Koina model by default, as Slava's runs did."""
+
+    def test_template_ships_find_best_like_the_published_workflow(self) -> None:
+        from src.tarsus.assets import WORKFLOW_TEMPLATE
+        text = WORKFLOW_TEMPLATE.read_text()
+        for line in ("msbooster.run-msbooster=true",
+                     "msbooster.find-best-rt-model=true",
+                     "msbooster.find-best-spectra-model=true"):
+            assert re.search(rf"^{re.escape(line)}$", text, re.MULTILINE), line
+
+    def test_best_mode_leaves_msbooster_block_untouched(self, tmp_path: Path) -> None:
+        from src.tarsus.assets import WORKFLOW_TEMPLATE
+        from src.tarsus.steps.step03a_first_pass import _patch_first_pass_workflow
+        text = WORKFLOW_TEMPLATE.read_text()
+        out = _patch_first_pass_workflow(text, tmp_path / "db.fasta", "best")
+        msb = lambda s: [ln for ln in s.splitlines() if ln.startswith("msbooster.")]  # noqa: E731
+        assert msb(out) == msb(text)
+        assert f"database.db-path={(tmp_path / 'db.fasta').resolve()}" in out
+
+    def test_dia_nn_mode_pins_local_models(self, tmp_path: Path) -> None:
+        from src.tarsus.assets import WORKFLOW_TEMPLATE
+        from src.tarsus.steps.step03a_first_pass import _patch_first_pass_workflow
+        out = _patch_first_pass_workflow(WORKFLOW_TEMPLATE.read_text(), tmp_path / "db.fa", "dia-nn")
+        for line in ("msbooster.find-best-rt-model=false",
+                     "msbooster.find-best-spectra-model=false",
+                     "msbooster.rt-model=DIA-NN",
+                     "msbooster.spectra-model=DIA-NN",
+                     "msbooster.run-msbooster=true"):
+            assert re.search(rf"^{re.escape(line)}$", out, re.MULTILINE), line
+
+    def test_absent_key_raises_instead_of_silent_noop(self, tmp_path: Path) -> None:
+        from src.tarsus.steps.step03a_first_pass import _patch_first_pass_workflow
+        with pytest.raises(ValueError, match="no line matching"):
+            _patch_first_pass_workflow("database.db-path=x\n", tmp_path / "db.fa", "dia-nn")
+
+    def test_unknown_mode_raises(self, tmp_path: Path) -> None:
+        from src.tarsus.steps.step03a_first_pass import _patch_first_pass_workflow
+        with pytest.raises(ValueError, match="msbooster_models must be one of"):
+            _patch_first_pass_workflow("database.db-path=x\n", tmp_path / "db.fa", "koina")

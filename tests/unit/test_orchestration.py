@@ -82,3 +82,71 @@ def test_no_base_input_does_not_mark_downstream_done(tmp_path: Path) -> None:
     assert not (outdir / "09_pepquery_base" / ".done").exists()
     assert not (outdir / "10_aggregated_base" / ".done").exists()
     assert not (outdir / "11_localized" / ".done").exists()
+
+
+class TestParseMasterArgv:
+    """The master job's argv: optional `--flag value` pairs, then positionals."""
+
+    def test_positionals_only(self) -> None:
+        from src.tarsus.orchestration import _parse_master_argv
+        out, fasta, raws, kw = _parse_master_argv(["/o", "/p.fasta", "/a.raw", "/b.raw"])
+        assert (out, fasta, raws, kw) == (
+            Path("/o"), Path("/p.fasta"), [Path("/a.raw"), Path("/b.raw")], {},
+        )
+
+    def test_flags_anywhere_are_stripped(self) -> None:
+        from src.tarsus.orchestration import _parse_master_argv
+        out, fasta, raws, kw = _parse_master_argv(
+            ["--localize-tol", "0.05", "/o", "/p.fasta", "--cds", "/c.fa", "/a.raw"],
+        )
+        assert out == Path("/o") and fasta == Path("/p.fasta") and raws == [Path("/a.raw")]
+        assert kw == {"localize_tol": 0.05, "cds_fasta": Path("/c.fa")}
+
+    def test_flag_without_value_raises(self) -> None:
+        from src.tarsus.orchestration import _parse_master_argv
+        with pytest.raises(ValueError, match="without a value"):
+            _parse_master_argv(["/o", "/p.fasta", "/a.raw", "--localize-tol"])
+
+    def test_too_few_positionals_raises(self) -> None:
+        from src.tarsus.orchestration import _parse_master_argv
+        with pytest.raises(ValueError, match="expected outdir"):
+            _parse_master_argv(["--localize-tol", "0.05", "/o", "/p.fasta"])
+
+
+class _Stop(Exception):
+    pass
+
+
+def _reached_step11(outdir: Path) -> None:
+    _reached_step8(outdir, subs_rows=1)
+    for step in ["09_pepquery_base", "10_aggregated_base"]:
+        _touch_done(outdir, step)
+    (outdir / "08_base_input" / "pepquery_input_base").mkdir(parents=True)
+    (outdir / "08_base_input" / "pepquery_input_base" / "chunk").write_text("x")
+
+
+@pytest.mark.parametrize("given, expected", [(None, None), (0.05, 0.05)])
+def test_localize_tol_reaches_step11(tmp_path: Path, monkeypatch, given, expected) -> None:
+    """`run_pipeline(localize_tol=...)` reaches Step 11; None leaves the step's default."""
+    import tarsus.steps.step11_localize as s11
+
+    seen: dict = {}
+
+    def fake_localize(**kw):
+        seen.update(kw)
+        raise _Stop
+
+    monkeypatch.setattr(s11, "localize", fake_localize)
+    outdir = tmp_path / "out"
+    fasta = tmp_path / "protein.fasta"
+    fasta.write_text(">p\nPEPTIDE\n")
+    _reached_step11(outdir)
+    with pytest.raises(_Stop):
+        run_pipeline(outdir, fasta, [tmp_path / "x.raw"], localize_tol=given)
+    assert seen.get("precursor_tol") == expected
+
+
+def test_parse_master_argv_msbooster_models() -> None:
+    from src.tarsus.orchestration import _parse_master_argv
+    *_, kw = _parse_master_argv(["--msbooster-models", "dia-nn", "/o", "/p.fasta", "/a.raw"])
+    assert kw == {"msbooster_models": "dia-nn"}

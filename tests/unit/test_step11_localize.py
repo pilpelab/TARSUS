@@ -340,3 +340,26 @@ class TestIsobaricIlLabel:
             "AA_MONO must stay free of `I/L`: the label never reaches the mass lookup"
         assert AA_MONO["I"] == AA_MONO["L"] == 113.08406, \
             "Ile and Leu are isobaric — that is why they collapse to one letter"
+
+
+class TestLocalizeTolerance:
+    """D-073: the PyAscore fragment tolerance defaults to Slava's 0.01 Da."""
+
+    def test_default_is_slavas_published_value(self) -> None:
+        from src.tarsus.steps.step11_localize import DEFAULT_LOCALIZE_TOL_DA
+        assert DEFAULT_LOCALIZE_TOL_DA == 0.01
+
+    def test_both_entry_points_use_the_constant(self) -> None:
+        import inspect
+        from src.tarsus.steps.step11_localize import (
+            DEFAULT_LOCALIZE_TOL_DA, localize, localize_shift,
+        )
+        for fn in (localize, localize_shift):
+            default = inspect.signature(fn).parameters["precursor_tol"].default
+            assert default == DEFAULT_LOCALIZE_TOL_DA, fn.__name__
+
+    @pytest.mark.parametrize("bad", [0.0, -0.01])
+    def test_nonpositive_tolerance_raises(self, tmp_path: Path, bad: float) -> None:
+        from src.tarsus.steps.step11_localize import localize_shift
+        with pytest.raises(ValueError, match="must be > 0"):
+            localize_shift(pl.DataFrame(), tmp_path / "unused.mgf", bad)

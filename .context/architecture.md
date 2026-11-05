@@ -168,7 +168,19 @@ FragPipe writes the `SpectralSim` and `RTScore` psm.tsv columns (18-19, straight
 after `Delta Mass`) only when MSBooster runs, and Step 7 carries psm.tsv columns
 through verbatim — so disabling it silently empties both columns (D-069). It was
 disabled between `cfd4886` and 2026-07-24; do not re-disable it as an optimization.
-Models are local DIA-NN, so no Koina/internet access is required.
+
+Model choice (D-073): by default (`tarsus run --msbooster-models best`) Step 3a keeps
+the template's `find-best-rt-model=true` / `find-best-spectra-model=true`, so MSBooster
+picks the best Koina model, which needs internet from the compute node
+(`koina.wilhelmlab.org`, verified reachable from gsla-cpu 2026-11-05). FragPipe writes
+the chosen models into `fragpipe-second-pass.workflow`, which Step 3c builds on, so
+the second pass inherits them. This matches Slava's GAPDH reference run (AlphaPept
+models). `--msbooster-models dia-nn` pins the local DIA-NN models offline (behaviour
+before 2026-11-05, and the EVpar reference run).
+
+Step 11 localization uses PyAscore with a 0.01 Da fragment tolerance by default
+(`--localize-tol`, D-073), matching the paper and the published `localize.py`;
+`TARSUS_elizabev/` and our code before 2026-11-05 used 0.05.
 
 ## Output Directory Convention
 

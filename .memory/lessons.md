@@ -419,3 +419,13 @@ was right — the colleague's tree has the whole counterpart experiment, incl.
    E. coli is the reference's `EVpar/tarsus_analysis/subs.ipc` (3,922 rows — the
    figure D-070 already matched). Check the reference's *tool/schema* before
    calling any comparison a "recapitulation."
+
+### 2026-11-04: the published scripts are not the code that produced the paper's tables
+
+**What happened:** while ingesting the Nature paper, the paper's own Supplementary Table 1 contradicted the published `make_peptides.py` + `subs_exclude.csv` that we (and `TARSUS_elizabev/`) replicate: ST1 has 1,161 I/L-origin substitutions the published code cannot generate (rename no-op), and 181 rows of E>Q, D>N, F>M that the published CSV excludes. The published `localize.py` also uses 0.01 Da where the reference copy uses 0.05.
+
+**Why it matters:** "faithful to the reference scripts" and "faithful to the paper" are different targets. D-061/D-064 were reasoned from the scripts; the paper's data agrees with D-064 (I/L origins exist) but not with D-061's claim that F>M is excluded by the reference.
+
+**Correct approach:** when a behavior is in question, check three sources, not one: the scripts, the reference run's artifacts (`second.workflow`, `fragpipe-second-pass.workflow`, `subs.ipc`), and the paper's own tables (`data/paper/tsv/`). Example: D-069 says our MSBooster block "already matches the reference"; that is true of EVpar, but Slava's GAPDH run used `find-best-*-model=true` and its second pass ran `AlphaPept_rt_generic`/`AlphaPept_ms2_generic` (follow-up to D-069, not a rewrite of it).
+
+**Files:** `.context/paper-methods-vs-tarsus.md`, `scripts/fetch_paper_supplements.py`.

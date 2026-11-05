@@ -26,7 +26,7 @@ step-07/11 input is filtered to exactly this spectrum set:
 ## Golden
 
 - `golden/subs.ipc` - step07 output: **113 rows / 100 spectra**.
-- `golden/subs_localized.ipc` / `.csv` - step11 output: **28 rows**.
+- `golden/subs_localized.ipc` / `.csv` - step11 output: **19 rows** at the 0.01 Da PyAscore default (28 at the former 0.05; D-073).
 
 Produced by current (post-`7502692`) code. Regenerate on an intentional change
 with `TARSUS_EVAL_UPDATE=1 uv run pytest tests/eval` (see `tests/eval/README.md`).
