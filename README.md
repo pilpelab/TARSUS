@@ -145,6 +145,8 @@ output/my-run/
 Both heatmaps are **fixed grids**: an origin/destination/codon that does not occur is drawn as
 an empty cell, never dropped, so runs are comparable cell-for-cell.
 
+**Who can read a run (D-074).** `tarsus run` and the master job set umask `027`, so everything a run writes is readable by your Unix group and closed to everyone else (directories `drwxr-x---`, files `-rw-r-----`), whatever your login umask. LSF jobs inherit it. Runs made before D-074 may be owner-only; open one to the group with `chmod -R g+rX output/<run>`. Check with `stat -c '%A %n' output/<run> output/<run>/11_localized/*`.
+
 ## Docs
 
 | file | what |

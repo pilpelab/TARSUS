@@ -13,7 +13,7 @@ from pathlib import Path
 import click
 
 from .env import ToolEnvironment
-from .lsf import submit_bsub
+from .lsf import submit_bsub, use_group_readable_umask
 from .provenance import (
     git_sha,
     DirtyTreeError,
@@ -75,6 +75,7 @@ def _resolve_cds(cds: str | None, cwd: Path) -> Path | None:
 @click.group()
 def main() -> None:
     """TARSUS — TArgeted SUbstitution Search pipeline."""
+    use_group_readable_umask()
 
 
 # ── Step 1: convert (already implemented, kept for backward compat) ──

@@ -316,6 +316,14 @@ def _parse_master_argv(argv: list[str]) -> tuple[Path, Path, list[Path], dict[st
     return Path(args[0]), Path(args[1]), [Path(f) for f in args[2:]], kwargs
 
 
+def main(argv: list[str]) -> None:
+    """Master job entry point: group-readable umask, then the pipeline."""
+    from .lsf import use_group_readable_umask
+
+    use_group_readable_umask()
+    outdir, fasta, raw_files, kwargs = _parse_master_argv(argv)
+    run_pipeline(outdir, fasta, raw_files, **kwargs)
+
+
 if __name__ == "__main__":
-    _outdir, _fasta, _raw_files, _kwargs = _parse_master_argv(sys.argv[1:])
-    run_pipeline(_outdir, _fasta, _raw_files, **_kwargs)
+    main(sys.argv[1:])
