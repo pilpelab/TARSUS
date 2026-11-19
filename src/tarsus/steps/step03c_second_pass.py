@@ -12,6 +12,13 @@ parameters — the reference's ``search_pipeline_script.sh`` seds this same file
 
 Calibration describes the instrument's mass behaviour on these raw files, not
 the database, so it is identical across both passes. See D-051.
+
+MSBooster models are NOT inherited the same way: FragPipe 24.0 writes that file
+with ``find-best-*-model=true`` and DIA-NN defaults, so pass 2 would re-select
+its models (2026-11-05: PARK7/PRDX6 landed on ``ms2pip_2021_HCD`` and crashed
+MSBooster; Hb ran a different RT model than pass 1). Step 3c therefore pins the
+models MSBooster recorded choosing in pass 1, with both searches off, which is
+what Slava's FragPipe-generated second-pass workflow carries. See D-075.
 """
 
 import re
@@ -22,6 +29,73 @@ from ..lsf import submit_bsub, wait_for_jobs, _build_env_cmd
 
 #: Workflow FragPipe auto-generates during the first pass, calibration baked in.
 GENERATED_SECOND_PASS_WORKFLOW = "fragpipe-second-pass.workflow"
+
+#: MSBooster's own record of a run, written into Step 3a's output directory. Its
+#: ``rtModel``/``spectraModel`` lines hold the models MSBooster actually used,
+#: i.e. the find-best winners when the search was on.
+FIRST_PASS_MSBOOSTER_PARAMS = "msbooster_params.txt"
+
+
+def _first_pass_models(step3a_dir: Path) -> tuple[str, str]:
+    """Return ``(rt_model, spectra_model)`` MSBooster used in the first pass.
+
+    Args:
+        step3a_dir: Step 3a output directory holding ``msbooster_params.txt``.
+
+    Returns:
+        The RT and MS2 model names, as MSBooster spells them.
+
+    Raises:
+        FileNotFoundError: the params file is absent.
+        ValueError: ``rtModel`` or ``spectraModel`` is absent or empty. Falling
+            back to a default here would silently let pass 2 run other models.
+    """
+    params = step3a_dir / FIRST_PASS_MSBOOSTER_PARAMS
+    if not params.is_file():
+        raise FileNotFoundError(
+            f"First-pass MSBooster record not found: {params}. Step 3c pins pass 1's "
+            f"models from it; rerun Step 3a (MSBooster must run in pass 1)."
+        )
+    text = params.read_text()
+    models: list[str] = []
+    for key in ("rtModel", "spectraModel"):
+        # [ \t], not \s: \s spans newlines, so an empty `rtModel=` would
+        # capture the next line as its value.
+        m = re.search(rf"^[ \t]*{key}[ \t]*=[ \t]*(\S*)[ \t]*$", text, flags=re.MULTILINE)
+        if m is None or not m.group(1):
+            raise ValueError(f"{params} has no non-empty {key!r} line")
+        models.append(m.group(1))
+    return models[0], models[1]
+
+
+def _pin_first_pass_models(content: str, rt_model: str, spectra_model: str) -> str:
+    """Pin pass 1's MSBooster models into a second-pass workflow.
+
+    Args:
+        content: Second-pass workflow text.
+        rt_model: RT model MSBooster used in pass 1.
+        spectra_model: MS2 model MSBooster used in pass 1.
+
+    Returns:
+        The workflow text with both find-best searches off and both models set.
+
+    Raises:
+        ValueError: a key to pin is absent. ``re.sub`` on an absent key is a
+            silent no-op that would let pass 2 re-select models (D-051 pattern).
+    """
+    pins = {
+        "msbooster.find-best-rt-model": "false",
+        "msbooster.find-best-spectra-model": "false",
+        "msbooster.rt-model": rt_model,
+        "msbooster.spectra-model": spectra_model,
+    }
+    for key, value in pins.items():
+        m = re.search(rf"^{re.escape(key)}=.*$", content, flags=re.MULTILINE)
+        if m is None:
+            raise ValueError(f"second-pass workflow has no {key}= line to pin")
+        # Splice rather than re.sub, so a model name is never read as a backreference.
+        content = f"{content[:m.start()]}{key}={value}{content[m.end():]}"
+    return content
 
 
 def _second_pass_template(step3a_dir: Path) -> tuple[Path, bool]:
@@ -150,6 +224,8 @@ def step03c_second_pass(
     workflow_template, calibration_inherited = _second_pass_template(mzml_dir)
     if not workflow_template.is_file():
         raise FileNotFoundError(f"Workflow template not found: {workflow_template}")
+    # Read before writing anything, so a missing record fails before any output.
+    rt_model, spectra_model = _first_pass_models(mzml_dir)
 
     second_dir = output_dir / "second"
     second_dir.mkdir(parents=True, exist_ok=True)
@@ -158,6 +234,7 @@ def step03c_second_pass(
     decoy_fasta = _make_decoy_fasta(pep_candidates, output_dir)
 
     content = _patch_workflow(workflow_template.read_text(), decoy_fasta.resolve())
+    content = _pin_first_pass_models(content, rt_model, spectra_model)
 
     second_workflow = output_dir / "second.workflow"
     with second_workflow.open("w") as f:
