@@ -445,3 +445,11 @@ was right — the colleague's tree has the whole counterpart experiment, incl.
 **What went wrong:** the 2026-11-05 runs skipped the tool pre-flight that `docs/rerun_qc_20260723.sh` runs. Commit `a718192` (GitHub restructure) had deleted `tools/PDV-2.1.2/` from git and disk, so GAPDH and Hb died at S06 start.
 
 **Correct approach:** run `make test-tools` (and `make test-pdv-full` when PDV matters) before every `tarsus run` launch. Restoring the JAR: `rtk proxy git cat-file blob 3c86293:tools/PDV-2.1.2/PDV-2.1.2.jar`, check SHA256 against the Makefile's `PDV_SHA256`, and recreate `lib` and `resources` as symlinks to `../PDV-2.2.3/` (the JAR's manifest Class-Path reads `lib/`). `tools/**` is gitignored, so this keeps the tree clean.
+
+### 2026-11-19: three transient failures, none in our code, each killed a multi-hour master
+
+**What happened:** in one day's four runs: an MSBooster 1.4.14 `ConcurrentModificationException` (Hb S03c), and two LSF jobs that exited 255 in 0-1 s with no output and "CPU time used is unknown" (GAPDH S09 on cn653, Hb S05 on cn745). `wait_for_jobs` raises on any failed child, so one bad job in ~2,400 stops the master.
+
+**How each was proven transient, not ours:** MSBooster's 15 `.pin` inputs were byte-identical to Nov 5, when the same step passed, and three other runs passed it the same day. The LSF failures had 708/709 and 1717/1718 siblings succeed, including ones on the same node, and a normal input file; `bhist -l <job>` gives the exit code when `bjobs` has purged it.
+
+**Correct approach:** compare inputs byte-for-byte with a run that passed before touching code. To resume: keep the failure record in `<run>/_failed-<date>-<what>/` (copy the job log; move `master.log` and `provenance.json`), then rerun `tarsus run` with the original args. Steps 5 and 9 skip chunks that already have `psm_rank.txt`, so only the failed chunk reruns. A retry for exit-255-with-no-output jobs in `lsf.py` would remove the manual step (not implemented; Bar's call).
