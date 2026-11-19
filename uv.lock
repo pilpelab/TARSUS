@@ -1320,7 +1320,7 @@ wheels = [
 ]
 
 [[package]]
-name = "tarsus-bc"
+name = "tarsus"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
