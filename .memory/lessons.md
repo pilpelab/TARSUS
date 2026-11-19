@@ -429,3 +429,19 @@ was right — the colleague's tree has the whole counterpart experiment, incl.
 **Correct approach:** when a behavior is in question, check three sources, not one: the scripts, the reference run's artifacts (`second.workflow`, `fragpipe-second-pass.workflow`, `subs.ipc`), and the paper's own tables (`data/paper/tsv/`). Example: D-069 says our MSBooster block "already matches the reference"; that is true of EVpar, but Slava's GAPDH run used `find-best-*-model=true` and its second pass ran `AlphaPept_rt_generic`/`AlphaPept_ms2_generic` (follow-up to D-069, not a rewrite of it).
 
 **Files:** `.context/paper-methods-vs-tarsus.md`, `scripts/fetch_paper_supplements.py`.
+
+### 2026-11-19: D-073 assumed FragPipe carries pass 1's model choices into pass 2; FragPipe 24.0 does not
+
+**What went wrong:** D-073 turned MSBooster find-best on and reasoned that FragPipe writes the chosen models into `fragpipe-second-pass.workflow`, as Slava's FragPipe 22/23 file shows. FragPipe 24.0's generated file keeps `find-best=true` and DIA-NN defaults, so pass 2 re-selected models: two of four runs crashed in MSBooster (ms2pip citation NPE) and Hb ran a different RT model in pass 2.
+
+**Why:** the claim was checked against the reference run's artifact from an older FragPipe, not against what our installed FragPipe writes. A tool-generated file is version-specific behavior.
+
+**Correct approach:** when a decision depends on what a tool writes, read the file our installed version wrote (one trial run is enough), not the reference's copy. Take a value from the tool's own record of what it did (`msbooster_params.txt`) and pin it, rather than relying on the tool to propagate it (D-075).
+
+**Files/commands involved:** `src/tarsus/steps/step03c_second_pass.py`, `output/2026-11-05-d073/*/03a_first_pass/{fragpipe-second-pass.workflow,msbooster_params.txt}`.
+
+### 2026-11-19: launched four runs without `make test-tools`; a deleted PDV JAR killed two at S06 after ~1.5 h
+
+**What went wrong:** the 2026-11-05 runs skipped the tool pre-flight that `docs/rerun_qc_20260723.sh` runs. Commit `a718192` (GitHub restructure) had deleted `tools/PDV-2.1.2/` from git and disk, so GAPDH and Hb died at S06 start.
+
+**Correct approach:** run `make test-tools` (and `make test-pdv-full` when PDV matters) before every `tarsus run` launch. Restoring the JAR: `rtk proxy git cat-file blob 3c86293:tools/PDV-2.1.2/PDV-2.1.2.jar`, check SHA256 against the Makefile's `PDV_SHA256`, and recreate `lib` and `resources` as symlinks to `../PDV-2.2.3/` (the JAR's manifest Class-Path reads `lib/`). `tools/**` is gitignored, so this keeps the tree clean.
