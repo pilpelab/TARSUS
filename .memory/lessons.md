@@ -453,3 +453,13 @@ was right — the colleague's tree has the whole counterpart experiment, incl.
 **How each was proven transient, not ours:** MSBooster's 15 `.pin` inputs were byte-identical to Nov 5, when the same step passed, and three other runs passed it the same day. The LSF failures had 708/709 and 1717/1718 siblings succeed, including ones on the same node, and a normal input file; `bhist -l <job>` gives the exit code when `bjobs` has purged it.
 
 **Correct approach:** compare inputs byte-for-byte with a run that passed before touching code. To resume: keep the failure record in `<run>/_failed-<date>-<what>/` (copy the job log; move `master.log` and `provenance.json`), then rerun `tarsus run` with the original args. Steps 5 and 9 skip chunks that already have `psm_rank.txt`, so only the failed chunk reruns. A retry for exit-255-with-no-output jobs in `lsf.py` would remove the manual step (not implemented; Bar's call).
+
+### 2026-11-22: Slava's production Step 9 used `-itol 0.05`; the published script and ours say 0.01
+
+**What happened:** feeding Slava's own Step 7 output into our Steps 8-10 gave identical Step 8 fake spectra, but 38 of 116 PARK7 base scores differed (same spectrum, same peptide, e.g. 26.10 vs 38.09), and Step 11 then missed 1 ST14 peptide and added 3. Rerunning our exact Step 9 command with only `-itol 0.05` reproduced his scores to full precision: PARK7 117/117, GAPDH 167/167. With that, Step 11 matched his results.
+
+**Why it was missed:** `TARSUS_elizabev/query_psm_base.sh` and `step09_query_psm_base.py:113` both pass `-itol 0.01`, so "matches the reference script" was true and still wrong. This is the third place (with `localize.py` 0.05 and the I/L library) where the production runs differ from the published scripts.
+
+**Correct approach:** to find where we diverge from a reference run, feed the reference's own intermediate artifacts into our next step and compare outputs step by step (Step 7 -> 8 -> 10 -> 11). Then test the suspected parameter on two or three spectra before rerunning everything. Reference run directories keep no `parameter.txt`, so exact score reproduction is the only evidence of the settings used.
+
+**Files/commands involved:** `.scratch/slava-steps8-10/` (`run_steps8_10_on_slava.py`, `run_step9_10_itol005.py`, `compare.py`, `itol_test/`), `src/tarsus/steps/step09_query_psm_base.py:113`.
