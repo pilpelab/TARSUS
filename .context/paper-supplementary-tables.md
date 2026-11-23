@@ -59,7 +59,26 @@ Unit: unique substituted peptide, Leu normalised to Ile. Baseline 2026-11-05, St
 | PARK7 | 27 | 27 (100%) | 27 (100%) | 0 |
 | PRDX6 | 27 | 27 (100%) | 26 (96.3%) | 1, C>Y (allowed) |
 
-Slava's 100% confirms ST14 was built from these runs. The Barc tables predate D-073; rerun the four proteins and compare their `subs_localized.ipc` for the like-for-like result.
+Slava's 100% confirms ST14 was built from these runs.
+
+Like-for-like result, D-073 + D-075 rebuild of all four proteins (2026-11-19, `output/2026-11-05-d073/`, commit `616275f`, Step 11 at 0.01 Da):
+
+| Protein | Barc Step 7 | Barc Step 11 | Barc Step 11 not in ST14 |
+|---|---|---|---|
+| GAPDH | 34/38 | 26/38 | 14 |
+| Hb | 58/60 | 53/60 | 6 |
+| PARK7 | 27/27 | 23/27 | 2 |
+| PRDX6 | 27/27 | 27/27 | 2 |
+| Total | 146/152 | 129/152 | 24 |
+
+Where the Step 11 gap comes from, tested by feeding Slava's own intermediate files into our next step (2026-11-19 to 11-22):
+
+- Same spectra: 141 of the 146 ST14 peptides in our Step 7 sit on the same raw-file scan as in Slava's Step 7. 2 PARK7 peptides come only from `EX1_25033_Conditioning_28102025.raw`, which Slava searched (16 raws) and our run did not (15).
+- Step 8 equals his: our Step 8 on his Step 7 gives his `mgfall_fakes.mgf` (PARK7 identical, 338/338 titles).
+- Step 9 differs by one setting: his base scores need `-itol 0.05`; ours and the published script use 0.01 (`paper-methods-vs-tarsus.md` row 8).
+- Step 11 equals his for PARK7: on his files at 0.01 Da it gives ST14 exactly (27/27, 0 extra). GAPDH is not reproducible at 0.01 even from his files (closest: 35/38, 3 extra, at 0.05).
+- Tolerance sweep on our own runs (ST14 found / extra, all four proteins): 0.01 Da 129/24, 0.02 Da 132/42, 0.05 Da 132/54. 0.01 stays the default.
+- The "no base score" drop (a variant spectrum with no PepQuery base row is dropped by the inner join in `_nonbase_hits`) happens in Slava's pipeline too: 13 PARK7 spectra have no base score in both.
 
 ## ST4 = ST1 filtered: reconstructed rule
 
