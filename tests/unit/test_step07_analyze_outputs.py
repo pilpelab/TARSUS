@@ -80,29 +80,38 @@ class TestNormalizeIL:
 
 
 class TestComputeExpectedIons:
-    def test_position_early(self) -> None:
-        result = _compute_expected_ions("ABCD", 0)
-        assert "b1" in result
-        assert "b2" in result
-        assert "b3" in result
-        assert "b4" in result
-        assert result == ["b1", "b2", "b3", "b4"]
+    """Every b and y ion that contains the substituted residue, and no other.
+
+    ``position`` is 0-based (Step 3b writes ``enumerate`` indices into the header).
+    b_k holds residues 0..k-1, so it contains the residue iff k >= position + 1.
+    y_k holds the last k residues, so it contains it iff k >= n - position. Until
+    D-078 the y range started at n - position + 2, so the two shortest containing
+    y ions, often the clearest peaks, were never counted (Liz, 2026-11-10).
+    """
+
+    def test_position_zero(self) -> None:
+        # Only y4, the whole peptide, contains residue 0.
+        assert _compute_expected_ions("ABCD", 0) == ["b1", "b2", "b3", "b4", "y4"]
 
     def test_position_one(self) -> None:
-        result = _compute_expected_ions("ABCD", 1)
-        assert "b2" in result
-        assert "b3" in result
-        assert "b4" in result
-        assert "y4" not in result
+        # y3 = BCD and y4 = ABCD contain residue 1 (B).
+        assert _compute_expected_ions("ABCD", 1) == ["b2", "b3", "b4", "y3", "y4"]
 
     def test_position_middle(self) -> None:
-        result = _compute_expected_ions("ABCDEF", 2)
-        assert "b3" in result
-        assert "b4" in result
-        assert "b5" in result
-        assert "b6" in result
-        assert "y6" in result
-        assert "y3" not in result
+        # Residue 2 (C): y4 = CDEF is the shortest y ion containing it; y3 = DEF is not.
+        assert _compute_expected_ions("ABCDEF", 2) == [
+            "b3", "b4", "b5", "b6", "y4", "y5", "y6",
+        ]
+
+    def test_shortest_containing_y_ions_counted(self) -> None:
+        """Liz's example: in FPMMXTFK, y4 = XTFK and y5 = MXTFK carry the substitution."""
+        ions = _compute_expected_ions("FPMMXTFK", 4)
+        assert [i for i in ions if i.startswith("y")] == ["y4", "y5", "y6", "y7", "y8"]
+
+    def test_near_n_terminal_substitution_keeps_y_ions(self) -> None:
+        """Liz's example: WXPELNEAIPNDER had no y ion at all under the old range."""
+        ions = _compute_expected_ions("WXPELNEAIPNDER", 1)
+        assert [i for i in ions if i.startswith("y")] == ["y13", "y14"]
 
 
 class TestSpectrumToTitle:

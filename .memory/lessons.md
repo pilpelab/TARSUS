@@ -463,3 +463,13 @@ was right — the colleague's tree has the whole counterpart experiment, incl.
 **Correct approach:** to find where we diverge from a reference run, feed the reference's own intermediate artifacts into our next step and compare outputs step by step (Step 7 -> 8 -> 10 -> 11). Then test the suspected parameter on two or three spectra before rerunning everything. Reference run directories keep no `parameter.txt`, so exact score reproduction is the only evidence of the settings used.
 
 **Files/commands involved:** `.scratch/slava-steps8-10/` (`run_steps8_10_on_slava.py`, `run_step9_10_itol005.py`, `compare.py`, `itol_test/`), `src/tarsus/steps/step09_query_psm_base.py:113`.
+
+### 2026-11-23: an inherited off-by-two survived because every test checked one ion, and one unit test pinned the bug
+
+**What happened:** Step 7's y-ion range (`n - position + 2`) was ported verbatim from `TARSUS_elizabev/analyze_outputs.py`, whose own docstring says `n - position`. It cost 8% of Step 7 spectra on the D-073 runs (D-078). Liz found it, not us. The validation test's comment expected y4 but asserted only `y6 in ions`; the unit test asserted the buggy output exactly (`["b1".."b4"]` with no y ion, `"y4" not in result`).
+
+**Why it was missed:** "matches the reference" was the acceptance bar, and the tests were written from the code's output rather than from the definition (which ions contain residue p).
+
+**Correct approach:** test index arithmetic with exact, hand-derived lists at the edges (position 0, 1, middle, last), from the definition, not from running the function. When a reference's docstring and code disagree, treat the code as suspect and say so; parity is not correctness.
+
+**Files/commands involved:** `src/tarsus/steps/step07_analyze_outputs.py` (`_compute_expected_ions`), `tests/unit/test_step07_analyze_outputs.py`, `tests/validation/test_step07_analyze.py`.
