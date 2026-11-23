@@ -51,8 +51,13 @@ Optional:
   happens in *codon* space — an engineered tRNA reads ONE codon — so without this the
   amino-acid-level counts smear the signal across synonymous codons. Absent → that figure is
   skipped **loudly**, never silently.
+- `--localize-tol` - Step 11 PyAscore fragment tolerance in Da. Default 0.01 (the paper's Orbitrap value, D-073); use 0.6 for ion-trap MS2.
+- `--base-rescore-tol` - Step 9 PepQuery base-rescoring fragment tolerance (`-itol`) in Da. Default 0.05, the value Slava's production runs used: it reproduces his base scores exactly (D-076). The published `query_psm_base.sh` says 0.01.
+- `--msbooster-models` - `best` (default; MSBooster picks Koina models, compute nodes need internet) or `dia-nn` (local models, offline). Step 3c reuses pass 1's choice (D-075).
 - `--allow-dirty` — run despite uncommitted changes (results become unattributable; see
   *Provenance* below).
+
+Every LSF job is submitted with `bsub -Q 255`: a job that dies at launch with exit 255 (seen on 2-6% of WEXAC jobs in Nov 2026) is requeued by LSF, at most 5 times, instead of failing the run (D-077).
 
 ## ⚠️ Read this before interpreting results
 
