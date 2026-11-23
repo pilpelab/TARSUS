@@ -262,3 +262,15 @@ references.
 **Evidence:** `bhist` shows `Requeue Exit Values <255>` on jobs submitted this way. End-to-end on the cluster (`.scratch/slava-steps8-10/requeue_e2e.py`, job 574831): through the real `submit_bsub`, a job that exits 255 on its first run and 0 on its second was dispatched twice under one id (07:57:44, 07:57:57), its log ended "second-run" / "Successfully completed.", and the real `wait_for_jobs` returned no failures. Unit test `TestSubmitBsubRequeue` (bsub argv carries `-Q 255`, job command last and untouched).
 
 **Caveat found on the way:** `bsub` joins its arguments into one command line without quoting, so a job command must be plain tokens (pipeline commands are); an inline `bash -c "<script>"` is split into words and fails with exit 2.
+
+---
+
+## D-078 (2026-11-23): Step 7 counts every y ion that contains the substitution (reference off-by-two fixed)
+
+**Context:** reported by Liz (2026-11-10) while re-deriving David's beta-lactamase analysis. Step 7's two-fragment filter keeps a spectrum only if at least two observed b/y ions contain the substituted residue (only those carry its mass shift). `_compute_expected_ions` started the y ions at `n - position + 2`; with Step 3b's 0-based position (`step03b_make_peptides.py:228`, `enumerate`) the first y ion containing the residue is `y(n - position)`. The two shortest containing y ions, often the clearest peaks, were never counted, and positions 0 and 1 had no y ion at all (FPMMXTFK pos 4: y4, y5 missed; WXPELNEAIPNDER pos 1: none). The b range was right. The same line is in `TARSUS_elizabev/analyze_outputs.py:106`, whose own docstring (`:100`) says y ions start at `len(dependent)-position`; Slava: "sounds like a bug". `tests/validation/test_step07_analyze.py` expected y4 in a comment but asserted only y6, and `tests/unit/test_step07_analyze_outputs.py` pinned the buggy output.
+
+**Decision:** y ions start at `n - position` (`step07_analyze_outputs.py`, `_compute_expected_ions`). Correctness over parity: our Step 7 now admits more than Slava's code, which made the published tables (ST14 was built with the bug). The `+2` was not a terminal-position filter (it shifts the range for every position and excludes none); if one is wanted, it belongs in an explicit position rule.
+
+**Evidence:** measured before the change on the four D-073 runs (real `analyze_outputs`, only the y range corrected; the unpatched run reproduces each on-disk `subs.ipc` exactly): Step 7 spectra GAPDH 240 -> 248, Hb 371 -> 400, PARK7 121 -> 136, PRDX6 161 -> 186 (893 -> 970, +9%); peptides 772 -> 835; none lost; ST14 at Step 7 unchanged (146/152). Tests: `TestComputeExpectedIons` rewritten with exact hand-computed lists plus Liz's two examples (5 red before the fix); the validation test now asserts the whole y range and fails on the old code. Suite 396 passed, mypy clean. Eval goldens unchanged: the fixtures are slices of spectra that already passed the old filter, so they cannot see this loosening.
+
+**Sentinels for existing outputs:** clear `07_analyze/.done` and everything after it (08 to 12); `stale_artifacts` flags S07 automatically. Effect on Step 11 needs that rerun.
