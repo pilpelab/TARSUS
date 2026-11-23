@@ -1,8 +1,21 @@
+import os
 import shlex
 import subprocess
 import time
 from pathlib import Path
 from .env import ToolEnvironment
+
+
+# Run outputs must be readable by the owner's Unix group (D-074). The owner's
+# login umask is 0077, which made every result owner-only. LSF jobs inherit the
+# submitting process's umask (probed 2026-11-09), so setting it at each entry
+# point covers the master job and every child job it submits.
+GROUP_READABLE_UMASK = 0o027
+
+
+def use_group_readable_umask() -> None:
+    """Make what this process and its LSF jobs create group-readable, not world-readable."""
+    os.umask(GROUP_READABLE_UMASK)
 
 
 def _build_env_cmd(tool_env: ToolEnvironment) -> str:

@@ -8,8 +8,11 @@ import pytest
 from src.tarsus.assets import WORKFLOW_TEMPLATE
 from src.tarsus.env import ToolEnvironment
 from src.tarsus.steps.step03c_second_pass import (
+    FIRST_PASS_MSBOOSTER_PARAMS,
     GENERATED_SECOND_PASS_WORKFLOW,
+    _first_pass_models,
     _patch_workflow,
+    _pin_first_pass_models,
     _second_pass_template,
     step03c_second_pass,
 )
@@ -223,9 +226,162 @@ class TestBundledTemplateHasEveryPatchedKey:
         "msfragger.search_enzyme_name_1",
         "msfragger.search_enzyme_nocut_1",
         "msbooster.find-best-rt-model",
+        "msbooster.find-best-spectra-model",
+        "msbooster.rt-model",
+        "msbooster.spectra-model",
         "msbooster.run-msbooster",
         "msbooster.predict-rt",
         "msbooster.predict-spectra",
     ])
     def test_key_present_in_bundled_workflow(self, key: str) -> None:
         assert _value(WORKFLOW_TEMPLATE.read_text(), key) is not None
+
+
+# Trimmed copy of the msbooster_params.txt MSBooster wrote in Step 3a of the
+# 2026-11-05 hemoglobin run (output/2026-11-05-d073/hemoglobin_24813/03a_first_pass/).
+# MSBooster records the models it CHOSE here (find-best searched, AlphaPept won),
+# and mixes `key=value` with `key = value` spacing.
+_HB_FIRST_PASS_PARAMS = """\
+useDetect = false
+numThreads = 9
+useRT = true
+useSpectra = true
+useIM = false
+rtModel=AlphaPept_rt_generic
+spectraModel=AlphaPept_ms2_generic
+imModel=
+findBestRtModel = true
+findBestSpectraModel = true
+findBestImModel = false
+spectraPredFilePDV=/x/MSBooster/RT-AlphaPept_rt_generic.spectra-AlphaPept_ms2_generic.koina.mgf
+#CITATIONS: If using models from Koina, please cite the following:
+"""
+
+
+def _write_params(step3a_dir: Path, text: str) -> Path:
+    """Write a stand-in for Step 3a's msbooster_params.txt."""
+    step3a_dir.mkdir(parents=True, exist_ok=True)
+    params = step3a_dir / FIRST_PASS_MSBOOSTER_PARAMS
+    params.write_text(text)
+    return params
+
+
+class TestFirstPassModels:
+    """Step 3c reads the models MSBooster chose in pass 1 from its own record.
+
+    FragPipe 24.0's generated second-pass workflow does NOT carry pass 1's
+    chosen models (it keeps find-best=true and DIA-NN defaults), so pass 2
+    re-selected: PARK7/PRDX6 landed on ms2pip_2021_HCD and crashed MSBooster's
+    citation writer, and Hb ran a different RT model than pass 1 (2026-11-05).
+    """
+
+    def test_reads_chosen_models_from_real_format(self, tmp_path: Path) -> None:
+        _write_params(tmp_path, _HB_FIRST_PASS_PARAMS)
+        assert _first_pass_models(tmp_path) == ("AlphaPept_rt_generic", "AlphaPept_ms2_generic")
+
+    def test_accepts_spaced_key_value(self, tmp_path: Path) -> None:
+        _write_params(tmp_path, "rtModel = Deeplc_hela_hf\nspectraModel = DIA-NN\n")
+        assert _first_pass_models(tmp_path) == ("Deeplc_hela_hf", "DIA-NN")
+
+    def test_missing_file_fails_loudly(self, tmp_path: Path) -> None:
+        with pytest.raises(FileNotFoundError, match=FIRST_PASS_MSBOOSTER_PARAMS):
+            _first_pass_models(tmp_path)
+
+    @pytest.mark.parametrize("text, key", [
+        ("spectraModel=AlphaPept_ms2_generic\n", "rtModel"),
+        ("rtModel=DIA-NN\n", "spectraModel"),
+        ("rtModel=\nspectraModel=AlphaPept_ms2_generic\n", "rtModel"),
+    ])
+    def test_missing_or_empty_key_fails_loudly(self, tmp_path: Path, text: str, key: str) -> None:
+        _write_params(tmp_path, text)
+        with pytest.raises(ValueError, match=key):
+            _first_pass_models(tmp_path)
+
+
+class TestPinFirstPassModels:
+    def test_pins_models_and_turns_off_both_searches(self) -> None:
+        content = (
+            "msbooster.find-best-rt-model=true\n"
+            "msbooster.find-best-spectra-model=true\n"
+            "msbooster.rt-model=DIA-NN\n"
+            "msbooster.spectra-model=DIA-NN\n"
+        )
+        out = _pin_first_pass_models(content, "Deeplc_hela_hf", "AlphaPept_ms2_generic")
+        assert _value(out, "msbooster.find-best-rt-model") == "false"
+        assert _value(out, "msbooster.find-best-spectra-model") == "false"
+        assert _value(out, "msbooster.rt-model") == "Deeplc_hela_hf"
+        assert _value(out, "msbooster.spectra-model") == "AlphaPept_ms2_generic"
+
+    @pytest.mark.parametrize("missing", [
+        "msbooster.find-best-rt-model",
+        "msbooster.find-best-spectra-model",
+        "msbooster.rt-model",
+        "msbooster.spectra-model",
+    ])
+    def test_absent_key_fails_loudly(self, missing: str) -> None:
+        """A silent re.sub miss would let pass 2 re-select models (D-051 pattern)."""
+        lines = [
+            "msbooster.find-best-rt-model=true",
+            "msbooster.find-best-spectra-model=true",
+            "msbooster.rt-model=DIA-NN",
+            "msbooster.spectra-model=DIA-NN",
+        ]
+        content = "\n".join(line for line in lines if not line.startswith(missing + "=")) + "\n"
+        with pytest.raises(ValueError, match=re.escape(missing)):
+            _pin_first_pass_models(content, "DIA-NN", "AlphaPept_ms2_generic")
+
+
+def _ready_step3a(tmp_path: Path) -> tuple[ToolEnvironment, Path, Path]:
+    """A Step 3a dir with one mzML, a candidates FASTA and full tool stubs."""
+    env = _make_env(tmp_path / "tools")
+    step3a = tmp_path / "03a_first_pass"
+    step3a.mkdir()
+    (step3a / "x_sub.mzML").touch()
+    fasta = tmp_path / "pep_candidates.fa"
+    fasta.write_text(">p1\nPEPTIDEK\n")
+    return env, step3a, fasta
+
+
+class TestStep03cUsesFirstPassModels:
+    def test_second_workflow_carries_first_pass_models(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Regression for 2026-11-05: FragPipe 24.0's generated workflow had
+        find-best-spectra-model=true and DIA-NN defaults; pass 2 must instead run
+        exactly what pass 1 chose, with both searches off (as Slava's file has)."""
+        env, step3a, fasta = _ready_step3a(tmp_path)
+        wf = _fake_generated_workflow(step3a)
+        wf.write_text(wf.read_text() + (
+            "msbooster.find-best-spectra-model=true\n"
+            "msbooster.rt-model=DIA-NN\n"
+            "msbooster.spectra-model=DIA-NN\n"
+        ))
+        _write_params(step3a, "rtModel=Deeplc_hela_hf\nspectraModel=AlphaPept_ms2_generic\n")
+        out_dir = tmp_path / "03c_second_pass"
+
+        def fake_wait(job_ids: list[int]) -> None:
+            (out_dir / "second" / "psm.tsv").write_text("")
+
+        monkeypatch.setattr("src.tarsus.steps.step03c_second_pass.submit_bsub", lambda cmd, **kw: 1)
+        monkeypatch.setattr("src.tarsus.steps.step03c_second_pass.wait_for_jobs", fake_wait)
+
+        step03c_second_pass(step3a, fasta, out_dir, env)
+
+        out = (out_dir / "second.workflow").read_text()
+        assert _value(out, "msbooster.find-best-rt-model") == "false"
+        assert _value(out, "msbooster.find-best-spectra-model") == "false"
+        assert _value(out, "msbooster.rt-model") == "Deeplc_hela_hf"
+        assert _value(out, "msbooster.spectra-model") == "AlphaPept_ms2_generic"
+
+    def test_missing_params_fails_before_submitting(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        env, step3a, fasta = _ready_step3a(tmp_path)
+        _fake_generated_workflow(step3a)
+
+        def no_submit(cmd: list[str], **kw: object) -> int:
+            raise AssertionError("must not submit without pass-1 models")
+
+        monkeypatch.setattr("src.tarsus.steps.step03c_second_pass.submit_bsub", no_submit)
+        with pytest.raises(FileNotFoundError, match=FIRST_PASS_MSBOOSTER_PARAMS):
+            step03c_second_pass(step3a, fasta, tmp_path / "03c_second_pass", env)

@@ -153,3 +153,84 @@ rev_ invariant and the snapshot.
 
 **Spec:** `docs/superpowers/specs/2026-07-28-step07-11-regression-eval-design.md`.
 **Status:** landed. 25 eval tests + 317 unit tests green; mypy/ruff clean.
+
+---
+
+## D-072 (2026-08-04): Biological-substitution Venn design for the QC report
+
+**Scope:** Refine only `docs/qc-history/qc-values-report.html`. Do not change the
+pipeline, invent filtering rules, or rerun TARSUS unless a required source cannot
+be recovered.
+
+**Decision:** Add ten fixed-layout Venn diagrams, grouped as four purified
+proteins, four cell samples, and two tissue samples. Each diagram compares Slava
+with Barc and displays Slava-only, shared, and Barc-only event counts. Fixed-size
+circles are preferred over area-proportional circles because they remain readable
+and comparable across all ten samples.
+
+**Counting rule:** One item is one strict Slava-native biological substitution:
+`Protein_right + misProt + origin + destination`. Repeated PSMs supporting the
+same event count once. Candidate Step 7 `subs.ipc` events and final localized
+events must remain separate. The initial Venn section represents candidate
+`subs.ipc` events and must not be described as final localized substitutions.
+
+**Target handling:** Purified-protein diagrams use the intended target proteins.
+Non-target calls are retained in a separate diagnostic table. For hemoglobin, the
+primary strict comparison preserves Slava's assigned `Protein_right`; HBA1/HBA2
+ambiguity belongs only in a secondary biological annotation and must not duplicate
+an event.
+
+**Report content:** Use labels `Slava` and `Barc`, never `ours`. Below each Venn,
+show Slava recovery and expandable exact lists of Slava-only and Barc-only events.
+Missing files or required columns must fail loudly rather than produce an
+incomplete figure.
+
+**Data provenance:** The deleted Barc panel IPC files are recoverable from Git
+history. Commit `3e1944d` contains the post-decoy-filter versions under
+`docs/qc-history/subs/`, so no pipeline rerun is required. Slava reference paths
+must be explicit and verified before report generation, including both tissue
+references.
+
+**Status:** Work in progress on branch `qc-venn-section` (moved there 2026-11-19 to keep `paper-d073-alignment` clean). 8 of 10 diagrams (4 purified + 4 cells); tissue pending, Slava tissue reference paths not identified. Unreviewed: `build_venn_html.py` draws area-proportional circles although this decision chose fixed-size ones, and the two scripts have 22 ruff errors. Spec: `docs/superpowers/specs/2026-08-04-qc-venn-section.md` (on that branch).
+
+---
+
+## D-073 (2026-11-05): Match Slava's published settings for Step 11 tolerance and MSBooster model selection
+
+**Context:** ingesting the Nature paper (`.context/paper-methods-vs-tarsus.md` rows 1, 3) showed two result-changing settings where we followed `TARSUS_elizabev/` but the paper, the published `treko90/tarsus` code, and Slava's GAPDH reference run do otherwise. User directive: make the tolerance a parameter defaulting to Slava's value, and let the pipeline pick the best MSBooster model as Slava's runs did.
+
+**Decision:**
+1. Step 11 PyAscore fragment tolerance (`mz_error`) is `DEFAULT_LOCALIZE_TOL_DA = 0.01` (was 0.05), overridable with `tarsus run --localize-tol` (paper: 0.6 for ion-trap MS2). Effective value printed in `master.log`; CLI value recorded in `provenance.json`.
+2. `src/tarsus/assets/generic.workflow` restored to the published file byte-for-byte (`find-best-rt-model=true`, `find-best-spectra-model=true`), so MSBooster selects the best Koina model in Step 3a and FragPipe writes the chosen models into `fragpipe-second-pass.workflow`, which Step 3c inherits. `tarsus run --msbooster-models dia-nn` is the offline fallback (pins local DIA-NN, find-best off; every patched key must exist or Step 3a raises).
+
+**Evidence:** paper Methods ("pyAscore ... precision 0.01 Da (Orbitrap)"); public `localize.py` passes 0.01; Slava's `hoMS/GAPDH/2d/fragpipe_fullpipeline/fragpipe.workflow` has find-best true and its `fragpipe-second-pass.workflow` ran `AlphaPept_rt_generic`/`AlphaPept_ms2_generic`. Koina reachable from gsla-cpu node cn449 (LSF probe 2026-11-05: model endpoint returned `AlphaPept_ms2_generic` metadata; the bare `/v2/models/` listing timed out at 30 s, so Koina can be slow; hence the fallback).
+
+**Measured effect of (1)** on the eval slices: gapdh localized 28 -> 19 rows (0.02 gives 26), evcoli 62 -> 58. Step 11 goldens re-blessed (`TARSUS_EVAL_UPDATE=1`); all invariants unchanged. Effect of (2) not yet measured: needs a real run.
+
+**Sentinels for existing outputs:** (1) clear `11_localized/.done` and `12_visualize/.done`. (2) clear `03a_first_pass/.done` and every downstream `.done` (03b to 12): the first-pass PSMs, the candidate library, and everything after can change. `stale_artifacts` warns because both step files changed.
+
+**Caveat recorded, not acted on:** 0.01 Da is tighter than the 20 ppm fragment tolerance of the MSFragger search for fragments above m/z 500, so some true site-determining fragments may be missed. We match Slava by choice.
+
+---
+
+## D-074 (2026-11-09): Run outputs are group-readable (umask 027 at both entry points)
+
+**Context:** Liz (`elizabev`, same group `pilpel-wx-grp`) got "Permission denied" on `output/2026-11-05-d073` while building a TARSUS lesson, so her agent fell back to the 100-spectrum test fixture. Cause: Bar's login umask is 0077, so every run wrote owner-only files. A default ACL (`setfacl -d`) was tried first and failed: /home/labs is GPFS, where POSIX default ACLs are not supported.
+
+**Decision:** `tarsus.lsf.use_group_readable_umask()` sets umask `0o027` (`GROUP_READABLE_UMASK`). It is called by the CLI group callback (`cli.main`, before any subcommand) and by the master entry point (`orchestration.main`, new; `__main__` now calls it). Group gets read/traverse, others nothing; the login umask is left alone for everything outside TARSUS.
+
+**Evidence:** LSF probe 2026-11-09 (jobs 542135/542136, gsla-cpu): a job submitted from umask 0027 printed `0027` and created `drwxr-x---` / `-rw-r-----`; one from 0077 printed `0077`. So jobs inherit the submitter's umask and the CLI setting reaches the master and every child job. Tests: `tests/unit/test_group_umask.py` (2; both failed before the change: CLI gave 0700/0600, master had no `main`). Suite 363 passed, ruff clean; mypy not installed in the venv, not run.
+
+**Not covered:** runs made before D-074 stay owner-only until `chmod -R g+rX`; scripts that call `bsub ... python -m tarsus.orchestration` directly are covered by `orchestration.main`, but their own LSF log file (`-oo`) is created by LSF with the submitting shell's umask.
+
+---
+
+## D-075 (2026-11-19): Step 3c pins the MSBooster models pass 1 chose
+
+**Context:** D-073 assumed FragPipe writes pass 1's chosen MSBooster models into `fragpipe-second-pass.workflow`, so Step 3c would inherit them. False for FragPipe 24.0: that file keeps `find-best-rt-model=true`, `find-best-spectra-model=true` and DIA-NN defaults. Step 3c only turned RT find-best off, so in the 2026-11-05 runs pass 2 ran DIA-NN RT and re-selected MS2. PARK7 and PRDX6 picked `ms2pip_2021_HCD`, and MSBooster 1.4.14's citation writer crashed on it (name mismatch with its `koina_citations.yml`, NPE, exit 1). Hb ran AlphaPept RT in pass 1 and DIA-NN RT in pass 2.
+
+**Decision:** Step 3c reads `rtModel`/`spectraModel` from Step 3a's `msbooster_params.txt` (MSBooster's own record of the models it used) and pins them into `second.workflow` with both `find-best-*` keys false. A missing file, a missing or empty key, or a missing workflow key raises before anything is submitted. Works for both `--msbooster-models` modes: in `dia-nn` mode the record says DIA-NN.
+
+**Evidence:** Slava's FragPipe-generated `hoMS/GAPDH/2d/fragpipe_fullpipeline/fragpipe-second-pass.workflow` has both find-best keys false and `rt-model=AlphaPept_rt_generic`, `spectra-model=AlphaPept_ms2_generic`: the same form. On the four 2026-11-05 first passes the pin gives GAPDH DIA-NN/AlphaPept, Hb AlphaPept/AlphaPept, PARK7 and PRDX6 Deeplc_hela_hf/AlphaPept. Tests: 9 new in `tests/unit/test_step03c_second_pass.py` (one regression test from the real failure); suite 379 passed, ruff and mypy clean.
+
+**Not covered:** Step 3a in `best` mode can itself pick `ms2pip_2021_HCD` and hit the same MSBooster crash. Not seen yet; the fallback is `--msbooster-models dia-nn`.

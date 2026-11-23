@@ -419,3 +419,47 @@ was right — the colleague's tree has the whole counterpart experiment, incl.
    E. coli is the reference's `EVpar/tarsus_analysis/subs.ipc` (3,922 rows — the
    figure D-070 already matched). Check the reference's *tool/schema* before
    calling any comparison a "recapitulation."
+
+### 2026-11-04: the published scripts are not the code that produced the paper's tables
+
+**What happened:** while ingesting the Nature paper, the paper's own Supplementary Table 1 contradicted the published `make_peptides.py` + `subs_exclude.csv` that we (and `TARSUS_elizabev/`) replicate: ST1 has 1,161 I/L-origin substitutions the published code cannot generate (rename no-op), and 181 rows of E>Q, D>N, F>M that the published CSV excludes. The published `localize.py` also uses 0.01 Da where the reference copy uses 0.05.
+
+**Why it matters:** "faithful to the reference scripts" and "faithful to the paper" are different targets. D-061/D-064 were reasoned from the scripts; the paper's data agrees with D-064 (I/L origins exist) but not with D-061's claim that F>M is excluded by the reference.
+
+**Correct approach:** when a behavior is in question, check three sources, not one: the scripts, the reference run's artifacts (`second.workflow`, `fragpipe-second-pass.workflow`, `subs.ipc`), and the paper's own tables (`data/paper/tsv/`). Example: D-069 says our MSBooster block "already matches the reference"; that is true of EVpar, but Slava's GAPDH run used `find-best-*-model=true` and its second pass ran `AlphaPept_rt_generic`/`AlphaPept_ms2_generic` (follow-up to D-069, not a rewrite of it).
+
+**Files:** `.context/paper-methods-vs-tarsus.md`, `scripts/fetch_paper_supplements.py`.
+
+### 2026-11-19: D-073 assumed FragPipe carries pass 1's model choices into pass 2; FragPipe 24.0 does not
+
+**What went wrong:** D-073 turned MSBooster find-best on and reasoned that FragPipe writes the chosen models into `fragpipe-second-pass.workflow`, as Slava's FragPipe 22/23 file shows. FragPipe 24.0's generated file keeps `find-best=true` and DIA-NN defaults, so pass 2 re-selected models: two of four runs crashed in MSBooster (ms2pip citation NPE) and Hb ran a different RT model in pass 2.
+
+**Why:** the claim was checked against the reference run's artifact from an older FragPipe, not against what our installed FragPipe writes. A tool-generated file is version-specific behavior.
+
+**Correct approach:** when a decision depends on what a tool writes, read the file our installed version wrote (one trial run is enough), not the reference's copy. Take a value from the tool's own record of what it did (`msbooster_params.txt`) and pin it, rather than relying on the tool to propagate it (D-075).
+
+**Files/commands involved:** `src/tarsus/steps/step03c_second_pass.py`, `output/2026-11-05-d073/*/03a_first_pass/{fragpipe-second-pass.workflow,msbooster_params.txt}`.
+
+### 2026-11-19: launched four runs without `make test-tools`; a deleted PDV JAR killed two at S06 after ~1.5 h
+
+**What went wrong:** the 2026-11-05 runs skipped the tool pre-flight that `docs/rerun_qc_20260723.sh` runs. Commit `a718192` (GitHub restructure) had deleted `tools/PDV-2.1.2/` from git and disk, so GAPDH and Hb died at S06 start.
+
+**Correct approach:** run `make test-tools` (and `make test-pdv-full` when PDV matters) before every `tarsus run` launch. Restoring the JAR: `rtk proxy git cat-file blob 3c86293:tools/PDV-2.1.2/PDV-2.1.2.jar`, check SHA256 against the Makefile's `PDV_SHA256`, and recreate `lib` and `resources` as symlinks to `../PDV-2.2.3/` (the JAR's manifest Class-Path reads `lib/`). `tools/**` is gitignored, so this keeps the tree clean.
+
+### 2026-11-19: three transient failures, none in our code, each killed a multi-hour master
+
+**What happened:** in one day's four runs: an MSBooster 1.4.14 `ConcurrentModificationException` (Hb S03c), and two LSF jobs that exited 255 in 0-1 s with no output and "CPU time used is unknown" (GAPDH S09 on cn653, Hb S05 on cn745). `wait_for_jobs` raises on any failed child, so one bad job in ~2,400 stops the master.
+
+**How each was proven transient, not ours:** MSBooster's 15 `.pin` inputs were byte-identical to Nov 5, when the same step passed, and three other runs passed it the same day. The LSF failures had 708/709 and 1717/1718 siblings succeed, including ones on the same node, and a normal input file; `bhist -l <job>` gives the exit code when `bjobs` has purged it.
+
+**Correct approach:** compare inputs byte-for-byte with a run that passed before touching code. To resume: keep the failure record in `<run>/_failed-<date>-<what>/` (copy the job log; move `master.log` and `provenance.json`), then rerun `tarsus run` with the original args. Steps 5 and 9 skip chunks that already have `psm_rank.txt`, so only the failed chunk reruns. A retry for exit-255-with-no-output jobs in `lsf.py` would remove the manual step (not implemented; Bar's call).
+
+### 2026-11-22: Slava's production Step 9 used `-itol 0.05`; the published script and ours say 0.01
+
+**What happened:** feeding Slava's own Step 7 output into our Steps 8-10 gave identical Step 8 fake spectra, but 38 of 116 PARK7 base scores differed (same spectrum, same peptide, e.g. 26.10 vs 38.09), and Step 11 then missed 1 ST14 peptide and added 3. Rerunning our exact Step 9 command with only `-itol 0.05` reproduced his scores to full precision: PARK7 117/117, GAPDH 167/167. With that, Step 11 matched his results.
+
+**Why it was missed:** `TARSUS_elizabev/query_psm_base.sh` and `step09_query_psm_base.py:113` both pass `-itol 0.01`, so "matches the reference script" was true and still wrong. This is the third place (with `localize.py` 0.05 and the I/L library) where the production runs differ from the published scripts.
+
+**Correct approach:** to find where we diverge from a reference run, feed the reference's own intermediate artifacts into our next step and compare outputs step by step (Step 7 -> 8 -> 10 -> 11). Then test the suspected parameter on two or three spectra before rerunning everything. Reference run directories keep no `parameter.txt`, so exact score reproduction is the only evidence of the settings used.
+
+**Files/commands involved:** `.scratch/slava-steps8-10/` (`run_steps8_10_on_slava.py`, `run_step9_10_itol005.py`, `compare.py`, `itol_test/`), `src/tarsus/steps/step09_query_psm_base.py:113`.

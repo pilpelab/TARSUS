@@ -11,8 +11,10 @@ Delete the .done file to force a step to re-run.
 """
 
 import sys
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 
 def _log(step: str, msg: str = "") -> None:
@@ -30,12 +32,18 @@ def _skip_if_done(sentinel: Path, label: str) -> bool:
 def run_pipeline(
     outdir: Path, fasta: Path, raw_files: list[Path],
     cds_fasta: Path | None = None,
+    localize_tol: float | None = None,
+    msbooster_models: str = "best",
 ) -> None:
     """Execute the full TARSUS pipeline with checkpoint resumption.
 
     Args:
         cds_fasta: CDS (nucleotide) FASTA. Optional; only Step 12's 61x19 codon
             heatmap needs it. Absent -> that one figure is skipped, loudly.
+        localize_tol: Step 11 PyAscore fragment tolerance in Da. ``None`` uses
+            ``step11_localize.DEFAULT_LOCALIZE_TOL_DA`` (0.01, Slava's value).
+        msbooster_models: Step 3a MSBooster model selection, ``best`` (Koina
+            find-best, Slava's setting) or ``dia-nn`` (offline local models).
     """
     from tarsus.env import ToolEnvironment
 
@@ -44,6 +52,8 @@ def run_pipeline(
     _log("INIT", f"Output: {outdir}")
     _log("INIT", f"FASTA:  {fasta}")
     _log("INIT", f"CDS:    {cds_fasta or '(none — 61x19 codon heatmap will be skipped)'}")
+    _log("INIT", f"Localize tol: {localize_tol if localize_tol is not None else 'default'} Da")
+    _log("INIT", f"MSBooster models: {msbooster_models}")
     _log("INIT", f"Files:  {len(raw_files)} raw file(s)")
     for f in raw_files:
         _log("INIT", f"  {f.name}")
@@ -75,7 +85,8 @@ def run_pipeline(
     if not _skip_if_done(_s3a, "S03a"):
         _log("S03a", "FragPipe first-pass search (LSF)")
         from tarsus.steps.step03a_first_pass import step03a_first_pass
-        step03a_first_pass(fasta, outdir / "01_mzml", outdir / "03a_first_pass", tool_env)
+        step03a_first_pass(fasta, outdir / "01_mzml", outdir / "03a_first_pass", tool_env,
+                           msbooster_models=msbooster_models)
         _s3a.touch()
         _log("S03a", "Done")
 
@@ -247,6 +258,7 @@ def run_pipeline(
         from tarsus.steps.step11_localize import localize
         _11_out = outdir / "11_localized"
         _11_out.mkdir(parents=True, exist_ok=True)
+        _tol_kw = {} if localize_tol is None else {"precursor_tol": localize_tol}
         localize(
             subs_ipc=outdir / "07_analyze" / "subs.ipc",
             psmrankall_path=outdir / "06_aggregated" / "psmrankall.txt",
@@ -254,6 +266,7 @@ def run_pipeline(
             spectra_mgf=outdir / "06_aggregated" / "mgfall.mgf",
             output_ipc=_11_out / "subs_localized.ipc",
             output_csv=_11_out / "subs_localized.csv",
+            **_tol_kw,
         )
         _s11.touch()
         _log("S11", f"Done → {_11_out / 'subs_localized.csv'}")
@@ -275,17 +288,42 @@ def run_pipeline(
     _log("DONE", "Pipeline complete.")
 
 
-if __name__ == "__main__":
-    # `--cds <path>` is optional and must be stripped before the positionals, which
-    # are variadic (outdir, fasta, *raw_files).
-    _argv = sys.argv[1:]
-    _cds: Path | None = None
-    if "--cds" in _argv:
-        _i = _argv.index("--cds")
-        _cds = Path(_argv[_i + 1])
-        del _argv[_i:_i + 2]
+def _parse_master_argv(argv: list[str]) -> tuple[Path, Path, list[Path], dict[str, Any]]:
+    """Parse the master job's argv: optional flags, then outdir, fasta, *raw_files.
 
-    outdir = Path(_argv[0])
-    fasta = Path(_argv[1])
-    raw_files = [Path(f) for f in _argv[2:]]
-    run_pipeline(outdir, fasta, raw_files, cds_fasta=_cds)
+    Optional ``--flag value`` pairs must be stripped before the positionals, which
+    are variadic. Returns ``(outdir, fasta, raw_files, run_pipeline_kwargs)``.
+
+    Raises:
+        ValueError: a flag is missing its value or fewer than 3 positionals remain.
+    """
+    args = list(argv)
+    kwargs: dict[str, Any] = {}
+    flags: dict[str, tuple[str, Callable[[str], Any]]] = {
+        "--cds": ("cds_fasta", Path),
+        "--localize-tol": ("localize_tol", float),
+        "--msbooster-models": ("msbooster_models", str),
+    }
+    for flag, (key, convert) in flags.items():
+        if flag in args:
+            i = args.index(flag)
+            if i + 1 >= len(args):
+                raise ValueError(f"{flag} given without a value")
+            kwargs[key] = convert(args[i + 1])
+            del args[i:i + 2]
+    if len(args) < 3:
+        raise ValueError(f"expected outdir, fasta and >=1 raw file, got {args!r}")
+    return Path(args[0]), Path(args[1]), [Path(f) for f in args[2:]], kwargs
+
+
+def main(argv: list[str]) -> None:
+    """Master job entry point: group-readable umask, then the pipeline."""
+    from .lsf import use_group_readable_umask
+
+    use_group_readable_umask()
+    outdir, fasta, raw_files, kwargs = _parse_master_argv(argv)
+    run_pipeline(outdir, fasta, raw_files, **kwargs)
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

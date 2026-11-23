@@ -14,6 +14,18 @@ The pipeline never auto-discovers files in this directory — all inputs must be
 Both raw files are from the same biological sample, acquired on an Orbitrap Astral in DDA mode.
 LS/HS refers to solubility fractionation during detergent-based phase separation chromatography.
 
+## Paper supplements (`paper/`)
+
+`data/paper/` holds the open supplementary files of the TARSUS paper (Tretyachenko et al., Nature 2026): SI PDF, Reporting Summary, Peer Review File, and Supplementary Tables 1-18 as xlsx and TSV. Not tracked; regenerate with:
+
+```bash
+uv run python scripts/fetch_paper_supplements.py     # ~23 MB download, stdlib only
+ls data/paper/tsv/ | wc -l                           # expect 36 TSV files (one per sheet)
+wc -l data/paper/tsv/Supplementary_Table1__Supplementary_Table1.tsv   # expect 13911 (header + 13,910)
+```
+
+What the tables contain and how to read them: `.context/paper-supplementary-tables.md`.
+
 ## Validation mock spectra (`test-mock/dev.mzML`)
 
 `dev.mzML` (50 spectra, ~18 MB) is used only by `tests/validation` and is **not**

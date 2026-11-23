@@ -11,6 +11,57 @@ from ..env import ToolEnvironment
 from ..lsf import submit_bsub, wait_for_jobs, _build_env_cmd
 
 
+#: MSBooster model-selection modes for the first pass (D-073).
+#:
+#: - ``best`` (default): the template's ``find-best-rt-model=true`` /
+#:   ``find-best-spectra-model=true`` stand, so MSBooster scores candidate models on
+#:   Koina (koina.wilhelmlab.org, needs internet from the compute node) and keeps the
+#:   best. FragPipe writes the chosen models into ``fragpipe-second-pass.workflow``,
+#:   which Step 3c builds on, so the second pass inherits them. This is what Slava's
+#:   GAPDH reference run did (it landed on ``AlphaPept_rt_generic`` /
+#:   ``AlphaPept_ms2_generic``) and what the published ``generic.workflow`` ships.
+#: - ``dia-nn``: offline fallback. Pin the local DIA-NN RT and MS2 models with
+#:   find-best off (our behaviour until 2026-11-05; also the EVpar reference run).
+MSBOOSTER_MODES = ("best", "dia-nn")
+
+_DIANN_PATCHES: list[tuple[str, str]] = [
+    (r"^msbooster\.find-best-rt-model=.*$", "msbooster.find-best-rt-model=false"),
+    (r"^msbooster\.find-best-spectra-model=.*$", "msbooster.find-best-spectra-model=false"),
+    (r"^msbooster\.rt-model=.*$", "msbooster.rt-model=DIA-NN"),
+    (r"^msbooster\.spectra-model=.*$", "msbooster.spectra-model=DIA-NN"),
+]
+
+
+def _patch_first_pass_workflow(content: str, decoy_fasta: Path, msbooster_models: str) -> str:
+    """Patch the bundled template into this run's first-pass workflow.
+
+    Args:
+        content: ``generic.workflow`` text.
+        decoy_fasta: Target-decoy FASTA the search must use.
+        msbooster_models: One of :data:`MSBOOSTER_MODES`.
+
+    Returns:
+        The patched workflow text.
+
+    Raises:
+        ValueError: unknown mode, or a key to patch is absent from the template. A
+            ``re.sub`` on an absent key is a silent no-op that ships wrong settings
+            (D-051), so every patched key must exist.
+    """
+    if msbooster_models not in MSBOOSTER_MODES:
+        raise ValueError(f"msbooster_models must be one of {MSBOOSTER_MODES}, got {msbooster_models!r}")
+    patches: list[tuple[str, str]] = [
+        (r"^database\.db-path=.*$", f"database.db-path={decoy_fasta.resolve()}"),
+    ]
+    if msbooster_models == "dia-nn":
+        patches += _DIANN_PATCHES
+    for pattern, replacement in patches:
+        content, n = re.subn(pattern, replacement, content, count=1, flags=re.MULTILINE)
+        if n != 1:
+            raise ValueError(f"workflow template has no line matching {pattern!r}")
+    return content
+
+
 def _make_decoy_fasta(fasta_path: Path, output_dir: Path) -> Path:
     """Generate a target-decoy FASTA with rev_ prefix decoy sequences."""
     decoy_fasta = output_dir / "protein_decoy.fasta"
@@ -97,11 +148,17 @@ def step03a_first_pass(
     memory_mb: int = 30000,
     cpus: int = 10,
     fragpipe_ram_gb: int = 125,
+    msbooster_models: str = "best",
 ) -> Path:
     """Run FragPipe first-pass search via LSF.
 
+    Args:
+        msbooster_models: MSBooster model selection, one of :data:`MSBOOSTER_MODES`.
+
     Returns path to the output directory containing search results.
     """
+    if msbooster_models not in MSBOOSTER_MODES:
+        raise ValueError(f"msbooster_models must be one of {MSBOOSTER_MODES}, got {msbooster_models!r}")
     if not fasta_path.is_file():
         raise FileNotFoundError(f"FASTA not found: {fasta_path}")
     if not mzml_dir.is_dir():
@@ -128,27 +185,19 @@ def step03a_first_pass(
     # 1. Generate target-decoy FASTA (FragPipe requires decoys in the FASTA)
     decoy_fasta = _make_decoy_fasta(fasta_path, output_dir)
 
-    # 2. Patch workflow template: decoy FASTA path.
+    # 2. Patch workflow template: decoy FASTA path, and MSBooster models only in
+    # the offline `dia-nn` mode.
     #
     # MSBooster is deliberately NOT disabled here. It used to be, purely to skip
     # "redundant calibration PNGs" (cfd4886) — an efficiency tidy-up, not a
     # correctness fix. That deviation silently emptied `SpectralSim`/`RTScore`:
     # FragPipe writes those two psm.tsv columns (18-19, right after `Delta Mass`)
     # only when MSBooster runs, and Step 7 carries psm.tsv columns through
-    # verbatim. The reference workflows (EVpar `fragpipe.workflow` and
-    # `fragpipe-second-pass.workflow`) both ship `run-msbooster=true` with
-    # `predict-rt`/`predict-spectra=true` and local DIA-NN models, and our
-    # `generic.workflow` template already matches them — so leave the template's
-    # MSBooster block alone. See D-069.
+    # verbatim. See D-069. Which models it runs is MSBOOSTER_MODES' job (D-073).
     first_workflow = output_dir / "first.workflow"
     with workflow_template.open("r") as f:
         content = f.read()
-    db_line = f"database.db-path={decoy_fasta.resolve()}"
-    patches: list[tuple[str, str]] = [
-        (r"^database\.db-path=.*$", db_line),
-    ]
-    for pattern, replacement in patches:
-        content = re.sub(pattern, replacement, content, count=1, flags=re.MULTILINE)
+    content = _patch_first_pass_workflow(content, decoy_fasta, msbooster_models)
     with first_workflow.open("w") as f:
         f.write(content)
 
