@@ -150,3 +150,32 @@ def test_parse_master_argv_msbooster_models() -> None:
     from src.tarsus.orchestration import _parse_master_argv
     *_, kw = _parse_master_argv(["--msbooster-models", "dia-nn", "/o", "/p.fasta", "/a.raw"])
     assert kw == {"msbooster_models": "dia-nn"}
+
+
+def test_parse_master_argv_base_rescore_tol() -> None:
+    from src.tarsus.orchestration import _parse_master_argv
+    *_, kw = _parse_master_argv(["--base-rescore-tol", "0.01", "/o", "/p.fasta", "/a.raw"])
+    assert kw == {"base_rescore_tol": 0.01}
+
+
+@pytest.mark.parametrize("given, expected", [(None, None), (0.01, 0.01)])
+def test_base_rescore_tol_reaches_step09(tmp_path: Path, monkeypatch, given, expected) -> None:
+    """`run_pipeline(base_rescore_tol=...)` reaches Step 9; None leaves the step's default."""
+    import tarsus.steps.step09_query_psm_base as s9
+
+    seen: dict = {}
+
+    def fake_step09(**kw):
+        seen.update(kw)
+        raise _Stop
+
+    monkeypatch.setattr(s9, "step09_query_psm_base", fake_step09)
+    outdir = tmp_path / "out"
+    fasta = tmp_path / "protein.fasta"
+    fasta.write_text(">p\nPEPTIDE\n")
+    _reached_step8(outdir, subs_rows=1)
+    (outdir / "08_base_input" / "pepquery_input_base").mkdir(parents=True)
+    (outdir / "08_base_input" / "pepquery_input_base" / "chunk").write_text("x")
+    with pytest.raises(_Stop):
+        run_pipeline(outdir, fasta, [tmp_path / "x.raw"], base_rescore_tol=given)
+    assert seen.get("fragment_tol") == expected

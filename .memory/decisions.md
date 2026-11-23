@@ -234,3 +234,31 @@ references.
 **Evidence:** Slava's FragPipe-generated `hoMS/GAPDH/2d/fragpipe_fullpipeline/fragpipe-second-pass.workflow` has both find-best keys false and `rt-model=AlphaPept_rt_generic`, `spectra-model=AlphaPept_ms2_generic`: the same form. On the four 2026-11-05 first passes the pin gives GAPDH DIA-NN/AlphaPept, Hb AlphaPept/AlphaPept, PARK7 and PRDX6 Deeplc_hela_hf/AlphaPept. Tests: 9 new in `tests/unit/test_step03c_second_pass.py` (one regression test from the real failure); suite 379 passed, ruff and mypy clean.
 
 **Not covered:** Step 3a in `best` mode can itself pick `ms2pip_2021_HCD` and hit the same MSBooster crash. Not seen yet; the fallback is `--msbooster-models dia-nn`.
+
+---
+
+## D-076 (2026-11-23): Step 9 base rescoring uses Slava's production `-itol 0.05`, as a run parameter
+
+**Context:** Step 9 (PepQuery base rescoring) hardcoded `-itol 0.01`, exactly as the published `TARSUS_elizabev/query_psm_base.sh`. Feeding Slava's own Step 7 output into our Steps 8-10 (2026-11-22, `.scratch/slava-steps8-10/`) gave an identical Step 8, but 38 of 116 PARK7 base scores differed for the same spectrum and peptide. Rerunning our exact command with only `-itol 0.05` reproduced his `psmrankall_base.txt` to full precision: PARK7 117/117, GAPDH 167/167 (every spectrum he scored). With those base scores, our Step 11 gives the published ST14 PARK7 list exactly (27/27, 0 extra; with 0.01: 26/27, 3 extra). Bar's decision: match the production run, but keep it flexible.
+
+**Decision:** `step09_query_psm_base.DEFAULT_BASE_RESCORE_TOL_DA = 0.05`, passed as `-itol`; `fragment_tol` must be > 0 or the step raises before submitting. Override per run with `tarsus run --base-rescore-tol` (CLI -> master argv `--base-rescore-tol` -> `run_pipeline(base_rescore_tol=...)` -> Step 9; `None` leaves the step default). Provenance records the CLI value as `base_rescore_tol_da` (null = default). `master.log` prints it at INIT.
+
+**Not changed:** Step 11 `--localize-tol` stays 0.01 (D-073); the published lists imply 0.01 for PARK7 and closer to 0.05 for GAPDH (progress 2026-11-22).
+
+**Tests:** `tests/unit/test_step09_query_psm_base.py` (default 0.05, override reaches the PepQuery command, non-positive raises before submitting), `test_orchestration.py` (argv flag, run_pipeline reaches Step 9), `tests/unit/test_cli_run.py` (flag reaches master argv and provenance; default leaves both unset; 0 rejected). Suite 390 passed, ruff clean on src, mypy clean.
+
+**Sentinels for existing outputs:** clear `09_pepquery_base/` (the whole directory: Step 9 resumes chunk by chunk, so leftover 0.01 chunks would mix with 0.05 ones), `10_aggregated_base/.done`, `11_localized/.done`, `12_visualize/.done`. `stale_artifacts` warns on any `09_pepquery_base/.done` older than this change.
+
+**Addendum (same day), resume guard:** Step 9 resumes chunk by chunk, so making the tolerance a parameter opened a silent-mixing path: a resume at another `--base-rescore-tol`, or of a pre-D-076 run (0.01, unrecorded), would reuse old chunks. Step 9 now writes `09_pepquery_base/fragment_tol.txt` on a fresh start and raises before submitting if it differs from the requested tolerance, or if chunk results exist without it. Tests: `TestResumeNeverMixesTolerances` (4). Suite 394 passed.
+
+---
+
+## D-077 (2026-11-23): Every LSF job is submitted with `bsub -Q 255` (requeue launch failures)
+
+**Context:** on 2026-11-19 and 2026-11-22, 2-6% of WEXAC jobs exited 255 at launch, before the program ran (0-1 s, "CPU time used is unknown", no output), spread over many nodes that each also had many successes. `wait_for_jobs` raises on any failed child, so one such job killed a multi-hour master. Whole-step resumes cannot outrun it either: a resume reruns every chunk without `psm_rank.txt` (GAPDH Step 9: 182 chunks, mostly legitimately empty), and the attempt fails if any of them hits the 255. Bar: "add the 255 to submit to avoid rerunning it in the trap of the [cluster] configuration".
+
+**Decision:** `tarsus.lsf.submit_bsub` adds `-Q REQUEUE_EXIT_VALUES` (`"255"`), so LSF requeues just the failed job under the same id. The cluster caps requeues at `MAX_JOB_REQUEUE = 5` (`bparams -a`), so a job that always exits 255 cannot loop; it then ends as EXIT and fails loudly as before. Other exit codes (real tool errors) are unaffected.
+
+**Evidence:** `bhist` shows `Requeue Exit Values <255>` on jobs submitted this way. End-to-end on the cluster (`.scratch/slava-steps8-10/requeue_e2e.py`, job 574831): through the real `submit_bsub`, a job that exits 255 on its first run and 0 on its second was dispatched twice under one id (07:57:44, 07:57:57), its log ended "second-run" / "Successfully completed.", and the real `wait_for_jobs` returned no failures. Unit test `TestSubmitBsubRequeue` (bsub argv carries `-Q 255`, job command last and untouched).
+
+**Caveat found on the way:** `bsub` joins its arguments into one command line without quoting, so a job command must be plain tokens (pipeline commands are); an inline `bash -c "<script>"` is split into words and fails with exit 2.

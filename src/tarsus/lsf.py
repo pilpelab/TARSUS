@@ -36,6 +36,15 @@ def _build_env_cmd(tool_env: ToolEnvironment) -> str:
     return "\n".join(parts)
 
 
+#: Exit values LSF requeues instead of reporting as failed (``bsub -Q``). On
+#: WEXAC 2-6% of jobs exited 255 at launch, before the program ran (0 s, CPU time
+#: unknown, no output), on many nodes (2026-11-19/22). One such job made
+#: wait_for_jobs raise and killed the whole master, and a whole-step resume cannot
+#: outrun it (every chunk without results reruns). Requeue reruns just that job,
+#: under the same id; the cluster caps it at MAX_JOB_REQUEUE = 5. See D-077.
+REQUEUE_EXIT_VALUES = "255"
+
+
 def submit_bsub(
     cmd: list[str],
     *,
@@ -46,12 +55,16 @@ def submit_bsub(
     log_path: Path,
     tool_env: ToolEnvironment,
 ) -> int:
-    """Submit a bsub job. Returns the job ID."""
+    """Submit a bsub job. Returns the job ID.
+
+    Jobs exiting with :data:`REQUEUE_EXIT_VALUES` are requeued by LSF (``-Q``).
+    """
     bsub_cmd = [
         "bsub",
         "-J", job_name,
         "-q", queue,
         "-n", str(cpus),
+        "-Q", REQUEUE_EXIT_VALUES,
         "-R", f"rusage[mem={memory_mb}] span[hosts=1]",
         "-oo", str(log_path),
     ] + cmd

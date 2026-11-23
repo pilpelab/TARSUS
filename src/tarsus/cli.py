@@ -149,11 +149,17 @@ def convert(inputs: tuple[str, ...], output_dir: str, queue: str,
                    "the best Koina model (Slava's setting; compute nodes need "
                    "internet to koina.wilhelmlab.org). 'dia-nn' pins the local "
                    "DIA-NN models, offline.")
+@click.option("--base-rescore-tol", default=None,
+              type=click.FloatRange(min=0, min_open=True),
+              help="Step 9 PepQuery base-rescoring fragment tolerance (-itol) in Da. "
+                   "Default 0.05 (Slava's production runs; reproduces his base "
+                   "scores exactly). The published query_psm_base.sh says 0.01.")
 @click.option("--allow-dirty", is_flag=True,
               help="Run despite uncommitted changes (results become unattributable)")
 def run(
     fasta: str, inputs: tuple[str, ...], output_dir: str, queue: str, memory: int,
-    cds: str, localize_tol: float | None, msbooster_models: str, allow_dirty: bool,
+    cds: str, localize_tol: float | None, msbooster_models: str,
+    base_rescore_tol: float | None, allow_dirty: bool,
 ) -> None:
     """Run the full TARSUS pipeline on LSF.
 
@@ -203,6 +209,7 @@ def run(
         "cds": str(cds_path) if cds_path else None,
         "localize_tol_da": localize_tol,  # None = step11 DEFAULT_LOCALIZE_TOL_DA
         "msbooster_models": msbooster_models,
+        "base_rescore_tol_da": base_rescore_tol,  # None = step09 DEFAULT_BASE_RESCORE_TOL_DA
         "queue": queue,
         "memory_mb": memory,
         "allow_dirty": allow_dirty,
@@ -216,6 +223,8 @@ def run(
 
     cds_args = ["--cds", str(cds_path)] if cds_path else []
     tol_args = ["--localize-tol", repr(localize_tol)] if localize_tol is not None else []
+    if base_rescore_tol is not None:
+        tol_args += ["--base-rescore-tol", repr(base_rescore_tol)]
     jid = submit_bsub(
         cmd=[python_bin, "-m", "tarsus.orchestration", *cds_args, *tol_args,
              "--msbooster-models", msbooster_models,
