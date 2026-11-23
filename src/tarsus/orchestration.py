@@ -34,6 +34,7 @@ def run_pipeline(
     cds_fasta: Path | None = None,
     localize_tol: float | None = None,
     msbooster_models: str = "best",
+    base_rescore_tol: float | None = None,
 ) -> None:
     """Execute the full TARSUS pipeline with checkpoint resumption.
 
@@ -42,6 +43,10 @@ def run_pipeline(
             heatmap needs it. Absent -> that one figure is skipped, loudly.
         localize_tol: Step 11 PyAscore fragment tolerance in Da. ``None`` uses
             ``step11_localize.DEFAULT_LOCALIZE_TOL_DA`` (0.01, Slava's value).
+        base_rescore_tol: Step 9 PepQuery base-rescoring fragment tolerance
+            (``-itol``) in Da. ``None`` uses
+            ``step09_query_psm_base.DEFAULT_BASE_RESCORE_TOL_DA`` (0.05, Slava's
+            production value).
         msbooster_models: Step 3a MSBooster model selection, ``best`` (Koina
             find-best, Slava's setting) or ``dia-nn`` (offline local models).
     """
@@ -53,6 +58,7 @@ def run_pipeline(
     _log("INIT", f"FASTA:  {fasta}")
     _log("INIT", f"CDS:    {cds_fasta or '(none — 61x19 codon heatmap will be skipped)'}")
     _log("INIT", f"Localize tol: {localize_tol if localize_tol is not None else 'default'} Da")
+    _log("INIT", f"Base rescore tol: {base_rescore_tol if base_rescore_tol is not None else 'default'} Da")
     _log("INIT", f"MSBooster models: {msbooster_models}")
     _log("INIT", f"Files:  {len(raw_files)} raw file(s)")
     for f in raw_files:
@@ -227,6 +233,7 @@ def run_pipeline(
     if not _skip_if_done(_s9, "S09"):
         _log("S09", "Running PepQuery base rescoring (LSF)")
         from tarsus.steps.step09_query_psm_base import step09_query_psm_base
+        _base_tol_kw = {} if base_rescore_tol is None else {"fragment_tol": base_rescore_tol}
         step09_query_psm_base(
             input_dir=outdir / "08_base_input" / "pepquery_input_base",
             index_dir=outdir / "02_index" / "pepquery_index",
@@ -234,6 +241,7 @@ def run_pipeline(
             output_dir=outdir / "09_pepquery_base",
             tool_env=tool_env,
             fasta_path=fasta,
+            **_base_tol_kw,
         )
         _s9.touch()
         _log("S09", "Done")
@@ -303,6 +311,7 @@ def _parse_master_argv(argv: list[str]) -> tuple[Path, Path, list[Path], dict[st
         "--cds": ("cds_fasta", Path),
         "--localize-tol": ("localize_tol", float),
         "--msbooster-models": ("msbooster_models", str),
+        "--base-rescore-tol": ("base_rescore_tol", float),
     }
     for flag, (key, convert) in flags.items():
         if flag in args:

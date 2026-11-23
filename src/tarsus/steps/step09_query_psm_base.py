@@ -15,6 +15,48 @@ from ..resources import (
 )
 
 
+#: PepQuery fragment tolerance (``-itol``, Da) for base rescoring. 0.05 is what
+#: Slava's production runs used: with it this step reproduced his
+#: ``psmrankall_base.txt`` to full precision (PARK7 117/117, GAPDH 167/167
+#: spectra, 2026-11-22), and Step 11 then gave the published ST14 PARK7 list
+#: exactly. The published ``query_psm_base.sh`` (and this step until 2026-11-23)
+#: pass 0.01, which changed 38 of 116 PARK7 base scores. Override per run with
+#: ``tarsus run --base-rescore-tol``. See D-076.
+DEFAULT_BASE_RESCORE_TOL_DA = 0.05
+
+#: File in Step 9's output directory recording the ``-itol`` its chunks used.
+#: Step 9 resumes chunk by chunk, so without it a resume at another tolerance
+#: (or of a pre-D-076 run, always 0.01) would silently mix base scores.
+FRAGMENT_TOL_RECORD = "fragment_tol.txt"
+
+
+def _check_or_record_fragment_tol(output_dir: Path, result_dir: Path, fragment_tol: float) -> None:
+    """Refuse to resume Step 9 at a tolerance other than the one its results used.
+
+    Raises:
+        ValueError: the recorded tolerance differs, or chunk results exist with no
+            record (their tolerance is unknown).
+    """
+    record = output_dir / FRAGMENT_TOL_RECORD
+    if record.is_file():
+        recorded = float(record.read_text().strip())
+        if recorded != fragment_tol:
+            raise ValueError(
+                f"{output_dir} holds base scores computed with -itol {recorded}, but this run "
+                f"asks for {fragment_tol}. Resuming would mix the two: clear {output_dir} "
+                f"or rerun with --base-rescore-tol {recorded}."
+            )
+        return
+    done = list(result_dir.glob("*/psm_rank.txt"))
+    if done:
+        raise ValueError(
+            f"{result_dir} has {len(done)} chunk results but no record of their -itol "
+            f"({FRAGMENT_TOL_RECORD}): they predate D-076, when Step 9 always used 0.01. "
+            f"Resuming would mix tolerances: clear {output_dir} and rerun Step 9."
+        )
+    record.write_text(f"{fragment_tol}\n")
+
+
 def step09_query_psm_base(
     input_dir: Path,
     index_dir: Path,
@@ -26,6 +68,7 @@ def step09_query_psm_base(
     memory_mb: int | None = None,
     cpus: int = 1,
     java_heap_mb: int | None = None,
+    fragment_tol: float = DEFAULT_BASE_RESCORE_TOL_DA,
 ) -> Path:
     """Run PepQuery base rescoring on chunked input files.
 
@@ -35,6 +78,7 @@ def step09_query_psm_base(
         mgf_path: mgfall_fakes.mgf from Step 8.
         output_dir: Output directory for results.
         fasta_path: Reference proteome FASTA (passed to PepQuery as -db).
+        fragment_tol: PepQuery ``-itol`` in Da; see :data:`DEFAULT_BASE_RESCORE_TOL_DA`.
         memory_mb: LSF reservation per chunk. Derived from *fasta_path* when
             omitted — see :func:`tarsus.resources.estimate_pepquery_memory`.
             (Measured: these jobs peak at 279 MB on E. coli, against the old
@@ -44,7 +88,14 @@ def step09_query_psm_base(
 
     Returns:
         Path to pepquery_result_recheck_base/ directory.
+
+    Raises:
+        ValueError: ``fragment_tol`` is not positive, or existing chunk results were
+            computed at another (or an unrecorded) tolerance; see
+            :func:`_check_or_record_fragment_tol`.
     """
+    if not fragment_tol > 0:
+        raise ValueError(f"PepQuery fragment tolerance must be > 0 Da, got {fragment_tol!r}")
     if not input_dir.is_dir():
         raise FileNotFoundError(f"Input directory not found: {input_dir}")
     if not index_dir.is_dir():
@@ -78,6 +129,7 @@ def step09_query_psm_base(
     log_dir = output_dir / "pepquery_logs_base"
     result_dir.mkdir(parents=True, exist_ok=True)
     log_dir.mkdir(parents=True, exist_ok=True)
+    _check_or_record_fragment_tol(output_dir, result_dir, fragment_tol)
 
     # Build the FM index ONCE, before fanning out — otherwise every chunk races to
     # write the same .fmi and most die in FMIndex. See D-059.
@@ -110,7 +162,7 @@ def step09_query_psm_base(
             "-maxLength", "50",
             "-tol", "20",
             "-fast",
-            "-itol", "0.01",
+            "-itol", str(fragment_tol),
             "-fixMod", "0",
             "-varMod", "1,2",
             "-maxVar", "4",
