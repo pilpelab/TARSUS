@@ -178,11 +178,25 @@ def filter_single_sav_psms(ptm: pl.DataFrame) -> pl.DataFrame:
 
 
 def _compute_expected_ions(dependent: str, position: int) -> list[str]:
-    """Generate expected b and y ions for a substitution at *position*."""
+    """Every b and y ion that contains the substituted residue at *position*.
+
+    *position* is 0-based (Step 3b's header carries ``enumerate`` indices). b_k
+    holds residues 0..k-1, so it contains the residue for k >= position + 1. y_k
+    holds the last k residues, so it contains it for k >= n - position. Only these
+    ions carry the substitution's mass shift, which is what the two-fragment filter
+    needs.
+
+    The reference ``analyze_outputs.py`` (and this step until D-078) started the y
+    ions at n - position + 2, against its own docstring ("from
+    len(dependent)-position"). That dropped the two shortest containing y ions,
+    often the clearest peaks, and left substitutions at positions 0 and 1 with no
+    y ion at all. Measured on the four D-073 runs: 77 of 970 Step 7 spectra (8%)
+    were removed by it, none admitted.
+    """
     n = len(dependent)
     ions: list[str] = []
     ions.extend(f"b{i}" for i in range(position + 1, n + 1))
-    ions.extend(f"y{i}" for i in range(n - position + 2, n + 1))
+    ions.extend(f"y{i}" for i in range(n - position, n + 1))
     return ions
 
 

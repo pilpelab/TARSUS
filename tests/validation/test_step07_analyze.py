@@ -34,9 +34,11 @@ def test_step07_expected_ions():
     assert "b4" in ions
     assert "b5" in ions
     assert "b6" in ions
-    # y ions: n - position + 1 = 6-3+1 = 4, so y4, y5, y6
-    assert "y6" in ions
-    assert "y3" not in ions  # too early
+    # position is 0-based: residue 2 is C. y ions start at n - position = 6 - 2 = 4
+    # (y4 = CDEF). Assert the whole range: checking only y6 let the old
+    # n - position + 2 start (y6 only) pass (D-078).
+    assert [i for i in ions if i.startswith("y")] == ["y4", "y5", "y6"]
+    assert "y3" not in ions  # DEF does not contain C
 
 
 def test_step07_spectrum_to_title():
