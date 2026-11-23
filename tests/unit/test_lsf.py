@@ -262,3 +262,33 @@ class TestLogIsGroundTruthNotBjobs:
                           job_labels={99: "chunk_0042"}, job_logs={99: log})
         msg = str(exc.value)
         assert "chunk_0042" in msg and str(log) in msg
+
+
+class TestSubmitBsubRequeue:
+    """Launch failures are requeued by LSF, not left to kill the step (D-077).
+
+    On 2026-11-19/22 about 2-6% of jobs exited 255 at launch, before the program
+    ran (0 s, CPU time unknown, no output), on many nodes. One such job made
+    `wait_for_jobs` raise and killed the whole master. `bsub -Q 255` makes LSF
+    requeue just that job under the same id; the cluster caps requeues at
+    MAX_JOB_REQUEUE = 5, so a job that always exits 255 cannot loop.
+    """
+
+    @patch("src.tarsus.lsf.subprocess.run")
+    def test_bsub_requeues_exit_255(self, mock_run: MagicMock, tmp_path: Path) -> None:
+        from src.tarsus.env import ToolEnvironment
+        from src.tarsus.lsf import submit_bsub
+
+        mock_run.return_value = MagicMock(
+            stdout="Job <4242> is submitted to queue <gsla-cpu>.", returncode=0,
+        )
+        jid = submit_bsub(
+            ["java", "-jar", "x.jar"], job_name="j", queue="gsla-cpu", memory_mb=100,
+            cpus=1, log_path=tmp_path / "j.log", tool_env=ToolEnvironment(tools_dir=tmp_path),
+        )
+        bsub_cmd = mock_run.call_args.args[0]
+        assert jid == 4242
+        assert bsub_cmd[0] == "bsub"
+        i = bsub_cmd.index("-Q")
+        assert bsub_cmd[i + 1] == "255"
+        assert bsub_cmd[-3:] == ["java", "-jar", "x.jar"]  # job command untouched, last
