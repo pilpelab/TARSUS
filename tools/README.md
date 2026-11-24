@@ -113,5 +113,5 @@ bundled Xvfb entirely.
 
 - Tool binaries are gitignored, except the committed `tools/xvfb/` bundle and `tools/PDV-2.1.2/PDV-2.1.2.jar` (no public download for either)
 - Run `make setup` from the repo root to download and verify all tools
-- Each download is checksum-verified (SHA256)
+- Each download is checksum-verified (SHA256) after download and again right before every extraction. A file that fails is deleted, so the next `make setup` downloads it again. Never edit a pinned hash to make a check pass.
 - Versions are pinned explicitly - updates are intentional and recorded in git

@@ -7,6 +7,15 @@ DOWNLOAD_DIR := $(TOOLS_DIR)/_downloads
 SHELL       := bash
 .SHELLFLAGS := -eu -o pipefail -c
 
+# Every cached download is verified right before it is extracted, not only
+# after it is downloaded. A file that fails its SHA256 is deleted, so the next
+# run downloads it again. .DELETE_ON_ERROR also removes a partial download
+# when curl fails. Pinned hashes are never edited to make a check pass.
+.DELETE_ON_ERROR:
+# $(call verify_download,<sha256>,<file>)
+verify_download = echo "$(1)  $(2)" | sha256sum -c || { rm -f "$(2)"; \
+	echo "SHA256 mismatch: deleted $(2). Run make again to download it again."; exit 1; }
+
 # ── FragPipe (Linux) ──────────────────────────────────────────────────
 # Bundles: Philosopher, IonQuant, Percolator, MSBooster, etc.
 # MSFragger IS NOT bundled — it must be downloaded separately (see below).
@@ -151,6 +160,7 @@ $(FP_DIR): $(DOWNLOAD_DIR)/$(FP_ZIP)
 	@if [ -d "$(FP_DIR)" ]; then \
 		echo "  already extracted, skipping"; \
 	else \
+		$(call verify_download,$(FP_SHA256),$<); \
 		unzip -q -d $(TOOLS_DIR) $<; \
 		if [ -d "$(TOOLS_DIR)/FragPipe-$(FP_VERSION)-linux" ]; then \
 			mv "$(TOOLS_DIR)/FragPipe-$(FP_VERSION)-linux" "$(FP_DIR)"; \
@@ -165,7 +175,7 @@ $(DOWNLOAD_DIR)/$(FP_ZIP): | $(DOWNLOAD_DIR)
 	@echo "Downloading FragPipe $(FP_VERSION)..."
 	curl -fSLo $@ $(FP_URL)
 	@echo "Verifying checksum..."
-	@echo "$(FP_SHA256)  $@" | sha256sum -c
+	@$(call verify_download,$(FP_SHA256),$@)
 
 # ── MSFragger ─────────────────────────────────────────────────────────
 
@@ -222,6 +232,7 @@ $(PQ_JAR): $(DOWNLOAD_DIR)/$(PQ_TGZ)
 	@if [ -f "$(PQ_JAR)" ]; then \
 		echo "PepQuery already extracted, skipping"; \
 	else \
+		$(call verify_download,$(PQ_SHA256),$<); \
 		echo "Extracting PepQuery $(PQ_VERSION)..."; \
 		tar -xzf $< -C $(TOOLS_DIR); \
 		if [ ! -f "$(PQ_JAR)" ] || [ ! -d "$(PQ_LIB)" ]; then \
@@ -233,10 +244,8 @@ $(PQ_JAR): $(DOWNLOAD_DIR)/$(PQ_TGZ)
 $(DOWNLOAD_DIR)/$(PQ_TGZ): | $(DOWNLOAD_DIR)
 	@echo "Downloading PepQuery $(PQ_VERSION)..."
 	curl -fSLo $@ $(PQ_URL)
-	@if [ "$(PQ_SHA256)" != "unknown" ]; then \
-		echo "Verifying checksum..."; \
-		echo "$(PQ_SHA256)  $@" | sha256sum -c; \
-	fi
+	@echo "Verifying checksum..."
+	@$(call verify_download,$(PQ_SHA256),$@)
 
 # ── PDV (2.1.2 JAR committed; lib/ + resources/ from public 2.2.3) ────
 # Idempotent: an existing tools/PDV-2.2.3/ or existing lib/resources links
@@ -264,10 +273,10 @@ $(PDV_JAR):
 $(PDV223_JAR): | $(DOWNLOAD_DIR)
 	@if [ ! -f "$(DOWNLOAD_DIR)/$(PDV223_ZIP)" ]; then \
 		echo "Downloading PDV $(PDV223_VERSION) (lib/ and resources/ for PDV $(PDV_VERSION))..."; \
-		curl -fSLo "$(DOWNLOAD_DIR)/$(PDV223_ZIP)" "$(PDV223_URL)"; \
+		curl -fSLo "$(DOWNLOAD_DIR)/$(PDV223_ZIP)" "$(PDV223_URL)" || { rm -f "$(DOWNLOAD_DIR)/$(PDV223_ZIP)"; exit 1; }; \
 	fi
 	@echo "Verifying PDV $(PDV223_VERSION) ZIP checksum..."
-	@echo "$(PDV223_SHA256)  $(DOWNLOAD_DIR)/$(PDV223_ZIP)" | sha256sum -c
+	@$(call verify_download,$(PDV223_SHA256),$(DOWNLOAD_DIR)/$(PDV223_ZIP))
 	@echo "Extracting PDV $(PDV223_VERSION)..."
 	@unzip -q -o -d $(TOOLS_DIR) "$(DOWNLOAD_DIR)/$(PDV223_ZIP)"
 	@echo "PDV $(PDV223_VERSION) ready at $(PDV223_DIR)"
@@ -280,6 +289,7 @@ $(TRFP_BIN): $(DOWNLOAD_DIR)/$(TRFP_ZIP)
 	@if [ -f "$(TRFP_BIN)" ]; then \
 		echo "ThermoRawFileParser already extracted, skipping"; \
 	else \
+		$(call verify_download,$(TRFP_SHA256),$<); \
 		echo "Extracting ThermoRawFileParser $(TRFP_VERSION)..."; \
 		mkdir -p $(TRFP_DIR); \
 		unzip -q -d $(TRFP_DIR) $<; \
@@ -291,7 +301,7 @@ $(DOWNLOAD_DIR)/$(TRFP_ZIP): | $(DOWNLOAD_DIR)
 	@echo "Downloading ThermoRawFileParser $(TRFP_VERSION)..."
 	curl -fSLo $@ $(TRFP_URL)
 	@echo "Verifying checksum..."
-	@echo "$(TRFP_SHA256)  $@" | sha256sum -c
+	@$(call verify_download,$(TRFP_SHA256),$@)
 
 # ── JDK 21 ─────────────────────────────────────────────────────────────
 
@@ -301,6 +311,7 @@ $(JAVA_BIN): $(DOWNLOAD_DIR)/$(JDK_TGZ)
 	@if [ -f "$(JAVA_BIN)" ]; then \
 		echo "JDK already extracted, skipping"; \
 	else \
+		$(call verify_download,$(JDK_SHA256),$<); \
 		echo "Extracting JDK $(JDK_VERSION)..."; \
 		tar -xzf $< -C $(TOOLS_DIR); \
 		if [ -d "$(TOOLS_DIR)/$(JDK_VERSION)" ]; then \
@@ -315,7 +326,7 @@ $(DOWNLOAD_DIR)/$(JDK_TGZ): | $(DOWNLOAD_DIR)
 	@echo "Downloading JDK $(JDK_VERSION)..."
 	curl -fSLo $@ $(JDK_URL)
 	@echo "Verifying checksum..."
-	@echo "$(JDK_SHA256)  $@" | sha256sum -c
+	@$(call verify_download,$(JDK_SHA256),$@)
 
 # ── .NET 8 Runtime ─────────────────────────────────────────────────────
 
@@ -325,6 +336,7 @@ $(DOTNET_BIN): $(DOWNLOAD_DIR)/$(DOTNET_TGZ)
 	@if [ -f "$(DOTNET_BIN)" ]; then \
 		echo ".NET already extracted, skipping"; \
 	else \
+		$(call verify_download,$(DOTNET_SHA256),$<); \
 		echo "Extracting .NET $(DOTNET_VERSION)..."; \
 		mkdir -p $(DOTNET_DIR); \
 		tar -xzf $< -C $(DOTNET_DIR); \
@@ -335,7 +347,7 @@ $(DOWNLOAD_DIR)/$(DOTNET_TGZ): | $(DOWNLOAD_DIR)
 	@echo "Downloading .NET $(DOTNET_VERSION)..."
 	curl -fSLo $@ $(DOTNET_URL)
 	@echo "Verifying checksum..."
-	@echo "$(DOTNET_SHA256)  $@" | sha256sum -c
+	@$(call verify_download,$(DOTNET_SHA256),$@)
 
 # ── Xvfb (verify-only — binary + libs are committed under tools/xvfb/) ────
 # The Xvfb binary + most X11 libs were extracted once from this cluster's
@@ -362,6 +374,7 @@ $(XVFB_DIR)/lib/libbz2.so.1.0: $(DOWNLOAD_DIR)/$(BZ2_TARBALL)
 	@if [ -f "$@" ]; then \
 		echo "libbz2 already present, skipping"; \
 	 else \
+		$(call verify_download,$(BZ2_SHA256),$<); \
 		mkdir -p $(DOWNLOAD_DIR)/bz2_extract; \
 		tar -xjf $< -C $(DOWNLOAD_DIR)/bz2_extract; \
 		cp -L $(DOWNLOAD_DIR)/bz2_extract/lib/libbz2.so.1.0 $@; \
@@ -373,7 +386,7 @@ $(DOWNLOAD_DIR)/$(BZ2_TARBALL): | $(DOWNLOAD_DIR)
 	@echo "Downloading bzip2 (conda-forge, standalone)..."
 	curl -fSLo $@ $(BZ2_URL)
 	@echo "Verifying checksum..."
-	@echo "$(BZ2_SHA256)  $@" | sha256sum -c
+	@$(call verify_download,$(BZ2_SHA256),$@)
 
 test-xvfb: $(XVFB_BIN)
 	@echo "Testing self-contained Xvfb (no module load, own lib/ only)..."; \
