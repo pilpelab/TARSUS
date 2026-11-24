@@ -224,9 +224,9 @@ $(PQ_JAR): $(DOWNLOAD_DIR)/$(PQ_TGZ)
 	else \
 		echo "Extracting PepQuery $(PQ_VERSION)..."; \
 		tar -xzf $< -C $(TOOLS_DIR); \
-		mv $(TOOLS_DIR)/pepquery-$(PQ_VERSION)/pepquery-$(PQ_VERSION).jar $(PQ_JAR); \
-		mv $(TOOLS_DIR)/pepquery-$(PQ_VERSION)/lib $(PQ_LIB); \
-		rm -rf $(TOOLS_DIR)/pepquery-$(PQ_VERSION); \
+		if [ ! -f "$(PQ_JAR)" ] || [ ! -d "$(PQ_LIB)" ]; then \
+			echo "PepQuery archive did not unpack to $(PQ_JAR) and $(PQ_LIB)"; exit 1; \
+		fi; \
 		echo "PepQuery ready at $(PQ_JAR)"; \
 	fi
 
