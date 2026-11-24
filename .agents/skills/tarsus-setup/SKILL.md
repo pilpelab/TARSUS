@@ -73,13 +73,13 @@ All tool checks complete.
 
 Ask the human for a proteome FASTA, one or more Thermo `.raw` files, and an output directory. `output/<name>` inside the repo works: it is git-ignored.
 
-Check whether compute nodes reach the MSBooster model server:
+Check whether compute nodes reach the MSBooster model server (Koina) and it reports ready:
 
 ```bash
-bsub -K -q <queue> -J tarsus-koina-check -o /dev/null curl -s -o /dev/null --max-time 20 https://koina.wilhelmlab.org
+bsub -K -q <queue> -J tarsus-koina-check -o /dev/null curl -fsS -o /dev/null --max-time 20 https://koina.wilhelmlab.org/v2/health/ready
 ```
 
-Exit code 0: they do, keep the default. Anything else: add `--msbooster-models dia-nn`, which uses the local DIA-NN models offline.
+Exit code 0 (HTTP 2xx from Koina's health route): keep the default. Any other exit code, including an HTTP error from a proxy or from Koina (`curl -f` exits 22): add `--msbooster-models dia-nn`, which uses the local DIA-NN models offline.
 
 ```bash
 uv run tarsus run --fasta <proteome.fasta> -i <run.raw> -o <outdir> --queue <queue>
