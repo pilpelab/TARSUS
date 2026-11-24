@@ -1,0 +1,15 @@
+PDV 2.1.2 - third-party software, redistributed unmodified
+
+PDV-2.1.2.jar in this directory is PDV (Proteomics Data Viewer), version 2.1.2, by its upstream authors. It is not part of TARSUS and is not covered by the TARSUS MIT license.
+
+License: GNU General Public License v3.0 (GPL-3.0). Full text: https://www.gnu.org/licenses/gpl-3.0.txt
+
+Upstream project and source code: https://github.com/wenbostar/PDV
+
+Source for this version: upstream has no 2.1.2 release or tag. The 2.1.2 source is the upstream tree from commit dacf4b6c0f20027a9707d756d4fbea2542599b4e ("Bump to 2.1.2", 2025-01-20), which sets the version to 2.1.2; the version stays 2.1.2 until commit c0b60ce0f3 ("Bump to 2.1.3", 2025-04-07). The exact upstream commit this JAR was built from is not recorded.
+
+SHA256 of PDV-2.1.2.jar: 8757fbdd053949edc421a0de5b4fc8b37f46b8518646d69b90bd16055bb4adf1 (checked by `make pdv`).
+
+Why 2.1.2: it is the PDV version the reference pipeline used, so TARSUS runs the same version (src/tarsus/env.py loads tools/PDV-2.1.2/PDV-2.1.2.jar). Because there is no public 2.1.2 download, the JAR is committed here.
+
+Why lib/ and resources/ come from PDV 2.2.3: upstream release zips ship the JAR with lib/ and resources/ beside it, and the JAR's manifest loads its dependencies from lib/ next to the JAR. Neither directory is committed. `make pdv` downloads the public PDV 2.2.3 release (https://github.com/wenbostar/PDV/releases/download/v2.2.3/PDV-2.2.3.zip, SHA256 pinned in the Makefile), extracts it to tools/PDV-2.2.3/, and links tools/PDV-2.1.2/lib and tools/PDV-2.1.2/resources to it. This is the layout TARSUS runs with on its development cluster, and `make test-pdv-full` checks that PDV draws figures with it.
