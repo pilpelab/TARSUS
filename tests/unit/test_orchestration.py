@@ -179,3 +179,98 @@ def test_base_rescore_tol_reaches_step09(tmp_path: Path, monkeypatch, given, exp
     with pytest.raises(_Stop):
         run_pipeline(outdir, fasta, [tmp_path / "x.raw"], base_rescore_tol=given)
     assert seen.get("fragment_tol") == expected
+
+
+def test_parse_master_argv_queue() -> None:
+    from src.tarsus.orchestration import _parse_master_argv
+    *_, kw = _parse_master_argv(["--queue", "partner-q", "/o", "/p.fasta", "/a.raw"])
+    assert kw == {"queue": "partner-q"}
+
+
+# Every step that submits LSF child jobs: (module, function, its step directory).
+# Order follows the pipeline; _STEP_DIRS_BEFORE_09 says what must be .done to reach it.
+_SUBMITTING_STEPS = [
+    ("step01_convert", "step01_convert", "01_mzml"),
+    ("step02_make_index", "step02_make_index", "02_index"),
+    ("step03a_first_pass", "step03a_first_pass", "03a_first_pass"),
+    ("step03c_second_pass", "step03c_second_pass", "03c_second_pass"),
+    ("step05_query_psm", "step05_query_psm", "05_pepquery"),
+    ("step06_aggregate_query", "step06_aggregate_query", "06_aggregated"),
+    ("step09_query_psm_base", "step09_query_psm_base", "09_pepquery_base"),
+]
+_STEP_DIRS_BEFORE_09 = [
+    "01_mzml", "02_index", "03a_first_pass", "03b_candidates", "03c_second_pass",
+    "04_psm_input", "05_pepquery", "06_aggregated", "07_analyze", "08_base_input",
+]
+
+
+def _reach(outdir: Path, step_dir: str) -> None:
+    """Stamp every step before *step_dir* complete, so run_pipeline runs it next."""
+    if step_dir == "09_pepquery_base":
+        _reached_step8(outdir, subs_rows=1)
+        (outdir / "08_base_input" / "pepquery_input_base").mkdir(parents=True)
+        (outdir / "08_base_input" / "pepquery_input_base" / "chunk").write_text("x")
+        return
+    for d in _STEP_DIRS_BEFORE_09[:_STEP_DIRS_BEFORE_09.index(step_dir)]:
+        _touch_done(outdir, d)
+
+
+def _kwargs_step_receives(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, module: str, func: str,
+    step_dir: str, **run_kw: object,
+) -> dict:
+    """Run the pipeline up to one submitting step; return the kwargs it was called with."""
+    import importlib
+
+    mod = importlib.import_module(f"tarsus.steps.{module}")
+    seen: dict = {}
+
+    def fake_step(*args: object, **kw: object) -> None:
+        seen.update(kw)
+        raise _Stop
+
+    monkeypatch.setattr(mod, func, fake_step)
+    outdir = tmp_path / "out"
+    fasta = tmp_path / "protein.fasta"
+    fasta.write_text(">p\nPEPTIDE\n")
+    _reach(outdir, step_dir)
+    with pytest.raises(_Stop):
+        run_pipeline(outdir, fasta, [tmp_path / "x.raw"], **run_kw)  # type: ignore[arg-type]
+    return seen
+
+
+@pytest.mark.parametrize("module, func, step_dir", _SUBMITTING_STEPS)
+def test_queue_reaches_every_submitting_step(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, module: str, func: str, step_dir: str,
+) -> None:
+    """`run_pipeline(queue=...)` reaches each step that submits child jobs (D-081).
+
+    Before D-081 only the master job used `tarsus run --queue`; every child job
+    went to the step's hardcoded gsla-cpu, so a cluster without it failed at Step 1.
+    """
+    seen = _kwargs_step_receives(tmp_path, monkeypatch, module, func, step_dir,
+                                 queue="partner-q")
+    assert seen.get("queue") == "partner-q"
+
+
+@pytest.mark.parametrize("module, func, step_dir", _SUBMITTING_STEPS)
+def test_no_queue_leaves_step_default_gsla_cpu(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, module: str, func: str, step_dir: str,
+) -> None:
+    """`queue=None` passes nothing, so the step's own default (gsla-cpu) applies."""
+    import importlib
+    import inspect
+
+    real = getattr(importlib.import_module(f"tarsus.steps.{module}"), func)
+    assert inspect.signature(real).parameters["queue"].default == "gsla-cpu"
+    seen = _kwargs_step_receives(tmp_path, monkeypatch, module, func, step_dir)
+    assert "queue" not in seen
+
+
+def test_submitting_steps_list_is_complete() -> None:
+    """Every step module that calls submit_bsub is covered by the queue tests above."""
+    steps_dir = Path(__file__).resolve().parents[2] / "src" / "tarsus" / "steps"
+    submitting = {
+        p.stem for p in steps_dir.glob("step*.py") if "submit_bsub(" in p.read_text()
+    }
+    assert submitting == {module for module, _, _ in _SUBMITTING_STEPS}

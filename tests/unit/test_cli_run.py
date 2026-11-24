@@ -27,6 +27,7 @@ def recorded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict:
 
     def fake_submit(cmd: list[str], **kw: object) -> int:
         rec["cmd"] = cmd
+        rec["submit_kw"] = kw
         return 1
 
     monkeypatch.setattr(cli, "write_provenance", fake_prov)
@@ -64,3 +65,35 @@ def test_base_rescore_tol_must_be_positive(recorded: dict) -> None:
     res = _run(recorded, "--base-rescore-tol", "0")
     assert res.exit_code != 0
     assert "cmd" not in recorded
+
+
+def test_queue_reaches_master_argv_and_master_job(recorded: dict) -> None:
+    """`--queue` goes to the master's bsub AND its argv, so child jobs get it (D-081)."""
+    res = _run(recorded, "--queue", "partner-q")
+    assert res.exit_code == 0, res.output
+    cmd = recorded["cmd"]
+    assert cmd[cmd.index("--queue") + 1] == "partner-q"
+    assert recorded["submit_kw"]["queue"] == "partner-q"
+    assert recorded["prov"]["queue"] == "partner-q"
+
+
+def test_queue_default_is_gsla_cpu_in_master_argv(recorded: dict) -> None:
+    res = _run(recorded)
+    assert res.exit_code == 0, res.output
+    cmd = recorded["cmd"]
+    assert cmd[cmd.index("--queue") + 1] == "gsla-cpu"
+    assert recorded["submit_kw"]["queue"] == "gsla-cpu"
+
+
+def test_master_parses_the_queue_the_cli_sends(recorded: dict) -> None:
+    """Round trip: the argv `tarsus run` builds parses to run_pipeline(queue=...)."""
+    from src.tarsus.orchestration import _parse_master_argv
+
+    res = _run(recorded, "--queue", "partner-q", "--base-rescore-tol", "0.01")
+    assert res.exit_code == 0, res.output
+    cmd = recorded["cmd"]
+    master_argv = cmd[cmd.index("tarsus.orchestration") + 1:]
+    _, _, raws, kw = _parse_master_argv(master_argv)
+    assert kw["queue"] == "partner-q"
+    assert kw["base_rescore_tol"] == 0.01
+    assert raws == [recorded["raw"].resolve()]

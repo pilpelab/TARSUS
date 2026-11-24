@@ -225,9 +225,11 @@ def run(
     tol_args = ["--localize-tol", repr(localize_tol)] if localize_tol is not None else []
     if base_rescore_tol is not None:
         tol_args += ["--base-rescore-tol", repr(base_rescore_tol)]
+    # The master passes --queue on to every child job (D-081); before, only the
+    # master used it and child jobs went to each step's hardcoded gsla-cpu.
     jid = submit_bsub(
         cmd=[python_bin, "-m", "tarsus.orchestration", *cds_args, *tol_args,
-             "--msbooster-models", msbooster_models,
+             "--msbooster-models", msbooster_models, "--queue", queue,
              str(outdir), str(fasta_path),
              *[str(f) for f in raw_files]],
         job_name="tarsus_master",
