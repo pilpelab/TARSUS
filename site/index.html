@@ -887,7 +887,7 @@ footer p { overflow-wrap: anywhere; }
           <div class="item"><div class="h"><svg><use href="#i-shield"/></svg>415 tests</div><p>Unit and evaluation tests; the evaluation set replays real <i>E. coli</i> and human GAPDH inputs against golden outputs.</p><span class="row"><a class="commit" href="https://github.com/pilpelab/TARSUS/commit/5dbbb10"><svg><use href="#i-commit"/></svg>5dbbb10</a></span></div>
           <div class="item"><div class="h"><svg><use href="#i-tag"/></svg>Provenance</div><p>A run refuses to start from uncommitted code and writes the git commit and arguments to <code>provenance.json</code>.</p></div>
           <div class="item"><div class="h"><svg><use href="#i-resume"/></svg>Resumable</div><p>Finished steps are skipped on rerun, and results older than the code that made them are flagged.</p></div>
-          <div class="item"><div class="h"><svg><use href="#i-redo"/></svg>Launch requeue</div><p>A cluster job that dies at launch (exit 255) is requeued by LSF, up to 5 times, instead of failing the run.</p><span class="row"><a class="commit" href="https://github.com/pilpelab/TARSUS/commit/f13740f"><svg><use href="#i-commit"/></svg>f13740f</a></span></div>
+          <div class="item"><div class="h"><svg><use href="#i-redo"/></svg>Launch requeue</div><p>A cluster job that dies at launch (exit 255) is requeued by LSF instead of failing the run, up to your cluster's requeue limit (5 on the cluster it was tested on).</p><span class="row"><a class="commit" href="https://github.com/pilpelab/TARSUS/commit/f13740f"><svg><use href="#i-commit"/></svg>f13740f</a></span></div>
         </div>
       </div>
 
