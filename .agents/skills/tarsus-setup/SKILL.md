@@ -85,7 +85,7 @@ Exit code 0 (HTTP 2xx from Koina's health route): keep the default. Any other ex
 uv run tarsus run --fasta <proteome.fasta> -i <run.raw> -o <outdir> --queue <queue>
 ```
 
-Repeat `-i` for each `.raw` file. `--queue` defaults to `gsla-cpu`, a Weizmann queue, so always pass it. `uv run tarsus run --help` lists the other options (`--cds`, `--localize-tol`, `--base-rescore-tol`, `--memory`); add one only when the human asks for it.
+Repeat `-i` for each `.raw` file. `--queue` sets the queue for every job the run submits (the master and all step jobs); it defaults to `gsla-cpu`, a Weizmann queue, so always pass it. `uv run tarsus run --help` lists the other options (`--cds`, `--localize-tol`, `--base-rescore-tol`, `--memory`); add one only when the human asks for it.
 
 Done when it prints `Submitted master job <ID> to queue '<queue>'.`
 
