@@ -55,7 +55,10 @@ TARSUS_elizabev
 *.mzBIN
 
 # Agent workspace (session continuity, not for publishing)
-.agents/
+.agents/*
+!.agents/skills/
+.agents/skills/*
+!.agents/skills/tarsus-setup/
 .memory/progress.md
 
 # Agent/IDE work notes (not for publishing)
