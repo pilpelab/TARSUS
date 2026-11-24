@@ -154,6 +154,15 @@ main, footer { overflow-x: clip; }
 }
 .icon-btn:hover { background: var(--sunken); }
 .icon-btn svg { width: 18px; height: 18px; }
+.bug-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 36px; padding: 0 12px; border-radius: 8px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+  font: 600 13px/1 var(--font-body); text-decoration: none; white-space: nowrap;
+}
+.bug-btn:hover { background: var(--sunken); border-color: var(--accent); }
+.bug-btn svg { width: 16px; height: 16px; }
+@media (max-width: 420px) { .bug-btn { width: 36px; padding: 0; justify-content: center; } .bug-btn span { display: none; } }
 .theme-btn .moon { display: none; }
 :root[data-theme="dark"] .theme-btn .sun { display: none; }
 :root[data-theme="dark"] .theme-btn .moon { display: block; }
@@ -495,6 +504,7 @@ footer p { overflow-wrap: anywhere; }
     <symbol id="i-tag" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" d="M1.8 8.6V2.2h6.4l6 6-6.4 6.4z"/><circle cx="5" cy="5.3" r="1.2" fill="currentColor"/></symbol>
     <symbol id="i-redo" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" d="M13 3.5v3.6H9.4"/><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" d="M12.6 7A5 5 0 103 9.6"/></symbol>
     <symbol id="i-paper" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" d="M3.5 1.5h6l3 3v10h-9z"/><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" d="M5.8 7.5h4.4M5.8 10h4.4M5.8 12.4h2.8"/></symbol>
+    <symbol id="i-bug" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><rect x="4.5" y="5" width="7" height="8.5" rx="3.5"/><path d="M6 5V4a2 2 0 014 0v1M8 8v5.5M4.5 9H2M14 9h-2.5M4.8 6.5L3 5M11.2 6.5L13 5M4.8 12L3 13.5M11.2 12l1.8 1.5"/></g></symbol>
     <symbol id="i-resume" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" d="M2.5 3v10M6 3.5l7 4.5-7 4.5z"/></symbol>
   </defs>
 </svg>
@@ -511,6 +521,7 @@ footer p { overflow-wrap: anywhere; }
       <a href="#run">Get it running</a>
     </nav>
     <div class="head-actions">
+      <a class="bug-btn" href="https://github.com/pilpelab/TARSUS/issues/new?title=Bug%3A%20&amp;body=%2A%2AWhat%20I%20ran%2A%2A%0A%28the%20tarsus%20command%2C%20with%20paths%20shortened%29%0A%0A%2A%2AWhat%20happened%2A%2A%0A%28the%20error%2C%20or%20the%20step%20that%20failed%29%0A%0A%2A%2ATARSUS%20version%2A%2A%0A%28git_sha%20from%20%3Coutput-dir%3E/provenance.json%29%0A%0A%2A%2ALast%2030%20lines%20of%20%3Coutput-dir%3E/master.log%2A%2A%0A%60%60%60%0Apaste%20here%0A%60%60%60%0A" aria-label="Report a bug"><svg><use href="#i-bug"/></svg><span>Report a bug</span></a>
       <a class="icon-btn" href="https://github.com/pilpelab/TARSUS" aria-label="Source on GitHub"><svg><use href="#i-github"/></svg></a>
       <button type="button" class="icon-btn theme-btn" id="theme-btn" aria-label="Switch light or dark theme">
         <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4.2"/><path d="M12 2v2.2M12 19.8V22M4.9 4.9l1.6 1.6M17.5 17.5l1.6 1.6M2 12h2.2M19.8 12H22M4.9 19.1l1.6-1.6M17.5 6.5l1.6-1.6"/></svg>
@@ -529,7 +540,7 @@ footer p { overflow-wrap: anywhere; }
       <p class="eyebrow">Proteomics pipeline · open source · MIT</p>
       <h1 id="hero-title">TARSUS</h1>
       <p class="lab">Pilpel lab, Weizmann Institute of Science</p>
-      <p class="lede">Finds single amino acid substitutions in mass spectrometry data, checks each one against its unsubstituted peptide, and pins it to one residue. One command, on your LSF cluster.</p>
+      <p class="lede">Finds single amino acid substitutions in mass spectrometry data, checks each one against its unsubstituted peptide, and pins it to one residue. Runs on an LSF cluster.</p>
       <div class="banner" role="note">
         <span class="big">166/166</span>
         <span class="txt">
@@ -549,7 +560,7 @@ footer p { overflow-wrap: anywhere; }
 
     <figure class="pep-card" aria-label="Example call from the GAPDH run">
       <div class="cap">
-        <h3>One call from the GAPDH run</h3>
+        <h3>Example from the GAPDH run</h3>
         <span class="chip accent">final table row</span>
       </div>
       <div class="pep">
@@ -614,12 +625,12 @@ footer p { overflow-wrap: anywhere; }
         <div class="row"><span class="chip ok"><svg><use href="#i-check"/></svg>passing</span><a class="commit" href="https://github.com/pilpelab/TARSUS/commit/5dbbb10"><svg><use href="#i-commit"/></svg>5dbbb10</a></div>
       </div>
       <div class="stat">
-        <div class="n">12</div>
-        <div class="l">Steps, one command
-          <span class="tipwrap"><button type="button" class="tip" aria-label="About the steps">?</button><span class="pop">Steps 1-11 do the analysis, Step 12 draws the figures. Step 3 has three parts (3a, 3b, 3c). One LSF master job runs them all and sends the heavy tools out as child jobs.</span></span>
+        <div class="n">2<small>h</small> 23<small>min</small></div>
+        <div class="l">Full run, start to finish
+          <span class="tipwrap"><button type="button" class="tip" aria-label="About the run time">?</button><span class="pop">Human GAPDH sample: 15 raw files against the full human proteome, every step on the cluster, 13:33 to 15:56. Your time depends on the number of raw files and how busy your cluster is.</span></span>
         </div>
-        <div class="s">one LSF master job runs them all</div>
-        <div class="row"><span class="chip accent">tarsus run</span><a class="commit" href="https://github.com/pilpelab/TARSUS/commit/4fdc5aa"><svg><use href="#i-commit"/></svg>4fdc5aa</a></div>
+        <div class="s">15 raw files, full human proteome</div>
+        <div class="row"><a class="commit" href="https://github.com/pilpelab/TARSUS/commit/d3d43ff"><svg><use href="#i-commit"/></svg>d3d43ff</a></div>
       </div>
     </div>
   </div>
@@ -630,7 +641,7 @@ footer p { overflow-wrap: anywhere; }
   <div class="wrap">
     <div class="sec-head">
       <p class="eyebrow">What it does</p>
-      <h2 id="what-title">Raw spectra in, localized substitutions out</h2>
+      <h2 id="what-title">How it works</h2>
       <p>Your first-pass identifications define the search space: every peptide found becomes all of its allowed single-residue variants. Each variant must then pass three checks: validation, base-peptide rescoring and localization. Click a step for detail.</p>
     </div>
     <div class="pipe-box">
@@ -643,7 +654,7 @@ footer p { overflow-wrap: anywhere; }
       </div>
       <div class="step-detail" id="step-detail" aria-live="polite">
         <div class="sd-head"><span class="sd-num" id="sd-num">3b</span><span class="sd-name" id="sd-name">In-silico mutagenesis</span><span class="chip accent" id="sd-stage">SEARCH</span></div>
-        <p class="sd-text" id="sd-text">Every peptide the first pass identified becomes all of its allowed single amino acid variants, and those variants become the second-pass search database. Nobody picks the candidate list: it follows from what your first pass found.</p>
+        <p class="sd-text" id="sd-text">Every peptide the first pass identified becomes all of its allowed single amino acid variants, and those variants become the second-pass search database. You don't supply a candidate list; it comes from what your first pass found.</p>
         <p class="sd-tool" id="sd-tool"><b>Runs:</b> TARSUS (Python), with a configurable substitution exclusion matrix</p>
       </div>
     </div>
@@ -692,7 +703,7 @@ footer p { overflow-wrap: anywhere; }
   <div class="wrap">
     <div class="sec-head">
       <p class="eyebrow">Input</p>
-      <h2 id="input-title">Three flags to start</h2>
+      <h2 id="input-title">What you give it</h2>
       <p><code>uv run tarsus run --fasta proteome.fasta -i run1.raw -i run2.raw -o out/</code></p>
     </div>
     <p class="group-label">Required</p>
@@ -718,7 +729,7 @@ footer p { overflow-wrap: anywhere; }
   <div class="wrap">
     <div class="sec-head">
       <p class="eyebrow">Output</p>
-      <h2 id="output-title">One run directory, one final table</h2>
+      <h2 id="output-title">What you get back</h2>
       <p>Every step writes its own folder, so a stopped run resumes where it left off. The answer is <code>11_localized/subs_localized.csv</code>.</p>
     </div>
     <div class="out-grid">
@@ -882,12 +893,12 @@ footer p { overflow-wrap: anywhere; }
       </div>
 
       <div class="vcard">
-        <div class="vcard-head"><h3>Built to be trusted</h3></div>
+        <div class="vcard-head"><h3>When a run goes wrong</h3></div>
         <div class="eng">
-          <div class="item"><div class="h"><svg><use href="#i-shield"/></svg>415 tests</div><p>Unit and evaluation tests; the evaluation set replays real <i>E. coli</i> and human GAPDH inputs against golden outputs.</p><span class="row"><a class="commit" href="https://github.com/pilpelab/TARSUS/commit/5dbbb10"><svg><use href="#i-commit"/></svg>5dbbb10</a></span></div>
-          <div class="item"><div class="h"><svg><use href="#i-tag"/></svg>Provenance</div><p>A run refuses to start from uncommitted code and writes the git commit and arguments to <code>provenance.json</code>.</p></div>
-          <div class="item"><div class="h"><svg><use href="#i-resume"/></svg>Resumable</div><p>Finished steps are skipped on rerun, and results older than the code that made them are flagged.</p></div>
-          <div class="item"><div class="h"><svg><use href="#i-redo"/></svg>Launch requeue</div><p>A cluster job that dies at launch (exit 255) is requeued by LSF instead of failing the run, up to your cluster's requeue limit (5 on the cluster it was tested on).</p><span class="row"><a class="commit" href="https://github.com/pilpelab/TARSUS/commit/f13740f"><svg><use href="#i-commit"/></svg>f13740f</a></span></div>
+          <div class="item"><div class="h"><svg><use href="#i-resume"/></svg>Run it again</div><p>Rerun the same command. Finished steps are skipped and the run picks up where it stopped.</p></div>
+          <div class="item"><div class="h"><svg><use href="#i-redo"/></svg>Crashed jobs retry</div><p>A cluster job that dies at launch (exit 255) is resubmitted by LSF instead of failing the run, up to your cluster's requeue limit (5 on ours).</p><span class="row"><a class="commit" href="https://github.com/pilpelab/TARSUS/commit/f13740f"><svg><use href="#i-commit"/></svg>f13740f</a></span></div>
+          <div class="item"><div class="h"><svg><use href="#i-tag"/></svg>Version on file</div><p>Each run saves the code version and the exact command in <code>provenance.json</code>, so any result can be traced back and rerun.</p></div>
+          <div class="item"><div class="h"><svg><use href="#i-bug"/></svg>Tell us</div><p>Open an issue with your command, the error and the end of <code>master.log</code>. We read them.</p><span class="row"><a class="commit" href="https://github.com/pilpelab/TARSUS/issues/new?title=Bug%3A%20&amp;body=%2A%2AWhat%20I%20ran%2A%2A%0A%28the%20tarsus%20command%2C%20with%20paths%20shortened%29%0A%0A%2A%2AWhat%20happened%2A%2A%0A%28the%20error%2C%20or%20the%20step%20that%20failed%29%0A%0A%2A%2ATARSUS%20version%2A%2A%0A%28git_sha%20from%20%3Coutput-dir%3E/provenance.json%29%0A%0A%2A%2ALast%2030%20lines%20of%20%3Coutput-dir%3E/master.log%2A%2A%0A%60%60%60%0Apaste%20here%0A%60%60%60%0A"><svg><use href="#i-bug"/></svg>Report a bug</a></span></div>
         </div>
       </div>
 
@@ -956,7 +967,7 @@ tail -f out/master.log  <span class="c"># ends with: DONE: Pipeline complete.</s
     </div>
     <div class="foot-meta">
       <p>MIT license · <a href="https://github.com/pilpelab/TARSUS">github.com/pilpelab/TARSUS</a></p>
-      <p>Every number on this page names the run commit that produced it.</p>
+      <p>Found a problem? <a href="https://github.com/pilpelab/TARSUS/issues/new?title=Bug%3A%20&amp;body=%2A%2AWhat%20I%20ran%2A%2A%0A%28the%20tarsus%20command%2C%20with%20paths%20shortened%29%0A%0A%2A%2AWhat%20happened%2A%2A%0A%28the%20error%2C%20or%20the%20step%20that%20failed%29%0A%0A%2A%2ATARSUS%20version%2A%2A%0A%28git_sha%20from%20%3Coutput-dir%3E/provenance.json%29%0A%0A%2A%2ALast%2030%20lines%20of%20%3Coutput-dir%3E/master.log%2A%2A%0A%60%60%60%0Apaste%20here%0A%60%60%60%0A">Report a bug</a></p>
     </div>
   </div>
 </footer>
@@ -1023,7 +1034,7 @@ tail -f out/master.log  <span class="c"># ends with: DONE: Pipeline complete.</s
     "1": ["Convert", "PREPARE", "Each Thermo .raw file becomes .mzML, one cluster job per file.", "ThermoRawFileParser"],
     "2": ["Index spectra", "PREPARE", "Builds a PepQuery index of the original mzML files, so later steps can address any spectrum as file:scan:charge.", "PepQuery"],
     "3a": ["First pass", "SEARCH", "A standard database search of your reference proteome. Every peptide it identifies seeds the variant library.", "FragPipe (MSFragger, MSBooster)"],
-    "3b": ["In-silico mutagenesis", "SEARCH", "Every peptide the first pass identified becomes all of its allowed single amino acid variants, and those variants become the second-pass search database. Nobody picks the candidate list: it follows from what your first pass found.", "TARSUS (Python), with a configurable substitution exclusion matrix"],
+    "3b": ["In-silico mutagenesis", "SEARCH", "Every peptide the first pass identified becomes all of its allowed single amino acid variants, and those variants become the second-pass search database. You don't supply a candidate list; it comes from what your first pass found.", "TARSUS (Python), with a configurable substitution exclusion matrix"],
     "3c": ["Second pass", "SEARCH", "Searches the spectra against the variant candidates, reusing the first pass's mass calibration.", "FragPipe (MSFragger)"],
     "4": ["Extract PSMs", "VALIDATE", "Turns each second-pass match into a pair: the variant peptide and the exact spectrum it was found on.", "TARSUS (Python)"],
     "5": ["Variant validation", "VALIDATE", "PepQuery tests each variant match against the reference database on its own spectrum. Runs as many small cluster jobs.", "PepQuery"],
