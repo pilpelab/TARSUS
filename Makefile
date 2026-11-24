@@ -475,10 +475,8 @@ verify:
 	@test -f $(XVFB_BIN) && echo "  Xvfb: OK" || echo "  Xvfb: MISSING"
 
 clean:
-	@# Keeps the hand-downloaded MSFragger ZIP and IonQuant JAR: make cannot fetch them again.
-	if [ -d "$(DOWNLOAD_DIR)" ]; then \
-		find "$(DOWNLOAD_DIR)" -mindepth 1 -maxdepth 1 \
-			! -name "MSFragger-$(MF_VERSION).zip" ! -name "IonQuant-1.11.20.jar" -exec rm -rf {} +; \
-	fi
+	@# Deletes only the archives make itself downloads. Anything else in $(DOWNLOAD_DIR),
+	@# such as the hand-downloaded MSFragger ZIP and IonQuant JAR under any name, is kept.
+	rm -rf $(addprefix $(DOWNLOAD_DIR)/,$(FP_ZIP) $(PQ_TGZ) $(PDV223_ZIP) $(TRFP_ZIP) $(JDK_TGZ) $(DOTNET_TGZ) $(BZ2_TARBALL) bz2_extract)
 	rm -rf $(FP_DIR) $(TOOLS_DIR)/pepquery-$(PQ_VERSION) $(PDV_DIR)/lib $(PDV_DIR)/resources $(PDV223_DIR) $(TRFP_DIR) $(JDK_DIR) $(DOTNET_DIR)
-	@echo "Cleaned all downloaded tools. Kept the committed files (PDV 2.1.2 JAR, tools/xvfb/) and your MSFragger ZIP and IonQuant JAR in $(DOWNLOAD_DIR)/."
+	@echo "Cleaned all downloaded tools. Kept the committed files (PDV 2.1.2 JAR, tools/xvfb/) and every file you put in $(DOWNLOAD_DIR)/ yourself (MSFragger, IonQuant)."
