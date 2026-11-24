@@ -274,3 +274,39 @@ references.
 **Evidence:** measured before the change on the four D-073 runs (real `analyze_outputs`, only the y range corrected; the unpatched run reproduces each on-disk `subs.ipc` exactly): Step 7 spectra GAPDH 240 -> 248, Hb 371 -> 400, PARK7 121 -> 136, PRDX6 161 -> 186 (893 -> 970, +9%); peptides 772 -> 835; none lost; ST14 at Step 7 unchanged (146/152). Tests: `TestComputeExpectedIons` rewritten with exact hand-computed lists plus Liz's two examples (5 red before the fix); the validation test now asserts the whole y range and fails on the old code. Suite 396 passed, mypy clean. Eval goldens unchanged: the fixtures are slices of spectra that already passed the old filter, so they cannot see this loosening.
 
 **Sentinels for existing outputs:** clear `07_analyze/.done` and everything after it (08 to 12); `stale_artifacts` flags S07 automatically. Effect on Step 11 needs that rerun.
+
+---
+
+## D-079 (2026-11-24): public showcase page in `site/` on GitHub Pages, and a repo-local setup skill for partner labs
+
+**Context:** the PI will email the ILLUMINE partner labs that TARSUS is available, linking one page. Partner labs install it themselves, usually through a coding agent. Spec and plan: `.scratch/showcase-page/` (approved 2026-11-23).
+
+**Decision:** a hand-written, self-contained `site/index.html` (inline SVG pipeline, light/dark toggle, tooltips, no external scripts or fonts, relative asset paths) with the four Step 12 PNGs of the GAPDH purified-protein run (`output/2026-11-05-d073/gapdh_24814/12_visualize/`, run commit `616275f`) in `site/img/`, published by `.github/workflows/pages.yml` (official Pages actions, on pushes to master touching `site/`). Every number on the page carries the commit that produced it; the published-list numbers predate D-076 and D-078 and a tooltip says so. Dropped: the library-scope robustness claim (941,020 vs 11,732 candidates), whose run directory is gone and which recorded no commit. Removed: the acronym expansion, because the bold capitals in `README.md:3` spell TASUS. Bar's choices: lab name "Pilpel lab, Weizmann Institute of Science" under the title, a "Read the paper" button, and one footer line crediting Slava Tretyachenko (method and original code, github.com/treko90) and Bar Cohen (this implementation, github.com/brchn6); no other credit or cite section.
+
+Partner setup: `.agents/skills/tarsus-setup/SKILL.md` (preflight with pass conditions, stop when there is no `bsub`, human-only MSFragger/IonQuant license download into `tools/_downloads/`, ask before `uv sync` and `make setup`, tool checks, Koina health probe to choose `--msbooster-models`, first run with `--queue`, how to check it). Root `AGENTS.md` and `CLAUDE.md` point setup to the skill and development to `README.md` + `.context/architecture.md`. `.gitignore` narrowed (Bar): `.agents/*`, `!.agents/skills/`, `.agents/skills/*`, `!.agents/skills/tarsus-setup/`, so only this skill ships; `.agents/project.md` stays private.
+
+**Evidence:** preflight dry-run on login4 all pass (bsub filesystem check 677841, negative control 678092, Koina `/v2/health/ready` 678739); the no-`bsub` path stops at preflight. Reviews in `.scratch/showcase-page/reviews/`. The skill's review found D-081.
+
+---
+
+## D-080 (2026-11-24): a fresh clone installs with `make setup` alone; every download is verified before use
+
+**Context:** nobody had run `make setup` on a fresh clone, and it could not finish. The PDV 2.1.2 jar the code loads (`src/tarsus/env.py:281`) was removed from git in `a718192` and is excluded by `tools/**`; it borrows `lib/` and `resources/` from PDV 2.2.3, which the Makefile never fetched; MSFragger and IonQuant defaulted to a path in another user's home; and the PepQuery recipe moved its jar onto itself and failed (broken since the Makefile's first commit `cae65bb`; a populated `tools/` hid it). Review then found that a download failing its checksum stayed cached and was extracted unverified on the next run, and that `make clean` deleted the hand-downloaded licensed files.
+
+**Decision (Bar, 2026-11-24):** recommit `tools/PDV-2.1.2/PDV-2.1.2.jar` (same blob as `3c86293`, sha256 `8757fbdd...adf1`) with a GPL-3.0 `NOTICE`; `.gitignore` un-ignores only that jar and NOTICE under `tools/`. `make pdv` downloads the public PDV 2.2.3 zip (sha256 pinned) and links `lib/` and `resources/` beside the 2.1.2 jar when missing. `MF_SOURCE_ZIP` / `IQ_SOURCE_JAR` default to `tools/_downloads/MSFragger-4.4.1.zip` and `tools/_downloads/IonQuant-1.11.20.jar`; each lab downloads them under the academic license (overrides still work). The PepQuery recipe only unpacks and checks. Every cached archive is verified immediately before extraction and a download that fails is deleted; hand-downloaded licensed files are checked, never deleted. `make clean` removes only what `make` downloaded and extracted. `test-pdv` now really checks the jar hash.
+
+**Evidence:** fresh-clone LSF jobs 678178 (failed: PepQuery self-move), 678573 (pass at `0df557c`), 681275 (pass at `5dbbb10`): `All tools installed.`, every `make test-tools` line OK (FragPipe prints `WARN (--version not supported)` by design, same on login4), `All tool checks complete.`, `PDV: OK`. Reviewer temp harnesses: 25 bad-archive, partial-download and licensed-input cases pass. Commits `441e8e3`, `0df557c`, `09f8587`, `5dbbb10`.
+
+**Known, not fixed (pre-existing):** an installed `tools/` whose `_downloads/` cache is gone still fetches the archives on `make setup` (the archive is a plain prerequisite; extraction is then skipped). Harmless with network; a partner offline with a deleted cache would fail. `Makefile:158, 231, 288, 310, 335, 373`.
+
+---
+
+## D-081 (2026-11-24): `tarsus run --queue` reaches every child job, not only the master
+
+**Context:** `tarsus run --queue` (help: "LSF queue for all jobs") went only to the master bsub (`cli.py`). `orchestration.run_pipeline` passed no queue to any step, so every child job used the step's hardcoded default `gsla-cpu` (`step01_convert`, `step02_make_index`, `step03a_first_pass`, `step03c_second_pass`, `step05_query_psm`, `step06_aggregate_query` with its PDV shards, `step09_query_psm_base`). A partner cluster without `gsla-cpu` would install fine and fail at Step 1. Found by the review of the partner setup guide; Bar: fix it in branch `showcase-page`.
+
+**Decision:** D-076 plumbing: CLI `--queue` -> master argv `--queue` (always sent; CLI default `gsla-cpu`) -> `run_pipeline(queue=...)` -> `queue=` on every step that submits jobs (1, 2, 3a, 3c, 5, 6, 9). `queue=None` (an old master argv, or a direct `run_pipeline` call) passes nothing, so each step keeps its default. Step modules unchanged. `master.log` prints the queue at INIT; provenance already recorded it.
+
+**Tests:** `tests/unit/test_orchestration.py`: the queue reaches each of the 7 submitting steps; `None` leaves each default; every steps module that calls `submit_bsub` is covered (catches a future submitting step); argv parse. `tests/unit/test_cli_run.py`: flag reaches master argv, master bsub and provenance; default sends `gsla-cpu`; CLI argv round-trips. 11 red on the old code. Suite 415 passed, ruff and mypy clean. Commit `350516c`; independent review traced all 8 `submit_bsub` call sites.
+
+**Sentinels for existing outputs:** none. Only `cli.py` and `orchestration.py` changed and neither is in `provenance.STEP_SOURCES`; the queue does not change results.

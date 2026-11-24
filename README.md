@@ -2,6 +2,8 @@
 
 **TArgeted SUbstitution Search** — proteomics pipeline for detecting validated single amino acid substitutions (SAAVs) from mass spectrometry data.
 
+**Project page:** https://pilpelab.github.io/TARSUS/ - to install on your own LSF cluster, open your coding agent in this repository and say "set up TARSUS"; it follows [`.agents/skills/tarsus-setup/SKILL.md`](.agents/skills/tarsus-setup/SKILL.md).
+
 Configurable, shareable implementation based on: Tretyachenko et al. (2026). Encoded and non-genetic protein variants expand the human functional proteome. *Nature*. https://doi.org/10.1038/s41586-026-11124-z (preprint: https://www.biorxiv.org/content/10.1101/2025.02.17.638604). Paper digest and its differences from this implementation: `.context/paper-*.md`.
 
 Reference implementation: `TARSUS_elizabev/` (read-only symlink to the original pipeline — see `.context/reference-pipeline.md`)
@@ -196,7 +198,7 @@ make test-tools   # verify everything works
 ## Tests
 
 ```bash
-uv run pytest tests/unit tests/eval    # 345 tests, ~10s — normal dev loop (no cluster needed)
+uv run pytest tests/unit tests/eval    # 415 tests, ~10s — normal dev loop (no cluster needed)
 uv run pytest                          # +3 @pytest.mark.lsf (real-tool tests, cluster + make setup)
 uv run ruff check src/tarsus/          # lint
 uv run mypy src/tarsus/                # type checking
@@ -208,7 +210,7 @@ make test-pdv-full                     # PDV + Xvfb integration
 
 ```
 src/tarsus/     Python package (steps, CLI, env, LSF helpers)
-tests/          pytest tests (345: 317 unit + 25 eval + 3 lsf)
+tests/          pytest tests (425: 390 unit + 25 eval + 10 validation, 3 of them need LSF)
 tools/          External tools (downloaded via make setup)
 data/           Test datasets (gitignored)
 docs/           Documentation (pipeline comparison, schema, specs)

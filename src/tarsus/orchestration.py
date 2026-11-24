@@ -35,6 +35,7 @@ def run_pipeline(
     localize_tol: float | None = None,
     msbooster_models: str = "best",
     base_rescore_tol: float | None = None,
+    queue: str | None = None,
 ) -> None:
     """Execute the full TARSUS pipeline with checkpoint resumption.
 
@@ -49,10 +50,16 @@ def run_pipeline(
             production value).
         msbooster_models: Step 3a MSBooster model selection, ``best`` (Koina
             find-best, Slava's setting) or ``dia-nn`` (offline local models).
+        queue: LSF queue for every child job (Steps 1, 2, 3a, 3c, 5, 6 and 9).
+            ``None`` passes nothing, so each step uses its own default
+            (``gsla-cpu``). ``tarsus run`` always sends its ``--queue`` (D-081).
     """
     from tarsus.env import ToolEnvironment
 
     tool_env = ToolEnvironment.from_env()
+    # Every step that submits child jobs gets this, so the run's queue reaches all
+    # of them, not only the master (D-081).
+    _queue_kw: dict[str, str] = {} if queue is None else {"queue": queue}
 
     _log("INIT", f"Output: {outdir}")
     _log("INIT", f"FASTA:  {fasta}")
@@ -60,6 +67,7 @@ def run_pipeline(
     _log("INIT", f"Localize tol: {localize_tol if localize_tol is not None else 'default'} Da")
     _log("INIT", f"Base rescore tol: {base_rescore_tol if base_rescore_tol is not None else 'default'} Da")
     _log("INIT", f"MSBooster models: {msbooster_models}")
+    _log("INIT", f"LSF queue: {queue if queue is not None else 'step default'}")
     _log("INIT", f"Files:  {len(raw_files)} raw file(s)")
     for f in raw_files:
         _log("INIT", f"  {f.name}")
@@ -69,7 +77,7 @@ def run_pipeline(
     if not _skip_if_done(_s1, "S01"):
         _log("S01", "Converting .raw → .mzML (LSF)")
         from tarsus.steps.step01_convert import step01_convert
-        step01_convert(raw_files, outdir / "01_mzml", tool_env, local=False)
+        step01_convert(raw_files, outdir / "01_mzml", tool_env, local=False, **_queue_kw)
         _s1.touch()
         _log("S01", "Done")
 
@@ -82,7 +90,7 @@ def run_pipeline(
     if not _skip_if_done(_s2, "S02"):
         _log("S02", "Building PepQuery index from original mzML (LSF)")
         from tarsus.steps.step02_make_index import step02_make_index
-        step02_make_index(outdir / "01_mzml", outdir / "02_index", tool_env)
+        step02_make_index(outdir / "01_mzml", outdir / "02_index", tool_env, **_queue_kw)
         _s2.touch()
         _log("S02", "Done")
 
@@ -92,7 +100,7 @@ def run_pipeline(
         _log("S03a", "FragPipe first-pass search (LSF)")
         from tarsus.steps.step03a_first_pass import step03a_first_pass
         step03a_first_pass(fasta, outdir / "01_mzml", outdir / "03a_first_pass", tool_env,
-                           msbooster_models=msbooster_models)
+                           msbooster_models=msbooster_models, **_queue_kw)
         _s3a.touch()
         _log("S03a", "Done")
 
@@ -118,6 +126,7 @@ def run_pipeline(
             pep_candidates=outdir / "03b_candidates" / "pep_candidates.fa",
             output_dir=outdir / "03c_second_pass",
             tool_env=tool_env,
+            **_queue_kw,
         )
         _s3c.touch()
         _log("S03c", "Done")
@@ -146,6 +155,7 @@ def run_pipeline(
             output_dir=outdir / "05_pepquery",
             tool_env=tool_env,
             fasta_path=fasta,
+            **_queue_kw,
         )
         _s5.touch()
         _log("S05", "Done")
@@ -159,6 +169,7 @@ def run_pipeline(
             result_dir=outdir / "05_pepquery" / "pepquery_result",
             output_dir=outdir / "06_aggregated",
             tool_env=tool_env,
+            **_queue_kw,
         )
         _s6.touch()
         _log("S06", "Done")
@@ -242,6 +253,7 @@ def run_pipeline(
             tool_env=tool_env,
             fasta_path=fasta,
             **_base_tol_kw,
+            **_queue_kw,
         )
         _s9.touch()
         _log("S09", "Done")
@@ -312,6 +324,7 @@ def _parse_master_argv(argv: list[str]) -> tuple[Path, Path, list[Path], dict[st
         "--localize-tol": ("localize_tol", float),
         "--msbooster-models": ("msbooster_models", str),
         "--base-rescore-tol": ("base_rescore_tol", float),
+        "--queue": ("queue", str),
     }
     for flag, (key, convert) in flags.items():
         if flag in args:

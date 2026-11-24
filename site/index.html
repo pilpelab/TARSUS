@@ -1,0 +1,1076 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>TARSUS</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="TARSUS finds single amino acid substitutions in mass spectrometry data, checks each against its unsubstituted peptide and localizes it to one residue. Runs on an LSF cluster.">
+<script>
+(function () {
+  try {
+    var t = localStorage.getItem("tarsus-theme");
+    if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
+  } catch (e) {}
+})();
+</script>
+<style>
+/* Layout: a lab-bench README. A tinted hero holding one real substituted peptide, a clickable pipeline strip,
+   then plain sections whose numbers carry GitHub-style status and commit chips. Figures sit on white cards in both themes. */
+:root {
+  --bg: #f5f8f9;
+  --surface: #ffffff;
+  --sunken: #edf2f4;
+  --ink: #152025;
+  --muted: #55646b;
+  --line: #d4dde2;
+  --accent: #0a6c77;
+  --accent-ink: #ffffff;
+  --accent-soft: #dff0f2;
+  --mark: #b45309;
+  --mark-soft: #fde9cf;
+  --ok: #1a7f37;
+  --ok-soft: #dbf1e2;
+  --warn: #8a5d00;
+  --warn-soft: #fbeec6;
+  --bad: #cf222e;
+  --bad-soft: #fde1e3;
+  --none: #66717a;
+  --none-soft: #e8edf1;
+  --figure-bg: #ffffff;
+  --figure-line: #d4dde2;
+  --font-display: "Avenir Next", "Segoe UI Variable Display", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --font-body: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --radius: 10px;
+  --max: 1120px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0b1215;
+    --surface: #121b1f;
+    --sunken: #0e171a;
+    --ink: #e1e9ec;
+    --muted: #98a7ae;
+    --line: #26343a;
+    --accent: #52bccb;
+    --accent-ink: #052226;
+    --accent-soft: #123239;
+    --mark: #f3a845;
+    --mark-soft: #3a2710;
+    --ok: #4ac26b;
+    --ok-soft: #12301c;
+    --warn: #d6a92e;
+    --warn-soft: #362b0c;
+    --bad: #f85149;
+    --bad-soft: #3b1517;
+    --none: #8d979f;
+    --none-soft: #20282d;
+    --figure-bg: #ffffff;
+    --figure-line: #3a4a51;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0b1215;
+  --surface: #121b1f;
+  --sunken: #0e171a;
+  --ink: #e1e9ec;
+  --muted: #98a7ae;
+  --line: #26343a;
+  --accent: #52bccb;
+  --accent-ink: #052226;
+  --accent-soft: #123239;
+  --mark: #f3a845;
+  --mark-soft: #3a2710;
+  --ok: #4ac26b;
+  --ok-soft: #12301c;
+  --warn: #d6a92e;
+  --warn-soft: #362b0c;
+  --bad: #f85149;
+  --bad-soft: #3b1517;
+  --none: #8d979f;
+  --none-soft: #20282d;
+  --figure-bg: #ffffff;
+  --figure-line: #3a4a51;
+  color-scheme: dark;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+:root { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+html { -webkit-text-size-adjust: 100%; scroll-padding-top: 72px; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 15px/1.55 var(--font-body);
+}
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0 0 auto;
+  height: env(safe-area-inset-top, 0px);
+  z-index: 10;
+  background: var(--surface);
+}
+img { max-width: 100%; height: auto; display: block; }
+a { color: var(--accent); }
+a:hover { text-decoration-thickness: 2px; }
+code, pre, kbd, .mono { font-family: var(--font-mono); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; margin: 0; line-height: 1.15; }
+h2 { font-size: clamp(1.45rem, 1.1rem + 1.2vw, 1.9rem); font-weight: 700; letter-spacing: -0.01em; }
+h3 { font-size: 1.05rem; font-weight: 650; }
+p { margin: 0; }
+
+.wrap {
+  max-width: var(--max);
+  margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+main, footer { overflow-x: clip; }
+
+/* Header */
+.site-header {
+  position: sticky;
+  top: env(safe-area-inset-top, 0px);
+  z-index: 20;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+.site-header .wrap { display: flex; align-items: center; gap: 16px; min-height: 56px; }
+.brand { display: flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-weight: 700; letter-spacing: 0.08em; color: var(--ink); text-decoration: none; }
+.brand-mark { display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 6px; background: var(--accent); color: var(--accent-ink); font-size: 13px; }
+.nav { display: flex; gap: 4px; margin-left: auto; flex-wrap: wrap; }
+.nav a { color: var(--muted); text-decoration: none; font-size: 13.5px; padding: 6px 10px; border-radius: 6px; }
+.nav a:hover { color: var(--ink); background: var(--sunken); }
+.head-actions { display: flex; gap: 8px; align-items: center; }
+.icon-btn {
+  display: inline-grid; place-items: center;
+  width: 36px; height: 36px; border-radius: 8px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+  cursor: pointer; text-decoration: none;
+}
+.icon-btn:hover { background: var(--sunken); }
+.icon-btn svg { width: 18px; height: 18px; }
+.theme-btn .moon { display: none; }
+:root[data-theme="dark"] .theme-btn .sun { display: none; }
+:root[data-theme="dark"] .theme-btn .moon { display: block; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .theme-btn .sun { display: none; }
+  :root:not([data-theme="light"]) .theme-btn .moon { display: block; }
+}
+@media (max-width: 860px) { .nav { display: none; } .head-actions { margin-left: auto; } }
+
+/* Chips, badges */
+.chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  font: 600 12px/1 var(--font-body);
+  padding: 4px 9px; border-radius: 999px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.chip svg { width: 12px; height: 12px; }
+.chip.ok { color: var(--ok); background: var(--ok-soft); border-color: color-mix(in srgb, var(--ok) 30%, transparent); }
+.chip.warn { color: var(--warn); background: var(--warn-soft); border-color: color-mix(in srgb, var(--warn) 30%, transparent); }
+.chip.bad { color: var(--bad); background: var(--bad-soft); border-color: color-mix(in srgb, var(--bad) 30%, transparent); }
+.chip.none { color: var(--none); background: var(--none-soft); border-color: color-mix(in srgb, var(--none) 25%, transparent); }
+.chip.accent { color: var(--accent); background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 30%, transparent); }
+.commit {
+  display: inline-flex; align-items: center; gap: 5px;
+  font: 500 12px/1 var(--font-mono);
+  padding: 4px 8px; border-radius: 6px;
+  color: var(--muted); background: var(--sunken); border: 1px solid var(--line);
+  text-decoration: none; white-space: nowrap;
+}
+.commit:hover { color: var(--accent); border-color: var(--accent); }
+.commit svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.6; }
+.row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.chip.long { white-space: normal; line-height: 1.3; }
+.vcard, .val, .panel, .pipe-box { grid-template-columns: minmax(0, 1fr); }
+
+/* Tooltips */
+.tipwrap { position: relative; display: inline-flex; vertical-align: middle; }
+.tip {
+  width: 18px; height: 18px; border-radius: 50%;
+  border: 1px solid var(--line); background: var(--surface); color: var(--muted);
+  font: 700 11px/1 var(--font-body); cursor: pointer; padding: 0;
+  display: inline-grid; place-items: center;
+}
+.tip:hover, .tipwrap.open .tip { color: var(--accent); border-color: var(--accent); }
+.pop {
+  display: none;
+  position: absolute; top: calc(100% + 8px); left: 50%;
+  transform: translateX(calc(-50% + var(--dx, 0px)));
+  width: max-content; max-width: min(19rem, calc(100vw - 32px));
+  z-index: 30;
+  padding: 10px 12px; border-radius: 8px;
+  background: var(--ink); color: var(--bg);
+  font: 400 13px/1.45 var(--font-body); text-align: left; letter-spacing: normal; text-transform: none;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  white-space: normal;
+}
+.pop code { color: inherit; font-size: 12px; }
+.tipwrap.open .pop { display: block; }
+@media (hover: hover) { .tipwrap:hover .pop { display: block; } }
+
+/* Sections */
+section { padding-block: 56px; }
+section + section { border-top: 1px solid var(--line); }
+.sec-head { display: grid; gap: 8px; margin-bottom: 28px; max-width: 70ch; }
+.eyebrow { font: 700 12px/1 var(--font-mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); }
+.sec-head p { color: var(--muted); }
+
+/* Hero */
+.hero { background: linear-gradient(180deg, var(--accent-soft), var(--bg)); border-bottom: 1px solid var(--line); padding-block: 48px 52px; }
+.hero-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 40px; align-items: center; }
+.hero h1 { font-family: var(--font-mono); font-size: clamp(2.6rem, 1.8rem + 3.4vw, 4.2rem); letter-spacing: 0.06em; font-weight: 800; }
+.hero .lab { font: 600 15px/1.35 var(--font-body); color: var(--muted); margin-top: 8px; }
+.lede { font-size: 1.12rem; margin-top: 18px; max-width: 34em; }
+.banner {
+  display: flex; gap: 12px; align-items: flex-start;
+  margin-top: 22px; padding: 12px 14px;
+  border-radius: var(--radius);
+  background: var(--surface); border: 1px solid color-mix(in srgb, var(--ok) 45%, var(--line));
+  box-shadow: inset 4px 0 0 var(--ok);
+}
+.banner .big { font: 800 1.5rem/1 var(--font-display); color: var(--ok); white-space: nowrap; }
+.banner .txt { display: grid; gap: 6px; font-size: 14px; }
+.cta { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 22px; }
+.btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 10px 16px; border-radius: 8px;
+  font-weight: 600; text-decoration: none;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+}
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn svg { width: 16px; height: 16px; }
+
+.pep-card { margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 20px; display: grid; gap: 14px; min-width: 0; }
+.pep-card .cap { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; align-items: center; }
+.pep-card .cap h3 { font-size: 14px; color: var(--muted); font-weight: 600; font-family: var(--font-body); }
+.pep { display: grid; gap: 6px; }
+.pep-row { display: grid; grid-template-columns: 5.5rem minmax(0, 1fr); align-items: center; gap: 8px; }
+.pep-label { font: 600 12px/1.2 var(--font-mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.residues { display: grid; grid-template-columns: repeat(8, minmax(0, 2.3rem)); gap: 4px; }
+.res {
+  display: grid; place-items: center; aspect-ratio: 1 / 1.1;
+  font: 700 1.05rem/1 var(--font-mono);
+  border-radius: 6px; background: var(--sunken); border: 1px solid var(--line); color: var(--ink);
+}
+.res.hit { background: var(--mark-soft); border-color: var(--mark); color: var(--mark); }
+.res.base-hit { border-color: var(--mark); border-style: dashed; }
+.shift { display: grid; grid-template-columns: 5.5rem minmax(0, 1fr); gap: 8px; }
+.shift-bar { display: grid; grid-template-columns: repeat(8, minmax(0, 2.3rem)); gap: 4px; }
+.shift-bar span { grid-column: 5; text-align: center; font: 700 11px/1 var(--font-mono); color: var(--mark); white-space: nowrap; }
+.pep-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.fact { background: var(--sunken); border-radius: 8px; padding: 8px 10px; min-width: 0; }
+.fact .k { font: 600 11px/1.2 var(--font-mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; display: flex; gap: 4px; align-items: center; }
+.fact .v { font: 700 1.05rem/1.3 var(--font-mono); margin-top: 2px; }
+.pep-src { font-size: 12px; color: var(--muted); display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+
+@media (max-width: 860px) {
+  .hero-grid { grid-template-columns: minmax(0, 1fr); gap: 28px; }
+}
+@media (max-width: 420px) {
+  .pep-row, .shift { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .shift .pep-label { display: none; }
+  .residues, .shift-bar { grid-template-columns: repeat(8, minmax(0, 1fr)); }
+  .banner { flex-direction: column; gap: 6px; }
+}
+
+/* Stat cards */
+.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+.stat {
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 18px; display: grid; gap: 8px; align-content: start; min-width: 0;
+}
+.stat .n { font: 800 2.3rem/1 var(--font-display); letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.stat .n small { font-size: 1.1rem; color: var(--muted); font-weight: 700; }
+.stat .l { font-weight: 600; display: flex; gap: 6px; align-items: center; }
+.stat .s { color: var(--muted); font-size: 13.5px; }
+.stat .row { margin-top: 4px; }
+@media (max-width: 960px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 480px) { .stats { grid-template-columns: minmax(0, 1fr); } }
+
+/* Pipeline */
+.pipe-box { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 18px; }
+.pipe-svg { width: 100%; height: auto; display: block; }
+.pipe-narrow { display: none; }
+@media (max-width: 760px) { .pipe-wide { display: none; } .pipe-narrow { display: block; max-width: 420px; margin: 0 auto; } }
+.pipe-svg .stage { font: 700 11px var(--font-mono); letter-spacing: 0.1em; fill: var(--muted); }
+.pipe-svg .node { cursor: pointer; outline: none; }
+.pipe-svg .node rect.box { fill: var(--surface); stroke: var(--line); stroke-width: 1.2; transition: stroke 0.15s; }
+.pipe-svg .node.key rect.box { fill: var(--accent-soft); stroke: var(--accent); }
+.pipe-svg .node .num { font: 700 12px var(--font-mono); fill: var(--accent); }
+.pipe-svg .node .name { font: 600 12.5px var(--font-body); fill: var(--ink); }
+.pipe-svg .node:hover rect.box { stroke: var(--accent); stroke-width: 2; }
+.pipe-svg .node:focus-visible rect.box { stroke: var(--accent); stroke-width: 2.5; }
+.pipe-svg .node[aria-pressed="true"] rect.box { stroke: var(--mark); stroke-width: 2.5; }
+.pipe-svg .link { fill: none; stroke: var(--muted); stroke-width: 1.4; }
+.pipe-svg .ah { fill: var(--muted); }
+.pipe-svg .out rect { fill: var(--sunken); stroke: var(--muted); stroke-dasharray: 4 3; stroke-width: 1.1; }
+.pipe-svg .out text { font: 600 10.5px var(--font-mono); fill: var(--ink); }
+.pipe-narrow .node .name { font-size: 11.5px; }
+@media (max-width: 480px) { .pipe-box { padding: 10px; } }
+.pipe-svg .out .sub { font: 500 10px var(--font-body); fill: var(--muted); }
+.pipe-legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 12px; font-size: 12.5px; color: var(--muted); align-items: center; }
+.sw { display: inline-block; width: 14px; height: 14px; border-radius: 4px; vertical-align: -2px; margin-right: 6px; border: 1px solid var(--line); background: var(--surface); }
+.sw.key { background: var(--accent-soft); border-color: var(--accent); }
+.sw.sel { border: 2px solid var(--mark); }
+.step-detail {
+  margin-top: 16px; padding: 16px; border-radius: var(--radius);
+  background: var(--sunken); border: 1px solid var(--line);
+  display: grid; gap: 8px; min-height: 120px;
+}
+.sd-head { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.sd-num { font: 800 1.1rem/1 var(--font-mono); color: var(--accent-ink); background: var(--accent); padding: 5px 9px; border-radius: 6px; }
+.sd-name { font: 700 1.1rem/1.2 var(--font-display); }
+.sd-text { max-width: 75ch; }
+.sd-tool { font-size: 13px; color: var(--muted); }
+.sd-tool b { color: var(--ink); font-weight: 600; }
+
+/* Can / cannot */
+.two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 760px) { .two { grid-template-columns: minmax(0, 1fr); } }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; min-width: 0; }
+.panel h3 { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+.panel h3 .dot { width: 10px; height: 10px; border-radius: 50%; }
+.dot.ok { background: var(--ok); } .dot.none { background: var(--none); } .dot.warn { background: var(--warn); }
+.items { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.items li { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 8px; align-items: start; }
+.items li svg { width: 18px; height: 18px; margin-top: 2px; }
+.items .ok svg { color: var(--ok); }
+.items .none svg { color: var(--none); }
+.items li .t { display: inline; }
+.items li .t .tipwrap { margin-left: 4px; }
+
+/* Input */
+.flags { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 960px) { .flags { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .flags { grid-template-columns: minmax(0, 1fr); } }
+.flag { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; display: grid; gap: 6px; align-content: start; min-width: 0; }
+.flag.req { border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); }
+.flag .f { font: 700 14px/1.3 var(--font-mono); color: var(--ink); overflow-wrap: anywhere; }
+.flag .d { color: var(--muted); font-size: 13.5px; }
+.flag .row { justify-content: space-between; }
+.group-label { font: 700 12px/1 var(--font-mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin: 6px 0 10px; }
+.group-label + .flags { margin-bottom: 22px; }
+
+/* Output */
+.out-grid { display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); gap: 16px; align-items: start; }
+@media (max-width: 860px) { .out-grid { grid-template-columns: minmax(0, 1fr); } }
+.scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+pre.tree {
+  margin: 0; padding: 14px 16px; border-radius: var(--radius);
+  background: var(--sunken); border: 1px solid var(--line);
+  font-size: 12.5px; line-height: 1.6; color: var(--ink);
+}
+pre.tree .c { color: var(--muted); }
+pre.tree .fin { color: var(--ok); font-weight: 700; }
+table.cols { width: 100%; border-collapse: collapse; font-size: 13.5px; background: var(--surface); }
+table.cols th, table.cols td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.cols th { font: 700 11.5px/1.2 var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); background: var(--sunken); }
+table.cols td:first-child, table.cols td:last-child { font-family: var(--font-mono); white-space: nowrap; }
+table.cols td:last-child { color: var(--mark); font-weight: 700; }
+.table-box { border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.table-box .scroll { border-radius: var(--radius); }
+.note { font-size: 13px; color: var(--muted); margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+
+.figs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 28px; }
+@media (max-width: 760px) { .figs { grid-template-columns: minmax(0, 1fr); } }
+.fig { margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; display: grid; gap: 10px; align-content: start; min-width: 0; }
+.fig .plate { background: var(--figure-bg); border: 1px solid var(--figure-line); border-radius: 8px; padding: 10px; display: grid; place-items: center; }
+.fig .plate a { display: block; }
+.fig.tall .plate img { max-height: 560px; width: auto; }
+.fig figcaption { display: grid; gap: 6px; font-size: 13.5px; }
+.fig figcaption .ttl { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-weight: 650; }
+.fig figcaption .ttl code { font-size: 12.5px; font-weight: 500; color: var(--muted); }
+.fig figcaption p { color: var(--muted); }
+
+/* Validation */
+.val { display: grid; gap: 18px; }
+.vcard { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 20px; display: grid; gap: 16px; min-width: 0; }
+.vcard-head { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; align-items: center; }
+.vrows { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 760px) { .vrows { grid-template-columns: minmax(0, 1fr); } }
+.vrow { border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; display: grid; gap: 10px; align-content: start; min-width: 0; background: var(--bg); }
+.vrow .top { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; align-items: center; }
+.vrow .what { font-weight: 650; }
+.vrow .big { font: 800 1.9rem/1 var(--font-display); font-variant-numeric: tabular-nums; }
+.vrow .big small { font-size: 0.95rem; color: var(--muted); font-weight: 600; margin-left: 4px; }
+.vrow .d { color: var(--muted); font-size: 13.5px; }
+.mini { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.mini div { background: var(--sunken); border-radius: 6px; padding: 6px 8px; min-width: 0; }
+.mini .k { font: 600 10.5px/1.2 var(--font-mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+.mini .v { font: 700 14px/1.3 var(--font-mono); font-variant-numeric: tabular-nums; }
+
+.bars { display: grid; gap: 12px; }
+.bar-row { display: grid; grid-template-columns: 6.5rem minmax(0, 1fr) 4.2rem; gap: 10px; align-items: center; }
+.bar-row .name { font-weight: 650; font-size: 14px; }
+.bar-row .name small { display: block; font-weight: 500; color: var(--muted); font-size: 12px; }
+.track { position: relative; height: 26px; background: var(--sunken); border-radius: 6px; overflow: hidden; border: 1px solid var(--line); }
+.track .s7, .track .s11 { position: absolute; left: 0; }
+.track .s7 { top: 0; bottom: 0; background: color-mix(in srgb, var(--accent) 28%, transparent); }
+.track .s11 { top: 7px; bottom: 7px; border-radius: 0 3px 3px 0; }
+.track .s11.ok { background: var(--ok); }
+.track .s11.warn { background: var(--warn); }
+.bar-row .val-n { font: 700 13px/1.25 var(--font-mono); text-align: right; font-variant-numeric: tabular-nums; }
+.bar-row .val-n small { display: block; color: var(--muted); font-weight: 500; }
+.bar-total { border-top: 1px solid var(--line); padding-top: 12px; }
+.bar-legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); align-items: center; }
+.bar-legend i { display: inline-block; width: 18px; height: 10px; border-radius: 3px; vertical-align: 0; margin-right: 6px; }
+.bar-legend .l7 { background: color-mix(in srgb, var(--accent) 28%, transparent); border: 1px solid var(--line); height: 14px; }
+.bar-legend .l11 { background: var(--ok); height: 6px; }
+@media (max-width: 480px) {
+  .bar-row { grid-template-columns: minmax(0, 1fr) 4.2rem; }
+  .bar-row .name { grid-column: 1 / -1; }
+}
+.callout {
+  display: flex; gap: 12px; align-items: flex-start;
+  padding: 12px 14px; border-radius: var(--radius);
+  background: var(--ok-soft); border: 1px solid color-mix(in srgb, var(--ok) 35%, transparent);
+}
+.callout .k { font: 800 1.2rem/1 var(--font-display); color: var(--ok); white-space: nowrap; }
+.callout .txt { display: grid; gap: 6px; font-size: 14px; }
+.eng { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 960px) { .eng { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 480px) { .eng { grid-template-columns: minmax(0, 1fr); } }
+.eng .item { border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; background: var(--bg); display: grid; gap: 6px; align-content: start; min-width: 0; }
+.eng .item .h { display: flex; gap: 8px; align-items: center; font-weight: 650; }
+.eng .item .h svg { width: 18px; height: 18px; color: var(--accent); flex: none; }
+.eng .item p { color: var(--muted); font-size: 13.5px; }
+
+/* Run */
+.reqs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 22px; }
+.reqs .chip { font-size: 12.5px; padding: 6px 10px; }
+.paths { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 860px) { .paths { grid-template-columns: minmax(0, 1fr); } }
+.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; counter-reset: s; }
+.steps li { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 12px; align-items: start; counter-increment: s; }
+.steps li::before {
+  content: counter(s);
+  display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%;
+  background: var(--accent); color: var(--accent-ink); font: 700 13px/1 var(--font-mono);
+}
+.steps li .b { display: grid; gap: 6px; min-width: 0; }
+.steps li .b b { font-weight: 650; }
+.steps li .b span { color: var(--muted); font-size: 13.5px; }
+.say {
+  font: 700 15px/1.3 var(--font-mono); color: var(--accent);
+  background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  padding: 8px 12px; border-radius: 8px; justify-self: start;
+}
+.inline-code { font: 500 12.5px/1.4 var(--font-mono); background: var(--sunken); border: 1px solid var(--line); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+.code-card { background: var(--sunken); border: 1px solid var(--line); border-radius: var(--radius); min-width: 0; }
+.code-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 10px 8px 14px; border-bottom: 1px solid var(--line); font: 600 12px/1 var(--font-mono); color: var(--muted); }
+.copy-btn { font: 600 12px/1 var(--font-body); padding: 6px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer; }
+.copy-btn:hover { border-color: var(--accent); }
+pre.code { margin: 0; padding: 14px; font-size: 12.5px; line-height: 1.65; color: var(--ink); }
+pre.code .c { color: var(--muted); }
+
+footer { border-top: 1px solid var(--line); background: var(--surface); }
+footer .wrap { padding-block: 24px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px 32px; align-items: end; font-size: 13px; color: var(--muted); }
+footer p { overflow-wrap: anywhere; }
+.foot-people, .foot-meta { display: grid; gap: 4px; min-width: 0; }
+.foot-title { color: var(--ink); font-weight: 650; }
+.foot-meta { text-align: right; }
+@media (max-width: 760px) { footer .wrap { grid-template-columns: minmax(0, 1fr); } .foot-meta { text-align: left; } }
+
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
+@media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-check" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M3 8.5l3.2 3L13 4.5"/></symbol>
+    <symbol id="i-minus" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M5.2 8h5.6"/></symbol>
+    <symbol id="i-commit" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.8"/><path d="M1 8h4.2M10.8 8H15"/></symbol>
+    <symbol id="i-github" viewBox="0 0 16 16"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" d="M8 1.5l5.5 2v4.2c0 3.3-2.3 5.9-5.5 6.8-3.2-.9-5.5-3.5-5.5-6.8V3.5z"/><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" d="M5.4 8.1l1.8 1.8 3.4-3.6"/></symbol>
+    <symbol id="i-tag" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" d="M1.8 8.6V2.2h6.4l6 6-6.4 6.4z"/><circle cx="5" cy="5.3" r="1.2" fill="currentColor"/></symbol>
+    <symbol id="i-redo" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" d="M13 3.5v3.6H9.4"/><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" d="M12.6 7A5 5 0 103 9.6"/></symbol>
+    <symbol id="i-paper" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" d="M3.5 1.5h6l3 3v10h-9z"/><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" d="M5.8 7.5h4.4M5.8 10h4.4M5.8 12.4h2.8"/></symbol>
+    <symbol id="i-resume" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" d="M2.5 3v10M6 3.5l7 4.5-7 4.5z"/></symbol>
+  </defs>
+</svg>
+
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="#top" aria-label="TARSUS, back to top"><span class="brand-mark" aria-hidden="true">T</span>TARSUS</a>
+    <nav class="nav" aria-label="Sections">
+      <a href="#what">What it does</a>
+      <a href="#limits">Can / cannot</a>
+      <a href="#input">Input</a>
+      <a href="#output">Output</a>
+      <a href="#validation">Validation</a>
+      <a href="#run">Get it running</a>
+    </nav>
+    <div class="head-actions">
+      <a class="icon-btn" href="https://github.com/pilpelab/TARSUS" aria-label="Source on GitHub"><svg><use href="#i-github"/></svg></a>
+      <button type="button" class="icon-btn theme-btn" id="theme-btn" aria-label="Switch light or dark theme">
+        <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4.2"/><path d="M12 2v2.2M12 19.8V22M4.9 4.9l1.6 1.6M17.5 17.5l1.6 1.6M2 12h2.2M19.8 12H22M4.9 19.1l1.6-1.6M17.5 6.5l1.6-1.6"/></svg>
+        <svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M20.5 14.6A8.5 8.5 0 019.4 3.5a8.5 8.5 0 1011.1 11.1z"/></svg>
+      </button>
+    </div>
+  </div>
+</header>
+
+<main id="top">
+
+<!-- 1. Hero -->
+<section class="hero" aria-labelledby="hero-title">
+  <div class="wrap hero-grid">
+    <div>
+      <p class="eyebrow">Proteomics pipeline · open source · MIT</p>
+      <h1 id="hero-title">TARSUS</h1>
+      <p class="lab">Pilpel lab, Weizmann Institute of Science</p>
+      <p class="lede">Finds single amino acid substitutions in mass spectrometry data, checks each one against its unsubstituted peptide, and pins it to one residue. One command, on your LSF cluster.</p>
+      <div class="banner" role="note">
+        <span class="big">166/166</span>
+        <span class="txt">
+          <span>shared spectra get the same substitution at the same position as the reference pipeline it reimplements.</span>
+          <span class="row">
+            <span class="chip ok"><svg><use href="#i-check"/></svg>exact</span>
+            <a class="commit" href="https://github.com/pilpelab/TARSUS/commit/d3d43ff" title="Commit that produced this result"><svg><use href="#i-commit"/></svg>d3d43ff</a>
+          </span>
+        </span>
+      </div>
+      <div class="cta">
+        <a class="btn primary" href="#run">Get it running</a>
+        <a class="btn" href="https://doi.org/10.1038/s41586-026-11124-z"><svg><use href="#i-paper"/></svg>Read the paper</a>
+        <a class="btn" href="https://github.com/pilpelab/TARSUS"><svg><use href="#i-github"/></svg>Source on GitHub</a>
+      </div>
+    </div>
+
+    <figure class="pep-card" aria-label="Example call from the GAPDH run">
+      <div class="cap">
+        <h3>One call from the GAPDH run</h3>
+        <span class="chip accent">final table row</span>
+      </div>
+      <div class="pep">
+        <div class="pep-row">
+          <span class="pep-label">base</span>
+          <span class="residues" aria-label="Base peptide VGVNGFGR">
+            <span class="res">V</span><span class="res">G</span><span class="res">V</span><span class="res">N</span><span class="res hit base-hit">G</span><span class="res">F</span><span class="res">G</span><span class="res">R</span>
+          </span>
+        </div>
+        <div class="shift" aria-hidden="true">
+          <span class="pep-label"></span>
+          <span class="shift-bar"><span>+58.0055 Da</span></span>
+        </div>
+        <div class="pep-row">
+          <span class="pep-label">variant</span>
+          <span class="residues" aria-label="Substituted peptide VGVNDFGR">
+            <span class="res">V</span><span class="res">G</span><span class="res">V</span><span class="res">N</span><span class="res hit">D</span><span class="res">F</span><span class="res">G</span><span class="res">R</span>
+          </span>
+        </div>
+      </div>
+      <div class="pep-facts">
+        <div class="fact"><div class="k">change</div><div class="v">G→D</div></div>
+        <div class="fact"><div class="k">protein</div><div class="v">GAPDH</div></div>
+        <div class="fact"><div class="k">dpbp
+          <span class="tipwrap"><button type="button" class="tip" aria-label="What dpbp means">?</button><span class="pop">log10 of variant intensity over its base peptide's intensity. -2.60 means the variant is about 0.25% as abundant as the unsubstituted peptide.</span></span>
+        </div><div class="v">-2.60</div></div>
+      </div>
+      <div class="pep-src">
+        <span>Human GAPDH sample, full human proteome</span>
+        <a class="commit" href="https://github.com/pilpelab/TARSUS/commit/616275f" title="Commit that produced this run"><svg><use href="#i-commit"/></svg>616275f</a>
+      </div>
+    </figure>
+  </div>
+</section>
+
+<!-- 2. Stat cards -->
+<section aria-label="Key numbers">
+  <div class="wrap">
+    <div class="stats">
+      <div class="stat">
+        <div class="n">166<small>/166</small></div>
+        <div class="l">Reference agreement
+          <span class="tipwrap"><button type="button" class="tip" aria-label="About reference agreement">?</button><span class="pop">Human GAPDH sample, 15 raw fractions, full human proteome, same inputs as the reference run. Both pipelines report 233 unique substituted spectra. 166 are shared, and all 166 agree on substitution and position. The 67 each side has alone are symmetric (67 vs 67), the pattern of a search-engine version difference, not of a logic error.</span></span>
+        </div>
+        <div class="s">shared spectra, same substitution and position</div>
+        <div class="row"><span class="chip ok"><svg><use href="#i-check"/></svg>exact</span><a class="commit" href="https://github.com/pilpelab/TARSUS/commit/d3d43ff"><svg><use href="#i-commit"/></svg>d3d43ff</a></div>
+      </div>
+      <div class="stat">
+        <div class="n">146<small>/152</small></div>
+        <div class="l">Published list recovered
+          <span class="tipwrap"><button type="button" class="tip" aria-label="About the published list">?</button><span class="pop">Unique substituted peptides in the published final list (Nature 2026, Supplementary Table 14) for four purified proteins: GAPDH, hemoglobin, PARK7, PRDX6. 146 of 152 are found by Step 7 (96%); 129 of 152 survive localization (85%).</span></span>
+        </div>
+        <div class="s">four purified proteins, Step 7 (96%)</div>
+        <div class="row"><span class="chip warn">129/152 after Step 11</span><a class="commit" href="https://github.com/pilpelab/TARSUS/commit/616275f"><svg><use href="#i-commit"/></svg>616275f</a></div>
+      </div>
+      <div class="stat">
+        <div class="n">415</div>
+        <div class="l">Tests passing
+          <span class="tipwrap"><button type="button" class="tip" aria-label="About the tests">?</button><span class="pop">Unit and evaluation tests: <code>uv run python -m pytest tests/unit tests/eval</code>. About 20 seconds, no cluster needed. The evaluation tests replay real E. coli and human GAPDH inputs against golden outputs.</span></span>
+        </div>
+        <div class="s">unit + evaluation, no cluster needed</div>
+        <div class="row"><span class="chip ok"><svg><use href="#i-check"/></svg>passing</span><a class="commit" href="https://github.com/pilpelab/TARSUS/commit/5dbbb10"><svg><use href="#i-commit"/></svg>5dbbb10</a></div>
+      </div>
+      <div class="stat">
+        <div class="n">12</div>
+        <div class="l">Steps, one command
+          <span class="tipwrap"><button type="button" class="tip" aria-label="About the steps">?</button><span class="pop">Steps 1-11 do the analysis, Step 12 draws the figures. Step 3 has three parts (3a, 3b, 3c). One LSF master job runs them all and sends the heavy tools out as child jobs.</span></span>
+        </div>
+        <div class="s">one LSF master job runs them all</div>
+        <div class="row"><span class="chip accent">tarsus run</span><a class="commit" href="https://github.com/pilpelab/TARSUS/commit/4fdc5aa"><svg><use href="#i-commit"/></svg>4fdc5aa</a></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 3. What it does -->
+<section id="what" aria-labelledby="what-title">
+  <div class="wrap">
+    <div class="sec-head">
+      <p class="eyebrow">What it does</p>
+      <h2 id="what-title">Raw spectra in, localized substitutions out</h2>
+      <p>Your first-pass identifications define the search space: every peptide found becomes all of its allowed single-residue variants. Each variant must then pass three checks: validation, base-peptide rescoring and localization. Click a step for detail.</p>
+    </div>
+    <div class="pipe-box">
+<svg class="pipe-svg pipe-wide" viewBox="0 0 1086 222" role="group" aria-label="TARSUS pipeline, 12 steps in 7 stages"><defs><marker id="ahw" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L8,4 L0,8 z"/></marker></defs><text class="stage" x="8" y="22">PREPARE</text><g class="node" data-step="1" tabindex="0" role="button" aria-pressed="false" aria-label="Step 1: Convert"><title>Step 1: Convert</title><rect class="box" x="8" y="40" width="128" height="44" rx="8"/><text class="num" x="18" y="56">1</text><text class="name" x="18" y="75">Convert</text></g><g class="node" data-step="2" tabindex="0" role="button" aria-pressed="false" aria-label="Step 2: Index spectra"><title>Step 2: Index spectra</title><rect class="box" x="8" y="102" width="128" height="44" rx="8"/><text class="num" x="18" y="118">2</text><text class="name" x="18" y="137">Index</text></g><path class="link" d="M72.0,86 V100" marker-end="url(#ahw)"/><text class="stage" x="164" y="22">SEARCH</text><g class="node" data-step="3a" tabindex="0" role="button" aria-pressed="false" aria-label="Step 3a: First pass"><title>Step 3a: First pass</title><rect class="box" x="164" y="40" width="128" height="44" rx="8"/><text class="num" x="174" y="56">3a</text><text class="name" x="174" y="75">First pass</text></g><g class="node key" data-step="3b" tabindex="0" role="button" aria-pressed="true" aria-label="Step 3b: In-silico mutagenesis"><title>Step 3b: In-silico mutagenesis</title><rect class="box" x="164" y="102" width="128" height="44" rx="8"/><text class="num" x="174" y="118">3b</text><text class="name" x="174" y="137">Mutagenesis</text></g><path class="link" d="M228.0,86 V100" marker-end="url(#ahw)"/><g class="node" data-step="3c" tabindex="0" role="button" aria-pressed="false" aria-label="Step 3c: Second pass"><title>Step 3c: Second pass</title><rect class="box" x="164" y="164" width="128" height="44" rx="8"/><text class="num" x="174" y="180">3c</text><text class="name" x="174" y="199">Second pass</text></g><path class="link" d="M228.0,148 V162" marker-end="url(#ahw)"/><path class="link" d="M136,124.0 H150.0 V62.0 H162" marker-end="url(#ahw)"/><text class="stage" x="320" y="22">VALIDATE</text><g class="node" data-step="4" tabindex="0" role="button" aria-pressed="false" aria-label="Step 4: Extract PSMs"><title>Step 4: Extract PSMs</title><rect class="box" x="320" y="40" width="128" height="44" rx="8"/><text class="num" x="330" y="56">4</text><text class="name" x="330" y="75">Extract PSMs</text></g><g class="node key" data-step="5" tabindex="0" role="button" aria-pressed="false" aria-label="Step 5: Variant validation"><title>Step 5: Variant validation</title><rect class="box" x="320" y="102" width="128" height="44" rx="8"/><text class="num" x="330" y="118">5</text><text class="name" x="330" y="137">Validate</text></g><path class="link" d="M384.0,86 V100" marker-end="url(#ahw)"/><g class="node" data-step="6" tabindex="0" role="button" aria-pressed="false" aria-label="Step 6: Aggregate"><title>Step 6: Aggregate</title><rect class="box" x="320" y="164" width="128" height="44" rx="8"/><text class="num" x="330" y="180">6</text><text class="name" x="330" y="199">Aggregate</text></g><path class="link" d="M384.0,148 V162" marker-end="url(#ahw)"/><path class="link" d="M292,186.0 H306.0 V62.0 H318" marker-end="url(#ahw)"/><text class="stage" x="476" y="22">ANALYZE</text><g class="node" data-step="7" tabindex="0" role="button" aria-pressed="false" aria-label="Step 7: Substitution table"><title>Step 7: Substitution table</title><rect class="box" x="476" y="40" width="128" height="44" rx="8"/><text class="num" x="486" y="56">7</text><text class="name" x="486" y="75">Subs table</text></g><path class="link" d="M448,186.0 H462.0 V62.0 H474" marker-end="url(#ahw)"/><text class="stage" x="632" y="22">BASE CHECK</text><g class="node" data-step="8" tabindex="0" role="button" aria-pressed="false" aria-label="Step 8: Base inputs"><title>Step 8: Base inputs</title><rect class="box" x="632" y="40" width="128" height="44" rx="8"/><text class="num" x="642" y="56">8</text><text class="name" x="642" y="75">Base inputs</text></g><g class="node key" data-step="9" tabindex="0" role="button" aria-pressed="false" aria-label="Step 9: Base rescoring"><title>Step 9: Base rescoring</title><rect class="box" x="632" y="102" width="128" height="44" rx="8"/><text class="num" x="642" y="118">9</text><text class="name" x="642" y="137">Base rescore</text></g><path class="link" d="M696.0,86 V100" marker-end="url(#ahw)"/><g class="node" data-step="10" tabindex="0" role="button" aria-pressed="false" aria-label="Step 10: Aggregate base"><title>Step 10: Aggregate base</title><rect class="box" x="632" y="164" width="128" height="44" rx="8"/><text class="num" x="642" y="180">10</text><text class="name" x="642" y="199">Aggregate</text></g><path class="link" d="M696.0,148 V162" marker-end="url(#ahw)"/><path class="link" d="M604,62.0 H630" marker-end="url(#ahw)"/><text class="stage" x="788" y="22">LOCALIZE</text><g class="node key" data-step="11" tabindex="0" role="button" aria-pressed="false" aria-label="Step 11: Localize"><title>Step 11: Localize</title><rect class="box" x="788" y="40" width="128" height="44" rx="8"/><text class="num" x="798" y="56">11</text><text class="name" x="798" y="75">Localize</text></g><path class="link" d="M760,186.0 H774.0 V62.0 H786" marker-end="url(#ahw)"/><path class="link" d="M852.0,86 V100" marker-end="url(#ahw)"/><g class="out"><rect x="788" y="102" width="128" height="40" rx="7"/><text x="798" y="119">subs_localized.csv</text><text class="sub" x="798" y="133">final table</text></g><text class="stage" x="944" y="22">REPORT</text><g class="node" data-step="12" tabindex="0" role="button" aria-pressed="false" aria-label="Step 12: Figures"><title>Step 12: Figures</title><rect class="box" x="944" y="40" width="128" height="44" rx="8"/><text class="num" x="954" y="56">12</text><text class="name" x="954" y="75">Figures</text></g><path class="link" d="M916,62.0 H942" marker-end="url(#ahw)"/><path class="link" d="M1008.0,86 V100" marker-end="url(#ahw)"/><g class="out"><rect x="944" y="102" width="128" height="40" rx="7"/><text x="954" y="119">12_visualize/</text><text class="sub" x="954" y="133">PNG figures</text></g></svg>
+<svg class="pipe-svg pipe-narrow" viewBox="0 0 340 646" role="group" aria-label="TARSUS pipeline, 12 steps in 7 stages"><defs><marker id="ahn" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L8,4 L0,8 z"/></marker></defs><text class="stage" x="334" y="16" text-anchor="end">PREPARE</text><g class="node" data-step="1" tabindex="0" role="button" aria-pressed="false" aria-label="Step 1: Convert"><title>Step 1: Convert</title><rect class="box" x="8" y="26" width="98" height="40" rx="8"/><text class="num" x="18" y="42">1</text><text class="name" x="18" y="57">Convert</text></g><g class="node" data-step="2" tabindex="0" role="button" aria-pressed="false" aria-label="Step 2: Index spectra"><title>Step 2: Index spectra</title><rect class="box" x="120" y="26" width="98" height="40" rx="8"/><text class="num" x="130" y="42">2</text><text class="name" x="130" y="57">Index</text></g><path class="link" d="M107,46.0 H118" marker-end="url(#ahn)"/><text class="stage" x="334" y="108" text-anchor="end">SEARCH</text><g class="node" data-step="3a" tabindex="0" role="button" aria-pressed="false" aria-label="Step 3a: First pass"><title>Step 3a: First pass</title><rect class="box" x="8" y="118" width="98" height="40" rx="8"/><text class="num" x="18" y="134">3a</text><text class="name" x="18" y="149">First pass</text></g><g class="node key" data-step="3b" tabindex="0" role="button" aria-pressed="true" aria-label="Step 3b: In-silico mutagenesis"><title>Step 3b: In-silico mutagenesis</title><rect class="box" x="120" y="118" width="98" height="40" rx="8"/><text class="num" x="130" y="134">3b</text><text class="name" x="130" y="149">Mutagenesis</text></g><path class="link" d="M107,138.0 H118" marker-end="url(#ahn)"/><g class="node" data-step="3c" tabindex="0" role="button" aria-pressed="false" aria-label="Step 3c: Second pass"><title>Step 3c: Second pass</title><rect class="box" x="232" y="118" width="98" height="40" rx="8"/><text class="num" x="242" y="134">3c</text><text class="name" x="242" y="149">Second pass</text></g><path class="link" d="M219,138.0 H230" marker-end="url(#ahn)"/><path class="link" d="M169.0,67 V85.5 H57.0 V116" marker-end="url(#ahn)"/><text class="stage" x="334" y="200" text-anchor="end">VALIDATE</text><g class="node" data-step="4" tabindex="0" role="button" aria-pressed="false" aria-label="Step 4: Extract PSMs"><title>Step 4: Extract PSMs</title><rect class="box" x="8" y="210" width="98" height="40" rx="8"/><text class="num" x="18" y="226">4</text><text class="name" x="18" y="241">Extract PSMs</text></g><g class="node key" data-step="5" tabindex="0" role="button" aria-pressed="false" aria-label="Step 5: Variant validation"><title>Step 5: Variant validation</title><rect class="box" x="120" y="210" width="98" height="40" rx="8"/><text class="num" x="130" y="226">5</text><text class="name" x="130" y="241">Validate</text></g><path class="link" d="M107,230.0 H118" marker-end="url(#ahn)"/><g class="node" data-step="6" tabindex="0" role="button" aria-pressed="false" aria-label="Step 6: Aggregate"><title>Step 6: Aggregate</title><rect class="box" x="232" y="210" width="98" height="40" rx="8"/><text class="num" x="242" y="226">6</text><text class="name" x="242" y="241">Aggregate</text></g><path class="link" d="M219,230.0 H230" marker-end="url(#ahn)"/><path class="link" d="M281.0,159 V177.5 H57.0 V208" marker-end="url(#ahn)"/><text class="stage" x="334" y="292" text-anchor="end">ANALYZE</text><g class="node" data-step="7" tabindex="0" role="button" aria-pressed="false" aria-label="Step 7: Substitution table"><title>Step 7: Substitution table</title><rect class="box" x="8" y="302" width="98" height="40" rx="8"/><text class="num" x="18" y="318">7</text><text class="name" x="18" y="333">Subs table</text></g><path class="link" d="M281.0,251 V269.5 H57.0 V300" marker-end="url(#ahn)"/><text class="stage" x="334" y="384" text-anchor="end">BASE CHECK</text><g class="node" data-step="8" tabindex="0" role="button" aria-pressed="false" aria-label="Step 8: Base inputs"><title>Step 8: Base inputs</title><rect class="box" x="8" y="394" width="98" height="40" rx="8"/><text class="num" x="18" y="410">8</text><text class="name" x="18" y="425">Base inputs</text></g><g class="node key" data-step="9" tabindex="0" role="button" aria-pressed="false" aria-label="Step 9: Base rescoring"><title>Step 9: Base rescoring</title><rect class="box" x="120" y="394" width="98" height="40" rx="8"/><text class="num" x="130" y="410">9</text><text class="name" x="130" y="425">Base rescore</text></g><path class="link" d="M107,414.0 H118" marker-end="url(#ahn)"/><g class="node" data-step="10" tabindex="0" role="button" aria-pressed="false" aria-label="Step 10: Aggregate base"><title>Step 10: Aggregate base</title><rect class="box" x="232" y="394" width="98" height="40" rx="8"/><text class="num" x="242" y="410">10</text><text class="name" x="242" y="425">Aggregate</text></g><path class="link" d="M219,414.0 H230" marker-end="url(#ahn)"/><path class="link" d="M57.0,343 V361.5 H57.0 V392" marker-end="url(#ahn)"/><text class="stage" x="334" y="476" text-anchor="end">LOCALIZE</text><g class="node key" data-step="11" tabindex="0" role="button" aria-pressed="false" aria-label="Step 11: Localize"><title>Step 11: Localize</title><rect class="box" x="8" y="486" width="98" height="40" rx="8"/><text class="num" x="18" y="502">11</text><text class="name" x="18" y="517">Localize</text></g><path class="link" d="M281.0,435 V453.5 H57.0 V484" marker-end="url(#ahn)"/><path class="link" d="M107,506.0 H126" marker-end="url(#ahn)"/><g class="out"><rect x="128" y="486" width="208" height="40" rx="7"/><text x="138" y="503">subs_localized.csv</text><text class="sub" x="138" y="517">final table</text></g><text class="stage" x="334" y="568" text-anchor="end">REPORT</text><g class="node" data-step="12" tabindex="0" role="button" aria-pressed="false" aria-label="Step 12: Figures"><title>Step 12: Figures</title><rect class="box" x="8" y="578" width="98" height="40" rx="8"/><text class="num" x="18" y="594">12</text><text class="name" x="18" y="609">Figures</text></g><path class="link" d="M57.0,527 V545.5 H57.0 V576" marker-end="url(#ahn)"/><path class="link" d="M107,598.0 H126" marker-end="url(#ahn)"/><g class="out"><rect x="128" y="578" width="208" height="40" rx="7"/><text x="138" y="595">12_visualize/</text><text class="sub" x="138" y="609">PNG figures</text></g></svg>
+      <div class="pipe-legend">
+        <span><span class="sw"></span>step</span>
+        <span><span class="sw key"></span>where a substitution is created or tested</span>
+        <span><span class="sw sel"></span>selected</span>
+      </div>
+      <div class="step-detail" id="step-detail" aria-live="polite">
+        <div class="sd-head"><span class="sd-num" id="sd-num">3b</span><span class="sd-name" id="sd-name">In-silico mutagenesis</span><span class="chip accent" id="sd-stage">SEARCH</span></div>
+        <p class="sd-text" id="sd-text">Every peptide the first pass identified becomes all of its allowed single amino acid variants, and those variants become the second-pass search database. Nobody picks the candidate list: it follows from what your first pass found.</p>
+        <p class="sd-tool" id="sd-tool"><b>Runs:</b> TARSUS (Python), with a configurable substitution exclusion matrix</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 4. Can / cannot -->
+<section id="limits" aria-labelledby="limits-title">
+  <div class="wrap">
+    <div class="sec-head">
+      <p class="eyebrow">Scope</p>
+      <h2 id="limits-title">What it can and cannot do today</h2>
+    </div>
+    <div class="two">
+      <div class="panel">
+        <h3><span class="dot ok"></span>Can</h3>
+        <ul class="items">
+          <li class="ok"><svg><use href="#i-check"/></svg><span class="t">Search any proteome you supply as FASTA. Validated on human and <i>E. coli</i>.</span></li>
+          <li class="ok"><svg><use href="#i-check"/></svg><span class="t">Check every variant against its unsubstituted (base) peptide before it is reported.</span></li>
+          <li class="ok"><svg><use href="#i-check"/></svg><span class="t">Localize each substitution to one residue with PyAscore.</span></li>
+          <li class="ok"><svg><use href="#i-check"/></svg><span class="t">Report abundance: variant over base peptide intensity (<code>dpbp</code>) for every call.</span></li>
+          <li class="ok"><svg><use href="#i-check"/></svg><span class="t">Map substitutions back to codons when you give a CDS FASTA (64 × 19 heatmap).</span></li>
+          <li class="ok"><svg><use href="#i-check"/></svg><span class="t">Resume a stopped run and record the exact code version that produced it.</span></li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h3><span class="dot none"></span>Cannot, or needs from you</h3>
+        <ul class="items">
+          <li class="none"><svg><use href="#i-minus"/></svg><span class="t">Needs an LSF cluster (<code>bsub</code>) on Linux x86_64 with a shared filesystem. There is no local mode for a full run.
+            <span class="tipwrap"><button type="button" class="tip" aria-label="Why LSF">?</button><span class="pop">One master job sends thousands of PepQuery and FragPipe jobs to the cluster. Compute nodes must see the same paths as the login node. Only <code>tarsus convert --local</code> runs without LSF.</span></span></span></li>
+          <li class="none"><svg><use href="#i-minus"/></svg><span class="t">Reads Thermo <code>.raw</code> files only.</span></li>
+          <li class="none"><svg><use href="#i-minus"/></svg><span class="t">One substitution per peptide.</span></li>
+          <li class="none"><svg><use href="#i-minus"/></svg><span class="t">Cannot tell Ile from Leu at the destination: reported as <code>I/L</code>.
+            <span class="tipwrap"><button type="button" class="tip" aria-label="About I/L">?</button><span class="pop">Ile and Leu have the same mass (113.08406 Da). The origin residue is known from the genome; the destination is seen only by mass.</span></span></span></li>
+          <li class="none"><svg><use href="#i-minus"/></svg><span class="t">MSFragger and IonQuant are not included: each lab downloads them under their academic license.</span></li>
+          <li class="none"><svg><use href="#i-minus"/></svg><span class="t">The default MSBooster mode needs internet from compute nodes. Use <code>--msbooster-models dia-nn</code> when they are offline.</span></li>
+          <li class="none"><svg><use href="#i-minus"/></svg><span class="t">Some substitution classes are excluded by design (for example D→N and N→D), set in a configurable matrix.</span></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 5. Input -->
+<section id="input" aria-labelledby="input-title">
+  <div class="wrap">
+    <div class="sec-head">
+      <p class="eyebrow">Input</p>
+      <h2 id="input-title">Three flags to start</h2>
+      <p><code>uv run tarsus run --fasta proteome.fasta -i run1.raw -i run2.raw -o out/</code></p>
+    </div>
+    <p class="group-label">Required</p>
+    <div class="flags">
+      <div class="flag req"><div class="row"><span class="f">--fasta</span><span class="chip accent">required</span></div><p class="d">Reference proteome FASTA (<code>.fasta</code>, <code>.fa</code>, <code>.faa</code>).</p></div>
+      <div class="flag req"><div class="row"><span class="f">-i, --input</span><span class="chip accent">repeatable</span></div><p class="d">Thermo <code>.raw</code> files. Give one <code>-i</code> per file.</p></div>
+      <div class="flag req"><div class="row"><span class="f">-o, --output-dir</span><span class="chip accent">required</span></div><p class="d">Run directory. Created and laid out step by step.</p></div>
+    </div>
+    <p class="group-label">Optional</p>
+    <div class="flags">
+      <div class="flag"><div class="row"><span class="f">--queue</span><span class="chip none">gsla-cpu</span></div><p class="d">LSF queue for every job. Set it to a queue on your cluster.</p></div>
+      <div class="flag"><div class="row"><span class="f">--cds</span><span class="chip none">off</span></div><p class="d">CDS nucleotide FASTA. Turns on the 64 × 19 codon heatmap; without it that figure is skipped with a warning.</p></div>
+      <div class="flag"><div class="row"><span class="f">--msbooster-models</span><span class="chip none">best</span></div><p class="d"><code>best</code> picks online models (needs internet); <code>dia-nn</code> uses local models, offline.</p></div>
+      <div class="flag"><div class="row"><span class="f">--localize-tol</span><span class="chip none">0.01 Da</span></div><p class="d">Step 11 fragment tolerance. 0.01 for Orbitrap MS2; 0.6 for ion-trap MS2.</p></div>
+      <div class="flag"><div class="row"><span class="f">--base-rescore-tol</span><span class="chip none">0.05 Da</span></div><p class="d">Step 9 fragment tolerance for base-peptide rescoring.</p></div>
+      <div class="flag"><div class="row"><span class="f">--memory</span><span class="chip none">32000 MB</span></div><p class="d">Memory for the master job.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- 6. Output -->
+<section id="output" aria-labelledby="output-title">
+  <div class="wrap">
+    <div class="sec-head">
+      <p class="eyebrow">Output</p>
+      <h2 id="output-title">One run directory, one final table</h2>
+      <p>Every step writes its own folder, so a stopped run resumes where it left off. The answer is <code>11_localized/subs_localized.csv</code>.</p>
+    </div>
+    <div class="out-grid">
+      <div class="scroll">
+<pre class="tree">out/
+├── 01_mzml/            <span class="c">.mzML files</span>
+├── 02_index/           <span class="c">PepQuery index</span>
+├── 03a_first_pass/     <span class="c">FragPipe first pass</span>
+├── 03b_candidates/     <span class="c">variant peptides</span>
+├── 03c_second_pass/    <span class="c">FragPipe second pass</span>
+├── 04_psm_input/       <span class="c">PepQuery input</span>
+├── 05_pepquery/        <span class="c">variant validation</span>
+├── 06_aggregated/      <span class="c">merged results + ions</span>
+├── 07_analyze/         <span class="c">subs.ipc</span>
+├── 08_base_input/      <span class="c">base rescoring input</span>
+├── 09_pepquery_base/   <span class="c">base rescoring</span>
+├── 10_aggregated_base/ <span class="c">merged base results</span>
+├── 11_localized/       <span class="fin">subs_localized.csv  FINAL</span>
+├── 12_visualize/       <span class="c">figures</span>
+├── provenance.json     <span class="c">git commit + arguments</span>
+└── master.log          <span class="c">step-by-step progress</span></pre>
+      </div>
+      <div>
+        <div class="table-box">
+          <div class="scroll">
+            <table class="cols">
+              <thead><tr><th>column</th><th>meaning</th><th>example</th></tr></thead>
+              <tbody>
+                <tr><td>dependent</td><td>the substituted peptide</td><td>VGVNDFGR</td></tr>
+                <tr><td>base</td><td>the unsubstituted reference peptide</td><td>VGVNGFGR</td></tr>
+                <tr><td>origin</td><td>encoded residue, known from the reference</td><td>G</td></tr>
+                <tr><td>destination</td><td>incorporated residue, seen by mass (I and L as <code>I/L</code>)</td><td>D</td></tr>
+                <tr><td>misProt</td><td>substitution position in protein coordinates</td><td>9</td></tr>
+                <tr><td>dpbp</td><td>log10(variant / base peptide intensity)</td><td>-2.60</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <p class="note">Example row from the GAPDH run. 73 columns in all, each documented in <a href="https://github.com/pilpelab/TARSUS/blob/master/docs/SUBS-SCHEMA.md">docs/SUBS-SCHEMA.md</a>.</p>
+      </div>
+    </div>
+
+    <div class="figs">
+      <figure class="fig">
+        <div class="plate"><a href="img/protein_burden.png"><img src="img/protein_burden.png" alt="Bar chart: 48 localized substitutions across 3 proteins; GAPDH carries 46." width="1500" height="450" loading="lazy"></a></div>
+        <figcaption>
+          <span class="ttl">Protein burden <span class="chip warn">check this first</span> <code>protein_burden.png</code></span>
+          <p>Which proteins carry the substitutions. Here 46 of 48 sit on GAPDH (<code>ENSP00000229239.5</code>), as expected for a purified protein.</p>
+        </figcaption>
+      </figure>
+      <figure class="fig">
+        <div class="plate"><a href="img/top_substitutions.png"><img src="img/top_substitutions.png" alt="Bar chart of the most frequent substitutions; G to D and S to N lead with 5 each." width="1452" height="706" loading="lazy"></a></div>
+        <figcaption>
+          <span class="ttl">Top substitutions <code>top_substitutions.png</code></span>
+          <p>Most frequent origin → destination pairs. G→D and S→N lead with 5 each, then M→T with 4.</p>
+        </figcaption>
+      </figure>
+      <figure class="fig">
+        <div class="plate"><a href="img/substitution_heatmap.png"><img src="img/substitution_heatmap.png" alt="20 by 19 substitution heatmap of origin by destination residue." width="1509" height="1607" loading="lazy"></a></div>
+        <figcaption>
+          <span class="ttl">Substitution matrix <code>substitution_heatmap.png</code></span>
+          <p>Fixed 20 × 19 grid: origin residue (I and L separate) by destination (I/L merged). Empty cells stay in place, so runs compare cell for cell.</p>
+        </figcaption>
+      </figure>
+      <figure class="fig tall">
+        <div class="plate"><a href="img/sixty_twenty.png"><img src="img/sixty_twenty.png" alt="64 by 19 codon heatmap: every codon by destination residue." width="877" height="2012" loading="lazy"></a></div>
+        <figcaption>
+          <span class="ttl">Codon view <span class="chip none">needs --cds</span> <code>sixty_twenty.png</code></span>
+          <p>All 64 codons by 19 destination classes. An engineered tRNA reads one codon, so this is where a mistranslation signal shows up.</p>
+        </figcaption>
+      </figure>
+    </div>
+    <p class="note">Figures from the human GAPDH purified-protein run (Step 12 output, unedited).
+      <a class="commit" href="https://github.com/pilpelab/TARSUS/commit/616275f"><svg><use href="#i-commit"/></svg>616275f</a></p>
+  </div>
+</section>
+
+<!-- 7. Validation -->
+<section id="validation" aria-labelledby="val-title">
+  <div class="wrap">
+    <div class="sec-head">
+      <p class="eyebrow">Validation</p>
+      <h2 id="val-title">Checked against the reference and the published lists</h2>
+      <p>Each number names the commit that produced it.</p>
+    </div>
+    <div class="val">
+
+      <div class="vcard">
+        <div class="vcard-head"><h3>Reproduces the reference pipeline</h3><span class="chip ok"><svg><use href="#i-check"/></svg>2 of 2 organisms</span></div>
+        <div class="vrows">
+          <div class="vrow">
+            <div class="top"><span class="what">Human · GAPDH sample</span><a class="commit" href="https://github.com/pilpelab/TARSUS/commit/d3d43ff"><svg><use href="#i-commit"/></svg>d3d43ff</a></div>
+            <div class="big">100%<small>substitution + position</small></div>
+            <p class="d">on all 166 spectra both pipelines report, full human proteome, 15 raw fractions.</p>
+            <div class="mini">
+              <div><div class="k">unique spectra</div><div class="v">233 / 233</div></div>
+              <div><div class="k">score nulls</div><div class="v">0</div></div>
+              <div><div class="k">run time</div><div class="v">2 h 23 min</div></div>
+            </div>
+          </div>
+          <div class="vrow">
+            <div class="top"><span class="what"><i>E. coli</i> · EVpar sample</span><a class="commit" href="https://github.com/pilpelab/TARSUS/commit/d3d43ff"><svg><use href="#i-commit"/></svg>d3d43ff</a></div>
+            <div class="big">3,922<small>rows identical</small></div>
+            <p class="d">Step 7 run on the reference run's own search output: same table both ways.
+              <span class="tipwrap"><button type="button" class="tip" aria-label="Why on the reference's own search output">?</button><span class="pop">Holding the search output fixed removes the search-engine version from the comparison, so any difference left would be TARSUS code. None is left.</span></span></p>
+            <div class="mini">
+              <div><div class="k">missing</div><div class="v">0</div></div>
+              <div><div class="k">extra</div><div class="v">0</div></div>
+              <div><div class="k">rows</div><div class="v">3,922</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="vcard">
+        <div class="vcard-head">
+          <h3>Recovers the published lists
+            <span class="tipwrap"><button type="button" class="tip" aria-label="Which published lists">?</button><span class="pop">Supplementary Table 14 of the Nature 2026 study: the final substituted peptides for four purified proteins. Unit: unique substituted peptide, Leu counted as Ile.</span></span>
+          </h3>
+          <span class="row"><span class="chip warn">85% after localization</span><a class="commit" href="https://github.com/pilpelab/TARSUS/commit/616275f"><svg><use href="#i-commit"/></svg>616275f</a></span>
+        </div>
+        <div class="bar-legend"><span><i class="l7"></i>found by Step 7</span><span><i class="l11"></i>kept after Step 11 localization (green: all kept, yellow: some lost)</span></div>
+        <div class="bars" role="table" aria-label="Published peptides recovered per protein">
+          <div class="bar-row" role="row">
+            <span class="name" role="cell">GAPDH<small>38 published</small></span>
+            <span class="track" role="cell" aria-label="Step 7 34 of 38, Step 11 26 of 38"><span class="s7" style="width:89.47%"></span><span class="s11 warn" style="width:68.42%"></span></span>
+            <span class="val-n" role="cell">34/38<small>26/38</small></span>
+          </div>
+          <div class="bar-row" role="row">
+            <span class="name" role="cell">Hemoglobin<small>60 published</small></span>
+            <span class="track" role="cell" aria-label="Step 7 58 of 60, Step 11 53 of 60"><span class="s7" style="width:96.67%"></span><span class="s11 warn" style="width:88.33%"></span></span>
+            <span class="val-n" role="cell">58/60<small>53/60</small></span>
+          </div>
+          <div class="bar-row" role="row">
+            <span class="name" role="cell">PARK7<small>27 published</small></span>
+            <span class="track" role="cell" aria-label="Step 7 27 of 27, Step 11 23 of 27"><span class="s7" style="width:100%"></span><span class="s11 warn" style="width:85.19%"></span></span>
+            <span class="val-n" role="cell">27/27<small>23/27</small></span>
+          </div>
+          <div class="bar-row" role="row">
+            <span class="name" role="cell">PRDX6<small>27 published</small></span>
+            <span class="track" role="cell" aria-label="Step 7 27 of 27, Step 11 27 of 27"><span class="s7" style="width:100%"></span><span class="s11 ok" style="width:100%"></span></span>
+            <span class="val-n" role="cell">27/27<small>27/27</small></span>
+          </div>
+          <div class="bar-row bar-total" role="row">
+            <span class="name" role="cell">All four<small>152 published</small></span>
+            <span class="track" role="cell" aria-label="Step 7 146 of 152, Step 11 129 of 152"><span class="s7" style="width:96.05%"></span><span class="s11 warn" style="width:84.87%"></span></span>
+            <span class="val-n" role="cell">146/152<small>129/152</small></span>
+          </div>
+        </div>
+        <p class="note">
+          <span class="chip none long">24 extra peptides not in the published lists</span>
+          <span class="tipwrap"><button type="button" class="tip" aria-label="Where the localization losses come from">?</button><span class="pop">Of the 17 lost at Step 11: 8 localize at 0.05 Da but not at the 0.01 Da default, 4 fail localization at any tolerance, 5 have no base-peptide score. These runs predate two later changes (base rescoring at 0.05 Da, a Step 7 ion-count fix), so current code may move these numbers slightly.</span></span>
+        </p>
+        <div class="callout">
+          <span class="k">27/27</span>
+          <span class="txt">
+            <span><b>PARK7, exact:</b> given the published study's own Step 7 output, TARSUS Steps 8-11 reproduce its published list with no extra peptides.</span>
+            <span class="row"><span class="chip ok"><svg><use href="#i-check"/></svg>0 extra</span><a class="commit" href="https://github.com/pilpelab/TARSUS/commit/ac166f9" title="Base rescoring at 0.05 Da became the default in this commit"><svg><use href="#i-commit"/></svg>ac166f9</a></span>
+          </span>
+        </div>
+      </div>
+
+      <div class="vcard">
+        <div class="vcard-head"><h3>Built to be trusted</h3></div>
+        <div class="eng">
+          <div class="item"><div class="h"><svg><use href="#i-shield"/></svg>415 tests</div><p>Unit and evaluation tests; the evaluation set replays real <i>E. coli</i> and human GAPDH inputs against golden outputs.</p><span class="row"><a class="commit" href="https://github.com/pilpelab/TARSUS/commit/5dbbb10"><svg><use href="#i-commit"/></svg>5dbbb10</a></span></div>
+          <div class="item"><div class="h"><svg><use href="#i-tag"/></svg>Provenance</div><p>A run refuses to start from uncommitted code and writes the git commit and arguments to <code>provenance.json</code>.</p></div>
+          <div class="item"><div class="h"><svg><use href="#i-resume"/></svg>Resumable</div><p>Finished steps are skipped on rerun, and results older than the code that made them are flagged.</p></div>
+          <div class="item"><div class="h"><svg><use href="#i-redo"/></svg>Launch requeue</div><p>A cluster job that dies at launch (exit 255) is requeued by LSF instead of failing the run, up to your cluster's requeue limit (5 on the cluster it was tested on).</p><span class="row"><a class="commit" href="https://github.com/pilpelab/TARSUS/commit/f13740f"><svg><use href="#i-commit"/></svg>f13740f</a></span></div>
+        </div>
+      </div>
+
+      <p class="note">Benchmark data: <a href="https://doi.org/10.1038/s41586-026-11124-z">Nature 2026, doi:10.1038/s41586-026-11124-z</a>, Supplementary Table 14.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 8. Get it running -->
+<section id="run" aria-labelledby="run-title">
+  <div class="wrap">
+    <div class="sec-head">
+      <p class="eyebrow">Get it running</p>
+      <h2 id="run-title">Clone it, then let your coding agent set it up</h2>
+      <p>The repository carries a setup guide written for coding agents such as Claude Code and Codex. It checks your cluster first and asks before every install.</p>
+    </div>
+    <div class="reqs" aria-label="Requirements">
+      <span class="chip accent">Linux x86_64</span>
+      <span class="chip accent">LSF (bsub)</span>
+      <span class="chip accent">shared filesystem</span>
+      <span class="chip accent">uv + Python 3.11</span>
+      <span class="chip warn long">MSFragger 4.4.1 + IonQuant 1.11.20: you download</span>
+    </div>
+    <div class="paths">
+      <div class="panel">
+        <h3>With a coding agent</h3>
+        <ol class="steps">
+          <li><div class="b"><b>Clone the repository</b><code class="inline-code">git clone https://github.com/pilpelab/TARSUS.git</code></div></li>
+          <li><div class="b"><b>Download the two licensed tools</b><span>Accept the academic license at <a href="https://msfragger.nesvilab.org">msfragger.nesvilab.org</a>, then put the files here:</span><code class="inline-code">tools/_downloads/MSFragger-4.4.1.zip</code><code class="inline-code">tools/_downloads/IonQuant-1.11.20.jar</code></div></li>
+          <li><div class="b"><b>Open your agent in the repository and say</b><span class="say">set up TARSUS</span><span>It follows <a href="https://github.com/pilpelab/TARSUS/blob/master/.agents/skills/tarsus-setup/SKILL.md">the setup guide</a>: preflight, install, tool check, first run.</span></div></li>
+        </ol>
+      </div>
+      <div class="code-card">
+        <div class="code-head"><span>By hand</span><button type="button" class="copy-btn" data-copy="manual-cmds">Copy</button></div>
+        <div class="scroll">
+<pre class="code" id="manual-cmds">git clone https://github.com/pilpelab/TARSUS.git
+cd TARSUS
+<span class="c"># put MSFragger-4.4.1.zip and IonQuant-1.11.20.jar in tools/_downloads/</span>
+uv venv --python 3.11
+uv sync
+make setup            <span class="c"># fetch and checksum the other tools</span>
+make test-tools       <span class="c"># every tool should print OK</span>
+make test-pdv-full
+
+uv run tarsus run --fasta proteome.fasta \
+  -i run1.raw -i run2.raw \
+  -o out/ --queue &lt;your-queue&gt;
+
+bjobs                 <span class="c"># master job status</span>
+tail -f out/master.log  <span class="c"># ends with: DONE: Pipeline complete.</span></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="foot-people">
+      <p class="foot-title">TARSUS - Pilpel lab, Weizmann Institute of Science</p>
+      <p>Method and original code: Slava Tretyachenko (<a href="https://github.com/treko90">github.com/treko90</a>)</p>
+      <p>This implementation: Bar Cohen (<a href="https://github.com/brchn6">github.com/brchn6</a>)</p>
+      <p>Paper: <a href="https://doi.org/10.1038/s41586-026-11124-z">Nature 2026, <span style="white-space: nowrap">doi:10.1038/s41586-026-11124-z</span></a></p>
+    </div>
+    <div class="foot-meta">
+      <p>MIT license · <a href="https://github.com/pilpelab/TARSUS">github.com/pilpelab/TARSUS</a></p>
+      <p>Every number on this page names the run commit that produced it.</p>
+    </div>
+  </div>
+</footer>
+
+<script>
+(function () {
+  var root = document.documentElement;
+
+  // Theme toggle: system by default, explicit choice persisted.
+  var btn = document.getElementById("theme-btn");
+  function effectiveDark() {
+    var t = root.getAttribute("data-theme");
+    if (t) return t === "dark";
+    return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+  }
+  btn.addEventListener("click", function () {
+    var next = effectiveDark() ? "light" : "dark";
+    root.setAttribute("data-theme", next);
+    try { localStorage.setItem("tarsus-theme", next); } catch (e) {}
+  });
+
+  // Tooltips: hover, click or keyboard; kept inside the viewport.
+  var tips = document.querySelectorAll(".tipwrap");
+  function place(w) {
+    var pop = w.querySelector(".pop");
+    pop.style.setProperty("--dx", "0px");
+    var r = pop.getBoundingClientRect();
+    var vw = document.documentElement.clientWidth;
+    var dx = 0;
+    if (r.right > vw - 8) dx = (vw - 8) - r.right;
+    if (r.left + dx < 8) dx = 8 - r.left;
+    pop.style.setProperty("--dx", dx + "px");
+  }
+  function closeAll(except) {
+    tips.forEach(function (w) {
+      if (w !== except && w.classList.contains("open")) {
+        w.classList.remove("open");
+        w.querySelector(".tip").setAttribute("aria-expanded", "false");
+      }
+    });
+  }
+  tips.forEach(function (w, i) {
+    var b = w.querySelector(".tip");
+    var pop = w.querySelector(".pop");
+    pop.id = "tip-" + i;
+    pop.setAttribute("role", "tooltip");
+    b.setAttribute("aria-describedby", pop.id);
+    b.setAttribute("aria-expanded", "false");
+    b.addEventListener("click", function (e) {
+      e.stopPropagation();
+      var open = !w.classList.contains("open");
+      closeAll(w);
+      w.classList.toggle("open", open);
+      b.setAttribute("aria-expanded", String(open));
+      if (open) place(w);
+    });
+    w.addEventListener("mouseenter", function () { place(w); });
+  });
+  document.addEventListener("click", function () { closeAll(null); });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeAll(null); });
+
+  // Pipeline step detail.
+  var STEPS = {
+    "1": ["Convert", "PREPARE", "Each Thermo .raw file becomes .mzML, one cluster job per file.", "ThermoRawFileParser"],
+    "2": ["Index spectra", "PREPARE", "Builds a PepQuery index of the original mzML files, so later steps can address any spectrum as file:scan:charge.", "PepQuery"],
+    "3a": ["First pass", "SEARCH", "A standard database search of your reference proteome. Every peptide it identifies seeds the variant library.", "FragPipe (MSFragger, MSBooster)"],
+    "3b": ["In-silico mutagenesis", "SEARCH", "Every peptide the first pass identified becomes all of its allowed single amino acid variants, and those variants become the second-pass search database. Nobody picks the candidate list: it follows from what your first pass found.", "TARSUS (Python), with a configurable substitution exclusion matrix"],
+    "3c": ["Second pass", "SEARCH", "Searches the spectra against the variant candidates, reusing the first pass's mass calibration.", "FragPipe (MSFragger)"],
+    "4": ["Extract PSMs", "VALIDATE", "Turns each second-pass match into a pair: the variant peptide and the exact spectrum it was found on.", "TARSUS (Python)"],
+    "5": ["Variant validation", "VALIDATE", "PepQuery tests each variant match against the reference database on its own spectrum. Runs as many small cluster jobs.", "PepQuery"],
+    "6": ["Aggregate", "VALIDATE", "Merges the PepQuery results and extracts the matched fragment ions for every spectrum.", "PepQuery outputs, PDV"],
+    "7": ["Substitution table", "ANALYZE", "Keeps confident variant matches whose substituted site is covered by fragment ions, joins first and second pass, and computes dpbp. Writes subs.ipc.", "TARSUS (Python)"],
+    "8": ["Base inputs", "BASE CHECK", "For each variant spectrum, builds copies carrying the unsubstituted (base) peptide's precursor mass, over every Met oxidation and Cys carbamidomethylation state.", "TARSUS (Python)"],
+    "9": ["Base rescoring", "BASE CHECK", "PepQuery scores the same spectra against the base peptide. A variant is kept later only if it explains its spectrum better than the base peptide. Fragment tolerance 0.05 Da by default.", "PepQuery"],
+    "10": ["Aggregate base", "BASE CHECK", "Merges the base rescoring results.", "PepQuery outputs"],
+    "11": ["Localize", "LOCALIZE", "Keeps a substitution only if the variant outscores its base peptide and PyAscore places the mass shift at the expected residue, ahead of the next-best site. Writes the final subs_localized.csv.", "PyAscore"],
+    "12": ["Figures", "REPORT", "Substitution matrix, codon heatmap (with --cds), protein burden, top substitutions, abundance distribution.", "matplotlib, seaborn"]
+  };
+  var nodes = document.querySelectorAll(".pipe-svg .node");
+  function select(id) {
+    var s = STEPS[id];
+    if (!s) return;
+    document.getElementById("sd-num").textContent = id;
+    document.getElementById("sd-name").textContent = s[0];
+    document.getElementById("sd-stage").textContent = s[1];
+    document.getElementById("sd-text").textContent = s[2];
+    document.getElementById("sd-tool").innerHTML = "<b>Runs:</b> ";
+    document.getElementById("sd-tool").appendChild(document.createTextNode(s[3]));
+    nodes.forEach(function (n) { n.setAttribute("aria-pressed", String(n.getAttribute("data-step") === id)); });
+  }
+  nodes.forEach(function (n) {
+    n.addEventListener("click", function () { select(n.getAttribute("data-step")); });
+    n.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); select(n.getAttribute("data-step")); }
+    });
+  });
+
+  // Copy button.
+  document.querySelectorAll(".copy-btn").forEach(function (b) {
+    b.addEventListener("click", function () {
+      var el = document.getElementById(b.getAttribute("data-copy"));
+      var text = el.innerText;
+      function selectIt() {
+        var r = document.createRange(); r.selectNodeContents(el);
+        var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+        b.textContent = "Selected";
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function () { b.textContent = "Copied"; }, selectIt);
+      } else { selectIt(); }
+      setTimeout(function () { b.textContent = "Copy"; }, 1800);
+    });
+  });
+})();
+</script>
+</body>
+</html>

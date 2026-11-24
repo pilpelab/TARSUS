@@ -7,6 +7,15 @@ DOWNLOAD_DIR := $(TOOLS_DIR)/_downloads
 SHELL       := bash
 .SHELLFLAGS := -eu -o pipefail -c
 
+# Every cached download is verified right before it is extracted, not only
+# after it is downloaded. A file that fails its SHA256 is deleted, so the next
+# run downloads it again. .DELETE_ON_ERROR also removes a partial download
+# when curl fails. Pinned hashes are never edited to make a check pass.
+.DELETE_ON_ERROR:
+# $(call verify_download,<sha256>,<file>)
+verify_download = echo "$(1)  $(2)" | sha256sum -c || { rm -f "$(2)"; \
+	echo "SHA256 mismatch: deleted $(2). Run make again to download it again."; exit 1; }
+
 # ── FragPipe (Linux) ──────────────────────────────────────────────────
 # Bundles: Philosopher, IonQuant, Percolator, MSBooster, etc.
 # MSFragger IS NOT bundled — it must be downloaded separately (see below).
@@ -20,16 +29,18 @@ FP_DIR       := $(TOOLS_DIR)/fragpipe-$(FP_VERSION)
 MF_VERSION   := 4.4.1
 MF_JAR       := $(FP_DIR)/tools/MSFragger-$(MF_VERSION)/MSFragger-$(MF_VERSION).jar
 MF_SHA256    := d5268024c10f29317a20c4b5f42a2ec142dc282c0e8fc733ca286ff76537644a
-# No public download URL — obtain the ZIP from the MSFragger website
-# (https://msfragger.nesvilab.org) and place it at the path below.
-MF_SOURCE_ZIP := /home/labs/pilpel/slavat/fragpipe-24.0/tools/MSFragger-$(MF_VERSION).zip
+# No public download URL (academic license): each lab downloads the ZIP from
+# https://msfragger.nesvilab.org and places it at the path below, or passes
+# MF_SOURCE_ZIP=/path/to/MSFragger-4.4.1.zip on the make command line.
+MF_SOURCE_ZIP := $(DOWNLOAD_DIR)/MSFragger-$(MF_VERSION).zip
 
 # ── IonQuant (required by FragPipe, NOT bundled) ──────────────────────
 IQ_JAR       := $(FP_DIR)/tools/IonQuant-1.11.20.jar
 IQ_SHA256    := c38e3cc75dfb82f0b991d49397a49b6e8b98879f804018171d23db0fb3bbb8e3
-# No public download URL — obtain the JAR from the MSFragger/IonQuant website
-# and place it alongside the FragPipe tools.
-IQ_SOURCE_JAR := /home/labs/pilpel/slavat/fragpipe-24.0/tools/IonQuant-1.11.20.jar
+# No public download URL (academic license): each lab downloads the JAR from
+# https://ionquant.nesvilab.org and places it at the path below, or passes
+# IQ_SOURCE_JAR=/path/to/IonQuant-1.11.20.jar on the make command line.
+IQ_SOURCE_JAR := $(DOWNLOAD_DIR)/IonQuant-1.11.20.jar
 
 # ── PepQuery ──────────────────────────────────────────────────────────
 PQ_VERSION   := 2.0.2
@@ -40,12 +51,21 @@ PQ_JAR       := $(TOOLS_DIR)/pepquery-$(PQ_VERSION)/pepquery-$(PQ_VERSION).jar
 PQ_LIB       := $(TOOLS_DIR)/pepquery-$(PQ_VERSION)/lib
 
 # ── PDV ───────────────────────────────────────────────────────────────
-# PDV 2.1.2 matches the reference pipeline. It is bundled in the repo
-# (no public download URL for this version). SHA256 verified against
-# the colleague's working copy.
+# PDV 2.1.2 matches the reference pipeline (src/tarsus/env.py loads it).
+# It has no public release, so its JAR is committed in the repo (GPL-3.0,
+# see tools/PDV-2.1.2/NOTICE). The JAR loads lib/ and resources/ from its
+# own directory; `make pdv` takes both from the public PDV 2.2.3 release
+# and symlinks them next to the 2.1.2 JAR.
 PDV_VERSION  := 2.1.2
-PDV_JAR      := $(TOOLS_DIR)/PDV-$(PDV_VERSION)/PDV-$(PDV_VERSION).jar
+PDV_DIR      := $(TOOLS_DIR)/PDV-$(PDV_VERSION)
+PDV_JAR      := $(PDV_DIR)/PDV-$(PDV_VERSION).jar
 PDV_SHA256   := 8757fbdd053949edc421a0de5b4fc8b37f46b8518646d69b90bd16055bb4adf1
+PDV223_VERSION := 2.2.3
+PDV223_URL   := https://github.com/wenbostar/PDV/releases/download/v$(PDV223_VERSION)/PDV-$(PDV223_VERSION).zip
+PDV223_SHA256 := d29f0662c83e45855bfe6fa63d7622df1d2069325ecd85d49bbfabb2fabc8037
+PDV223_ZIP   := PDV-$(PDV223_VERSION).zip
+PDV223_DIR   := $(TOOLS_DIR)/PDV-$(PDV223_VERSION)
+PDV223_JAR   := $(PDV223_DIR)/PDV-$(PDV223_VERSION).jar
 
 # ── ThermoRawFileParser (Linux, .NET 8 self-contained) ────────────────
 # v2.0.0-dev requires .NET 8 runtime. Self-contained linux build available.
@@ -140,6 +160,7 @@ $(FP_DIR): $(DOWNLOAD_DIR)/$(FP_ZIP)
 	@if [ -d "$(FP_DIR)" ]; then \
 		echo "  already extracted, skipping"; \
 	else \
+		$(call verify_download,$(FP_SHA256),$<); \
 		unzip -q -d $(TOOLS_DIR) $<; \
 		if [ -d "$(TOOLS_DIR)/FragPipe-$(FP_VERSION)-linux" ]; then \
 			mv "$(TOOLS_DIR)/FragPipe-$(FP_VERSION)-linux" "$(FP_DIR)"; \
@@ -154,7 +175,7 @@ $(DOWNLOAD_DIR)/$(FP_ZIP): | $(DOWNLOAD_DIR)
 	@echo "Downloading FragPipe $(FP_VERSION)..."
 	curl -fSLo $@ $(FP_URL)
 	@echo "Verifying checksum..."
-	@echo "$(FP_SHA256)  $@" | sha256sum -c
+	@$(call verify_download,$(FP_SHA256),$@)
 
 # ── MSFragger ─────────────────────────────────────────────────────────
 
@@ -166,9 +187,11 @@ $(MF_JAR):
 	else \
 		if [ ! -f "$(MF_SOURCE_ZIP)" ]; then \
 			echo "MSFragger $(MF_VERSION) ZIP not found at $(MF_SOURCE_ZIP)"; \
-			echo "Download it from https://msfragger.nesvilab.org and place it in"; \
-			echo "  $(TOOLS_DIR)/_downloads/MSFragger-$(MF_VERSION).zip"; \
-			echo "Or set MF_SOURCE_ZIP to the path of your downloaded ZIP."; \
+			echo "MSFragger has an academic license, so make cannot download it."; \
+			echo "Accept the license and download MSFragger $(MF_VERSION) at https://msfragger.nesvilab.org,"; \
+			echo "then put the ZIP here (exact name):"; \
+			echo "  $(DOWNLOAD_DIR)/MSFragger-$(MF_VERSION).zip"; \
+			echo "Or run: make setup MF_SOURCE_ZIP=/path/to/MSFragger-$(MF_VERSION).zip"; \
 			exit 1; \
 		fi; \
 		echo "Verifying MSFragger ZIP checksum..."; \
@@ -187,8 +210,12 @@ $(IQ_JAR):
 		echo "IonQuant already copied, skipping"; \
 	else \
 		if [ ! -f "$(IQ_SOURCE_JAR)" ]; then \
-			echo "IonQuant JAR not found at $(IQ_SOURCE_JAR)"; \
-			echo "Download it and place it at $(IQ_SOURCE_JAR)"; \
+			echo "IonQuant 1.11.20 JAR not found at $(IQ_SOURCE_JAR)"; \
+			echo "IonQuant has an academic license, so make cannot download it."; \
+			echo "Accept the license and download IonQuant 1.11.20 at https://ionquant.nesvilab.org,"; \
+			echo "then put the JAR here (exact name):"; \
+			echo "  $(DOWNLOAD_DIR)/IonQuant-1.11.20.jar"; \
+			echo "Or run: make setup IQ_SOURCE_JAR=/path/to/IonQuant-1.11.20.jar"; \
 			exit 1; \
 		fi; \
 		echo "Verifying IonQuant checksum..."; \
@@ -205,34 +232,54 @@ $(PQ_JAR): $(DOWNLOAD_DIR)/$(PQ_TGZ)
 	@if [ -f "$(PQ_JAR)" ]; then \
 		echo "PepQuery already extracted, skipping"; \
 	else \
+		$(call verify_download,$(PQ_SHA256),$<); \
 		echo "Extracting PepQuery $(PQ_VERSION)..."; \
 		tar -xzf $< -C $(TOOLS_DIR); \
-		mv $(TOOLS_DIR)/pepquery-$(PQ_VERSION)/pepquery-$(PQ_VERSION).jar $(PQ_JAR); \
-		mv $(TOOLS_DIR)/pepquery-$(PQ_VERSION)/lib $(PQ_LIB); \
-		rm -rf $(TOOLS_DIR)/pepquery-$(PQ_VERSION); \
+		if [ ! -f "$(PQ_JAR)" ] || [ ! -d "$(PQ_LIB)" ]; then \
+			echo "PepQuery archive did not unpack to $(PQ_JAR) and $(PQ_LIB)"; exit 1; \
+		fi; \
 		echo "PepQuery ready at $(PQ_JAR)"; \
 	fi
 
 $(DOWNLOAD_DIR)/$(PQ_TGZ): | $(DOWNLOAD_DIR)
 	@echo "Downloading PepQuery $(PQ_VERSION)..."
 	curl -fSLo $@ $(PQ_URL)
-	@if [ "$(PQ_SHA256)" != "unknown" ]; then \
-		echo "Verifying checksum..."; \
-		echo "$(PQ_SHA256)  $@" | sha256sum -c; \
-	fi
+	@echo "Verifying checksum..."
+	@$(call verify_download,$(PQ_SHA256),$@)
 
-# ── PDV (bundled, verify-only) ────────────────────────────────────────
+# ── PDV (2.1.2 JAR committed; lib/ + resources/ from public 2.2.3) ────
+# Idempotent: an existing tools/PDV-2.2.3/ or existing lib/resources links
+# are left as they are; only what is missing is downloaded or linked.
 
-pdv: $(PDV_JAR)
+pdv: $(PDV_JAR) $(PDV223_JAR)
+	@for d in lib resources; do \
+		if [ ! -e "$(PDV_DIR)/$$d" ] && [ ! -L "$(PDV_DIR)/$$d" ]; then \
+			ln -s "../PDV-$(PDV223_VERSION)/$$d" "$(PDV_DIR)/$$d"; \
+			echo "Linked $(PDV_DIR)/$$d -> ../PDV-$(PDV223_VERSION)/$$d"; \
+		fi; \
+		if [ ! -d "$(PDV_DIR)/$$d" ]; then \
+			echo "PDV $(PDV_VERSION) needs $(PDV_DIR)/$$d (a directory or a link to ../PDV-$(PDV223_VERSION)/$$d)"; \
+			exit 1; \
+		fi; \
+	done
+	@echo "Verifying PDV $(PDV_VERSION) SHA256..."
+	@echo "$(PDV_SHA256)  $(PDV_JAR)" | sha256sum -c
 
 $(PDV_JAR):
-	@if [ ! -f "$@" ]; then \
-		echo "PDV $(PDV_VERSION) JAR missing at $@"; \
-		echo "The JAR is bundled in the repo — check git tracking."; \
-		exit 1; \
+	@echo "PDV $(PDV_VERSION) JAR missing at $@"
+	@echo "It is committed in the repo. Restore it with: git checkout -- $@"
+	@exit 1
+
+$(PDV223_JAR): | $(DOWNLOAD_DIR)
+	@if [ ! -f "$(DOWNLOAD_DIR)/$(PDV223_ZIP)" ]; then \
+		echo "Downloading PDV $(PDV223_VERSION) (lib/ and resources/ for PDV $(PDV_VERSION))..."; \
+		curl -fSLo "$(DOWNLOAD_DIR)/$(PDV223_ZIP)" "$(PDV223_URL)" || { rm -f "$(DOWNLOAD_DIR)/$(PDV223_ZIP)"; exit 1; }; \
 	fi
-	@echo "Verifying PDV $(PDV_VERSION) SHA256..."
-	@echo "$(PDV_SHA256)  $@" | sha256sum -c
+	@echo "Verifying PDV $(PDV223_VERSION) ZIP checksum..."
+	@$(call verify_download,$(PDV223_SHA256),$(DOWNLOAD_DIR)/$(PDV223_ZIP))
+	@echo "Extracting PDV $(PDV223_VERSION)..."
+	@unzip -q -o -d $(TOOLS_DIR) "$(DOWNLOAD_DIR)/$(PDV223_ZIP)"
+	@echo "PDV $(PDV223_VERSION) ready at $(PDV223_DIR)"
 
 # ── ThermoRawFileParser ───────────────────────────────────────────────
 
@@ -242,6 +289,7 @@ $(TRFP_BIN): $(DOWNLOAD_DIR)/$(TRFP_ZIP)
 	@if [ -f "$(TRFP_BIN)" ]; then \
 		echo "ThermoRawFileParser already extracted, skipping"; \
 	else \
+		$(call verify_download,$(TRFP_SHA256),$<); \
 		echo "Extracting ThermoRawFileParser $(TRFP_VERSION)..."; \
 		mkdir -p $(TRFP_DIR); \
 		unzip -q -d $(TRFP_DIR) $<; \
@@ -253,7 +301,7 @@ $(DOWNLOAD_DIR)/$(TRFP_ZIP): | $(DOWNLOAD_DIR)
 	@echo "Downloading ThermoRawFileParser $(TRFP_VERSION)..."
 	curl -fSLo $@ $(TRFP_URL)
 	@echo "Verifying checksum..."
-	@echo "$(TRFP_SHA256)  $@" | sha256sum -c
+	@$(call verify_download,$(TRFP_SHA256),$@)
 
 # ── JDK 21 ─────────────────────────────────────────────────────────────
 
@@ -263,6 +311,7 @@ $(JAVA_BIN): $(DOWNLOAD_DIR)/$(JDK_TGZ)
 	@if [ -f "$(JAVA_BIN)" ]; then \
 		echo "JDK already extracted, skipping"; \
 	else \
+		$(call verify_download,$(JDK_SHA256),$<); \
 		echo "Extracting JDK $(JDK_VERSION)..."; \
 		tar -xzf $< -C $(TOOLS_DIR); \
 		if [ -d "$(TOOLS_DIR)/$(JDK_VERSION)" ]; then \
@@ -277,7 +326,7 @@ $(DOWNLOAD_DIR)/$(JDK_TGZ): | $(DOWNLOAD_DIR)
 	@echo "Downloading JDK $(JDK_VERSION)..."
 	curl -fSLo $@ $(JDK_URL)
 	@echo "Verifying checksum..."
-	@echo "$(JDK_SHA256)  $@" | sha256sum -c
+	@$(call verify_download,$(JDK_SHA256),$@)
 
 # ── .NET 8 Runtime ─────────────────────────────────────────────────────
 
@@ -287,6 +336,7 @@ $(DOTNET_BIN): $(DOWNLOAD_DIR)/$(DOTNET_TGZ)
 	@if [ -f "$(DOTNET_BIN)" ]; then \
 		echo ".NET already extracted, skipping"; \
 	else \
+		$(call verify_download,$(DOTNET_SHA256),$<); \
 		echo "Extracting .NET $(DOTNET_VERSION)..."; \
 		mkdir -p $(DOTNET_DIR); \
 		tar -xzf $< -C $(DOTNET_DIR); \
@@ -297,7 +347,7 @@ $(DOWNLOAD_DIR)/$(DOTNET_TGZ): | $(DOWNLOAD_DIR)
 	@echo "Downloading .NET $(DOTNET_VERSION)..."
 	curl -fSLo $@ $(DOTNET_URL)
 	@echo "Verifying checksum..."
-	@echo "$(DOTNET_SHA256)  $@" | sha256sum -c
+	@$(call verify_download,$(DOTNET_SHA256),$@)
 
 # ── Xvfb (verify-only — binary + libs are committed under tools/xvfb/) ────
 # The Xvfb binary + most X11 libs were extracted once from this cluster's
@@ -313,7 +363,7 @@ xvfb: $(XVFB_BIN) $(XVFB_DIR)/lib/libbz2.so.1.0
 $(XVFB_BIN):
 	@if [ ! -f "$@" ]; then \
 		echo "Xvfb binary missing at $@"; \
-		echo "This is committed in the repo under tools/xvfb/bin/ — check git tracking."; \
+		echo "This is committed in the repo under tools/xvfb/bin/ - check git tracking."; \
 		echo "To rebuild from scratch on a machine with an EasyBuild-style Xvfb"; \
 		echo "install, copy the binary + its ldd closure (excluding libc/libm/"; \
 		echo "libdl/libpthread/ld-linux) into tools/xvfb/{bin,lib}/."; \
@@ -324,6 +374,7 @@ $(XVFB_DIR)/lib/libbz2.so.1.0: $(DOWNLOAD_DIR)/$(BZ2_TARBALL)
 	@if [ -f "$@" ]; then \
 		echo "libbz2 already present, skipping"; \
 	 else \
+		$(call verify_download,$(BZ2_SHA256),$<); \
 		mkdir -p $(DOWNLOAD_DIR)/bz2_extract; \
 		tar -xjf $< -C $(DOWNLOAD_DIR)/bz2_extract; \
 		cp -L $(DOWNLOAD_DIR)/bz2_extract/lib/libbz2.so.1.0 $@; \
@@ -335,7 +386,7 @@ $(DOWNLOAD_DIR)/$(BZ2_TARBALL): | $(DOWNLOAD_DIR)
 	@echo "Downloading bzip2 (conda-forge, standalone)..."
 	curl -fSLo $@ $(BZ2_URL)
 	@echo "Verifying checksum..."
-	@echo "$(BZ2_SHA256)  $@" | sha256sum -c
+	@$(call verify_download,$(BZ2_SHA256),$@)
 
 test-xvfb: $(XVFB_BIN)
 	@echo "Testing self-contained Xvfb (no module load, own lib/ only)..."; \
@@ -352,12 +403,12 @@ test-xvfb: $(XVFB_BIN)
 
 # ── PDV Smoke Test ─────────────────────────────────────────────────────
 
-test-pdv: $(PDV_JAR) $(JAVA_BIN)
+test-pdv: pdv $(JAVA_BIN)
 	@echo "  PDV: OK (JAR verified, $(PDV_VERSION), SHA256 matches)"
 	@echo "  Run 'make test-pdv-full' to test PDV with Xvfb + sample data."
 
 .PHONY: test-pdv-full
-test-pdv-full: $(PDV_JAR) $(JAVA_BIN) $(XVFB_BIN)
+test-pdv-full: pdv $(JAVA_BIN) $(XVFB_BIN)
 	@echo "Running PDV full integration test (self-contained Xvfb + sample data)..."; \
 	rm -rf $(PDV_TEST_OUT); mkdir -p $(PDV_TEST_OUT); \
 	bash -c 'set +eu; \
@@ -437,5 +488,8 @@ verify:
 	@test -f $(XVFB_BIN) && echo "  Xvfb: OK" || echo "  Xvfb: MISSING"
 
 clean:
-	rm -rf $(DOWNLOAD_DIR) $(FP_DIR) $(TOOLS_DIR)/pepquery-$(PQ_VERSION) $(TOOLS_DIR)/PDV-2.1.2 $(TOOLS_DIR)/PDV-2.2.3 $(TRFP_DIR) $(JDK_DIR) $(DOTNET_DIR)
-	@echo "Cleaned all downloaded tools. (PDV 2.1.2 JAR and tools/xvfb/ are bundled — restore with git checkout)"
+	@# Deletes only the archives make itself downloads. Anything else in $(DOWNLOAD_DIR),
+	@# such as the hand-downloaded MSFragger ZIP and IonQuant JAR under any name, is kept.
+	rm -rf $(addprefix $(DOWNLOAD_DIR)/,$(FP_ZIP) $(PQ_TGZ) $(PDV223_ZIP) $(TRFP_ZIP) $(JDK_TGZ) $(DOTNET_TGZ) $(BZ2_TARBALL) bz2_extract)
+	rm -rf $(FP_DIR) $(TOOLS_DIR)/pepquery-$(PQ_VERSION) $(PDV_DIR)/lib $(PDV_DIR)/resources $(PDV223_DIR) $(TRFP_DIR) $(JDK_DIR) $(DOTNET_DIR)
+	@echo "Cleaned all downloaded tools. Kept the committed files (PDV 2.1.2 JAR, tools/xvfb/) and every file you put in $(DOWNLOAD_DIR)/ yourself (MSFragger, IonQuant)."

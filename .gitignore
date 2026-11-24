@@ -35,6 +35,11 @@ tools/**
 !tools/xvfb/lib/
 !tools/xvfb/lib/*.so*
 !tools/xvfb/CHECKSUMS.sha256
+# PDV 2.1.2 has no public release: its JAR is committed (lib/ and resources/
+# are symlinks to the downloaded PDV 2.2.3 and stay ignored).
+!tools/PDV-2.1.2/
+!tools/PDV-2.1.2/PDV-2.1.2.jar
+!tools/PDV-2.1.2/NOTICE
 
 # Pipeline outputs (user-generated, not committed)
 output/**
@@ -50,7 +55,10 @@ TARSUS_elizabev
 *.mzBIN
 
 # Agent workspace (session continuity, not for publishing)
-.agents/
+.agents/*
+!.agents/skills/
+.agents/skills/*
+!.agents/skills/tarsus-setup/
 .memory/progress.md
 
 # Agent/IDE work notes (not for publishing)
