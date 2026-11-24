@@ -473,3 +473,25 @@ was right — the colleague's tree has the whole counterpart experiment, incl.
 **Correct approach:** test index arithmetic with exact, hand-derived lists at the edges (position 0, 1, middle, last), from the definition, not from running the function. When a reference's docstring and code disagree, treat the code as suspect and say so; parity is not correctness.
 
 **Files/commands involved:** `src/tarsus/steps/step07_analyze_outputs.py` (`_compute_expected_ions`), `tests/unit/test_step07_analyze_outputs.py`, `tests/validation/test_step07_analyze.py`.
+
+### 2026-11-24: the publication clean-up deleted a required jar, and nobody tested a fresh clone
+
+**What happened:** `a718192` (GitHub publication) removed `tools/PDV-2.1.2/PDV-2.1.2.jar` from git and added `tools/**` and `.agents/` to `.gitignore`. Every working copy still had the jar on disk, so nothing failed. A fresh clone could not finish `make setup`; it also hit a PepQuery recipe broken since the Makefile's first commit (`cae65bb`) and MSFragger/IonQuant defaults pointing into another user's home (D-080). The same `.agents/` ignore would have kept the partner setup skill out of every clone.
+
+**Why it was missed:** "works here" was tested only in trees whose `tools/` was already populated; an install path is only proven by a clone that has never seen the old files.
+
+**Correct approach:** after any change that deletes tracked files, edits `.gitignore` or touches the Makefile, clone fresh and run `make setup && make test-tools && make test-pdv-full` as one LSF job. Check that a file meant to ship is trackable with `git check-ignore -v <path>` (prints nothing).
+
+**Files/commands involved:** `Makefile`, `.gitignore`, `.scratch/fresh-clone-test/` (jobs 678178, 678573, 681275).
+
+### 2026-11-24: a CLI flag whose help said "all jobs" reached only the master
+
+**What happened:** `tarsus run --queue` set only the master job's queue; every child job went to `gsla-cpu` (D-081). The help text and the plan both said "overridable with --queue", and the guide for partner labs was written on that basis. The reviewer of the guide found it by running the real CLI to Step 1 with bsub intercepted.
+
+**Correct approach:** for every user-facing option, a test asserts it reaches the place its help text names, through the real entry point (the D-076 / D-081 pattern: CLI -> master argv -> `run_pipeline` -> step). Documentation claims about a flag are verified the same way before they are written.
+
+### 2026-11-24: `git show <rev>:<binary> | sha256sum` gave a wrong hash under the RTK hook
+
+**What happened:** checking the restored PDV jar against its pinned sha256, the hash of `git show 3c86293:tools/PDV-2.1.2/PDV-2.1.2.jar` did not match, although the blob was right. The RTK hook rewrites `git show` output.
+
+**Correct approach:** compare binaries with `rtk proxy git cat-file blob <sha> | sha256sum` or `git hash-object <file>`, never through a rewritten command.
